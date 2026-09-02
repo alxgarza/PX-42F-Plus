@@ -136,6 +136,7 @@ static const uint8_t font_10x16_bits[] = {
 const display_font_t font_10x16 = {
     .width = 10,
     .height = 16,
+    .advance = 11,
     .first_char = 0,
     .last_char = 127,
     .bytes_per_char = 20,

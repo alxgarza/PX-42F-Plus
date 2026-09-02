@@ -65,13 +65,14 @@ void display_fill_rect(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, bool on);
  * land outside the visible display are clipped (via display_set_pixel()),
  * not rejected outright, so a character straddling the edge still draws
  * the part that's on-screen. Returns the x position for the next
- * character (x + font->width + 1, i.e. a 1px gap). See fonts/font.h for
- * the display_font_t layout and fonts/gen_font.py / fonts/font_*.h for
- * the available fonts. */
+ * character (x + font->advance -- see fonts/font.h; not necessarily
+ * width + 1, some fonts' glyphs already reserve blank columns). See
+ * fonts/font.h for the display_font_t layout and fonts/gen_font.py /
+ * fonts/font_*.h for the available fonts. */
 uint8_t display_draw_char(const display_font_t *font, char c, uint8_t x, uint8_t y, uint8_t color);
 
 /* Draws a null-terminated string starting at pixel (x, y), advancing by
- * each character's width + 1px gap. Returns the x position for whatever
+ * each character's font->advance. Returns the x position for whatever
  * comes next, so calls can be chained (e.g. a label followed by a
  * value). */
 uint8_t display_draw_string(const display_font_t *font, const char *s, uint8_t x, uint8_t y, uint8_t color);

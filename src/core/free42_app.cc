@@ -182,13 +182,16 @@ static void display_entry(uint8_t y) {
  * patch behind its digit, drawn non-inverted so the digit reads as
  * ordinary black-on-white, standing out against the rest of the
  * white-on-black header. */
-#define HEADER_HEIGHT    12
-#define HEADER_DATE_X    2
-#define HEADER_TIME_X    52
-#define HEADER_ANGLE_X   102
-#define HEADER_FLAGS_X   143
-#define HEADER_SHIFT_X   193
-#define HEADER_BATTERY_X 207
+#define HEADER_HEIGHT        12
+#define HEADER_DATE_X        2
+#define HEADER_TIME_X        47
+#define HEADER_ANGLE_X       92
+#define HEADER_FLAGS_X       129
+#define HEADER_SHIFT_X       174
+/* font_8x12's advance == width (no gap baked in -- see font.h), so 3
+ * glyphs occupy exactly 3*8px with nothing between them. */
+#define HEADER_BATTERY_WIDTH (3 * 8)
+#define HEADER_BATTERY_X     (DISPLAY_WIDTH - HEADER_BATTERY_WIDTH - 1) /* 1px margin from the right edge */
 
 /* Battery icon glyphs, from the font_12x8.png sheet's raw byte codes
  * (16-22): 16/17/18 are the left cap with 0/1/2 bars filled, 19/20/21 are

@@ -137,6 +137,7 @@ static const uint8_t font_24x10_bits[] = {
 const display_font_t font_24x10 = {
     .width = 10,
     .height = 24,
+    .advance = 11, /* glyphs are edge to edge, +1px gap */
     .first_char = 0,
     .last_char = 127,
     .bytes_per_char = 30,

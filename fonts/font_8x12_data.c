@@ -136,6 +136,7 @@ static const uint8_t font_8x12_bits[] = {
 const display_font_t font_8x12 = {
     .width = 8,
     .height = 12,
+    .advance = 8,
     .first_char = 0,
     .last_char = 127,
     .bytes_per_char = 12,

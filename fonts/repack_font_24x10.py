@@ -87,6 +87,7 @@ def main():
         f.write('const display_font_t font_24x10 = {\n')
         f.write(f'    .width = {GLYPH_WIDTH},\n')
         f.write(f'    .height = {GLYPH_HEIGHT},\n')
+        f.write(f'    .advance = {GLYPH_WIDTH + 1}, /* glyphs are edge to edge, +1px gap */\n')
         f.write('    .first_char = 0,\n')
         f.write(f'    .last_char = {NUM_GLYPHS - 1},\n')
         f.write(f'    .bytes_per_char = {bytes_per_char_out},\n')

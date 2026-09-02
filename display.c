@@ -170,7 +170,7 @@ static bool display_get_pixel(int x, int y) {
 
 uint8_t display_draw_char(const display_font_t *font, char c, uint8_t x, uint8_t y, uint8_t color) {
     if ((uint8_t) c < font->first_char || (uint8_t) c > font->last_char)
-        return (uint8_t) (x + font->width + 1); /* not in the font -- skip but still advance */
+        return (uint8_t) (x + font->advance); /* not in the font -- skip but still advance */
 
     const uint8_t *glyph = font->data + ((uint8_t) c - font->first_char) * font->bytes_per_char;
     bool invert = color != 0;
@@ -194,7 +194,7 @@ uint8_t display_draw_char(const display_font_t *font, char c, uint8_t x, uint8_t
         }
     }
 
-    return (uint8_t) (x + font->width + 1);
+    return (uint8_t) (x + font->advance);
 }
 
 uint8_t display_draw_string(const display_font_t *font, const char *s, uint8_t x, uint8_t y, uint8_t color) {
