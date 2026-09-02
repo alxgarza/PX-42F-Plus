@@ -3,3 +3,4 @@ build
 free42-upstream
 .DS_Store
 ~$*
+__pycache__
