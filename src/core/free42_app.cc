@@ -459,10 +459,10 @@ void free42_process_char(char c) {
 
 /* Physical keyboard matrix -> HP-42S key code (1-37, see keymap.txt in
  * the upstream repo), as wired on this hardware. 0 = nothing mapped at
- * that position yet (row 7 and R0C0 aren't wired to a function yet). */
+ * that position yet (row 7 isn't wired to a function yet). */
 static const int key_matrix[KB_ROWS][KB_COLS] = {
         /*      C0            C1        C2        C3           C4 */
-        /*R0*/ {  0,          34,       35,       36,          37 }, /*      0    .   R/S    + */
+        /*R0*/ { 33,          34,       35,       36,          37 }, /* ON/EXIT   .   R/S    + */
         /*R1*/ {  1,           2,        3,        4,           5 }, /* Sigma+  1/x sqrt   LOG   LN */
         /*R2*/ {  7,           8,        9,       10,          11 }, /*    STO RCL  Rdn  SIN  COS */
         /*R3*/ { 13,          14,       15,       16,          17 }, /*  ENTER X<>Y  CHS    E  BSP */
