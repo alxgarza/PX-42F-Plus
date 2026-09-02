@@ -1,0 +1,124 @@
+# Generated Cmake Pico project file
+
+cmake_minimum_required(VERSION 3.13)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Initialise pico_sdk from installed location
+# (note this can come from environment, CMake cache etc)
+
+# == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
+if(WIN32)
+    set(USERHOME $ENV{USERPROFILE})
+else()
+    set(USERHOME $ENV{HOME})
+endif()
+set(sdkVersion 2.3.0)
+set(toolchainVersion 15_2_Rel1)
+set(picotoolVersion 2.3.0)
+set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
+if (EXISTS ${picoVscode})
+    include(${picoVscode})
+endif()
+# ====================================================================================
+set(PICO_BOARD pico2_w CACHE STRING "Board type")
+
+# Pull in Raspberry Pi Pico SDK (must be before project)
+include(pico_sdk_import.cmake)
+
+project(PX-Free42 C CXX ASM)
+
+# Initialise the Raspberry Pi Pico SDK
+pico_sdk_init()
+
+# Intel Decimal Floating-Point Math Library (BID), providing authentic
+# HP-42S decimal arithmetic. Built from the upstream sources in
+# third_party/IntelRDFPMathLib20U1 via its own makefile, cross-compiled
+# with the same toolchain and target architecture as the rest of this
+# project. If PICO_BOARD ever changes to a non-Cortex-M33 target, update
+# INTELDECIMAL_ARCH_FLAGS to match.
+set(INTELDECIMAL_DIR ${CMAKE_CURRENT_LIST_DIR}/third_party/IntelRDFPMathLib20U1)
+set(INTELDECIMAL_ARCH_FLAGS "-mcpu=cortex-m33 -mthumb -march=armv8-m.main+fp+dsp -mcmse -mfloat-abi=softfp -Os -ffunction-sections -fdata-sections")
+set(LIBBID_PATH ${INTELDECIMAL_DIR}/LIBRARY/libbid.a)
+
+add_custom_command(
+        OUTPUT ${LIBBID_PATH}
+        COMMAND make -C ${INTELDECIMAL_DIR}/LIBRARY
+                CC=${CMAKE_C_COMPILER}
+                CC_NAME=gcc
+                "AR_CMD=${CMAKE_AR} rv"
+                IML_HOST_OS=LINUX
+                "CFLAGS_OPT=${INTELDECIMAL_ARCH_FLAGS}"
+                CALL_BY_REF=1 GLOBAL_RND=1 GLOBAL_FLAGS=1 UNCHANGED_BINARY_FLAGS=0
+        COMMENT "Building Intel Decimal Floating-Point Library (libbid.a) for Cortex-M33"
+        VERBATIM
+)
+add_custom_target(inteldecimal_lib DEPENDS ${LIBBID_PATH})
+
+# Add executable. Default name is the project name, version 0.1
+
+file(GLOB FREE42_CORE_SOURCES ${CMAKE_CURRENT_LIST_DIR}/src/core/*.cc)
+
+add_executable(PX-Free42
+        main.c
+        display.c
+        keyboard.c
+        ${FREE42_CORE_SOURCES}
+        )
+
+add_dependencies(PX-Free42 inteldecimal_lib)
+
+pico_set_program_name(PX-Free42 "PX-Free42")
+pico_set_program_version(PX-Free42 "0.1")
+
+# Modify the below lines to enable/disable output over UART/USB
+pico_enable_stdio_uart(PX-Free42 0)
+pico_enable_stdio_usb(PX-Free42 1)
+
+# Add the standard library to the build
+target_link_libraries(PX-Free42
+        pico_stdlib)
+
+# Add the standard include files to the build
+target_include_directories(PX-Free42 PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/src/core
+)
+
+# Flags required to match the ABI that bid_functions.h declares, and to
+# match how libbid.a itself was built (see INTELDECIMAL_ARCH_FLAGS above).
+# BCD_MATH switches the core from double-based "binary" math to the real
+# BID128-backed Phloat class, for authentic HP-42S decimal arithmetic.
+target_compile_definitions(PX-Free42 PRIVATE
+        BCD_MATH
+        BID_SIZE_LONG=4
+        DECIMAL_CALL_BY_REFERENCE=1
+        DECIMAL_GLOBAL_ROUNDING=1
+        DECIMAL_GLOBAL_ROUNDING_ACCESS_FUNCTIONS=1
+        DECIMAL_GLOBAL_EXCEPTION_FLAGS=1
+        DECIMAL_GLOBAL_EXCEPTION_FLAGS_ACCESS_FUNCTIONS=1
+        # Bumped from the SDK default (0x800) to the max that fits in
+        # RP2350's dedicated 4KB SCRATCH_Y bank, where the default linker
+        # script places the core0 stack. core0 barely does anything in this
+        # project now (see main.c -- it just launches core1, which runs
+        # everything, including all of Free42, with its own much larger
+        # explicit stack in ordinary SRAM), so this is just cheap safety
+        # margin, not the real fix for Free42's stack needs. Must be a
+        # compile definition (not just a CMake variable) because crt0.S is
+        # an INTERFACE source compiled as part of this target itself.
+        PICO_STACK_SIZE=0x1000
+)
+
+# Add any user requested libraries
+target_link_libraries(PX-Free42
+        pico_multicore
+        hardware_spi
+        hardware_uart
+        hardware_watchdog
+        ${LIBBID_PATH}
+        )
+
+pico_add_extra_outputs(PX-Free42)
+

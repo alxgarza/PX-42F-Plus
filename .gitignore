@@ -1,0 +1,5 @@
+build
+!.vscode/*
+free42-upstream
+.DS_Store
+~$*
