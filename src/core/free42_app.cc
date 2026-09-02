@@ -171,6 +171,86 @@ static void display_entry(uint8_t y) {
     display_line("X:", buf, y);
 }
 
+static void append_buf(char *buf, int bufsize, int *n, const char *s, int len) {
+    if (*n + len > bufsize)
+        len = bufsize - *n;
+    if (len > 0) {
+        memcpy(buf + *n, s, len);
+        *n += len;
+    }
+}
+
+/* While mode_command_entry is set (e.g. right after FIX, SF, STO, GTO...
+ * -- a command waiting for a numeric or alpha argument), replaces the X
+ * row with a prompt: the command name, then either a quoted alpha string
+ * in progress or one underscore per remaining digit -- e.g. "FIX_" before
+ * typing, "FIX3" once a digit's in. Mirrors Free42's own
+ * display_incomplete_command() (core_display.cc) case by case, reading
+ * the same incomplete_* globals (core_globals.h) directly -- this port
+ * doesn't call that function itself, since it draws through the internal
+ * single-line pixel renderer this port has never used elsewhere. Bytes in
+ * cmd->name with the high bit packed on (see the ENTER key-hint fix) are
+ * unmasked (&127) rather than dropped, matching how
+ * display_incomplete_command() actually draws them -- via
+ * draw_string()->draw_char()->get_char(), whose "&127 undefined_char()"
+ * handling is what the ENTER fix was modeled on -- not draw_key()'s
+ * separate hide_meta path the menu-footer labels use. */
+static void display_incomplete(uint8_t y) {
+    char buf[40];
+    int n = 0;
+
+    if (incomplete_command == CMD_ASSIGNb) {
+        append_buf(buf, sizeof(buf), &n, "ASSIGN \"", 8);
+        append_buf(buf, sizeof(buf), &n, pending_command_arg.val.text, pending_command_arg.length);
+        append_buf(buf, sizeof(buf), &n, "\" TO _", 6);
+    } else if (incomplete_argtype == ARG_MKEY) {
+        append_buf(buf, sizeof(buf), &n, "KEY _", 5);
+    } else {
+        if (incomplete_command == CMD_SIMQ) {
+            append_buf(buf, sizeof(buf), &n, "Number of Unknowns ", 19);
+        } else {
+            const command_spec *cmd = &cmd_array[incomplete_command];
+            char name[24];
+            int name_len = 0;
+            for (int i = 0; i < cmd->name_length && name_len < (int) sizeof(name); i++) {
+                unsigned char c = (unsigned char) cmd->name[i];
+                if (undefined_char(c))
+                    c &= 127;
+                name[name_len++] = (char) c;
+            }
+            append_buf(buf, sizeof(buf), &n, name, name_len);
+            append_buf(buf, sizeof(buf), &n, " ", 1);
+        }
+
+        if (incomplete_ind)
+            append_buf(buf, sizeof(buf), &n, "IND ", 4);
+
+        if (incomplete_alpha) {
+            append_buf(buf, sizeof(buf), &n, "\"", 1);
+            append_buf(buf, sizeof(buf), &n, incomplete_str, incomplete_length);
+            append_buf(buf, sizeof(buf), &n, "_", 1);
+        } else {
+            int d = 1;
+            for (int i = 0; i < incomplete_length - 1; i++)
+                d *= 10;
+            for (int i = 0; i < incomplete_maxdigits && n < (int) sizeof(buf); i++) {
+                if (i < incomplete_length) {
+                    char digit = (char) ('0' + (incomplete_num / d) % 10);
+                    append_buf(buf, sizeof(buf), &n, &digit, 1);
+                    d /= 10;
+                } else {
+                    append_buf(buf, sizeof(buf), &n, "_", 1);
+                }
+            }
+        }
+    }
+
+    if (n > (int) sizeof(buf) - 1)
+        n = (int) sizeof(buf) - 1;
+    buf[n] = 0;
+    display_line("", buf, y); /* same front-truncate-with-ellipsis convention as display_line()'s other callers */
+}
+
 /* Status header: date, time, angle mode, flags 0-4, shift indicator, and
  * battery, left to right, in the top HEADER_HEIGHT rows -- solid black
  * background with inverted (white-on-black) text, using font_8x12 (12px
@@ -434,6 +514,8 @@ static void display_stack() {
 
     if (mode_number_entry)
         display_entry(STACK_ROW_X);
+    else if (mode_command_entry)
+        display_incomplete(STACK_ROW_X);
     else
         display_reg("X:", REG_X, STACK_ROW_X);
     display_flush();
