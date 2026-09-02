@@ -300,13 +300,16 @@ static void display_header() {
 
     uint8_t x = HEADER_FLAGS_X;
     for (int i = 0; i < 5; i++) {
-        char digit = (char) ('0' + i);
+        /* Each flag keeps its fixed column (x advances every iteration
+         * regardless), but only draws anything -- the white patch plus
+         * its digit -- when actually set; an unset flag leaves its
+         * column blank rather than showing a dim "always there" digit. */
         if (flags.farray[i]) {
+            char digit = (char) ('0' + i);
             display_fill_rect(x, 0, (uint8_t) (x + font_8x12.width - 1), HEADER_HEIGHT - 1, false);
-            x = display_draw_char(&font_8x12, digit, x, 0, 0x00);
-        } else {
-            x = display_draw_char(&font_8x12, digit, x, 0, 0xFF);
+            display_draw_char(&font_8x12, digit, x, 0, 0x00);
         }
+        x = (uint8_t) (x + font_8x12.advance);
     }
 
     if (mode_shift)
@@ -419,18 +422,23 @@ static bool menu_item_is_flag(int cmd_id) {
     }
 }
 
-/* Draws tab i (0-5) of FOOTER_TABS equal-width segments: a filled
- * rectangle (white if highlighted, black otherwise) with its label
- * centered and drawn in the opposite tone, truncated to whatever fits
- * the tab's width. A 1px gap separates adjacent tabs (except after the
- * last one, which runs to the display's right edge) so they read as
- * distinct tabs rather than one continuous bar. */
+/* Draws tab i (0-5) of FOOTER_TABS equal-width segments: a black
+ * rectangle with its (inverted, white) label centered, truncated to
+ * whatever fits the tab's width. A 1px gap separates adjacent tabs
+ * (except after the last one, which runs to the display's right edge)
+ * so they read as distinct tabs rather than one continuous bar. A
+ * highlighted tab (the calculator's current setting) gets a 1px white
+ * underline instead of inverting the whole tab -- the bottom row is
+ * already blank margin under the vertically-centered text (12px glyph
+ * in a 14px tab leaves 1px top and bottom), so the underline never
+ * touches the label itself. */
 static void draw_footer_tab(int i, const char *text, int text_len, bool highlight) {
     int x0 = (i * DISPLAY_WIDTH) / FOOTER_TABS;
     int x1 = ((i + 1) * DISPLAY_WIDTH) / FOOTER_TABS - 1;
     int fill_x1 = (i < FOOTER_TABS - 1) ? x1 - 1 : x1;
+    int bottom = FOOTER_Y0 + FOOTER_HEIGHT - 1;
 
-    display_fill_rect((uint8_t) x0, FOOTER_Y0, (uint8_t) fill_x1, FOOTER_Y0 + FOOTER_HEIGHT - 1, !highlight);
+    display_fill_rect((uint8_t) x0, FOOTER_Y0, (uint8_t) fill_x1, (uint8_t) bottom, true);
 
     int max_chars = (fill_x1 - x0 + 1) / font_8x12.advance;
     if (text_len > max_chars)
@@ -439,9 +447,11 @@ static void draw_footer_tab(int i, const char *text, int text_len, bool highligh
     int tx = x0 + ((fill_x1 - x0 + 1) - text_width) / 2;
     int ty = FOOTER_Y0 + (FOOTER_HEIGHT - font_8x12.height) / 2;
 
-    uint8_t color = highlight ? 0x00 : 0xFF;
     for (int k = 0; k < text_len; k++)
-        tx = display_draw_char(&font_8x12, text[k], (uint8_t) tx, (uint8_t) ty, color);
+        tx = display_draw_char(&font_8x12, text[k], (uint8_t) tx, (uint8_t) ty, 0xFF);
+
+    if (highlight)
+        display_fill_rect((uint8_t) x0, (uint8_t) bottom, (uint8_t) fill_x1, (uint8_t) bottom, false);
 }
 
 static void display_footer() {
