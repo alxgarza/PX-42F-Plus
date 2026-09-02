@@ -44,10 +44,11 @@ static int key_for_char(char c) {
 }
 
 /* LCD row assignment for the Alpha register and the 4-level stack, in
- * pixels -- font_10x16 is 16px tall, with a 3px gap between lines, so
- * each line is ROW_STRIDE (19px) below the last, starting at ALPHA_ROW.
- * A dotted separator is drawn centered in each gap (see display_stack()),
- * hence ROW_GAP / 2 below. */
+ * pixels -- font_10x16 is 16px tall, with a 3px gap between lines (one
+ * row of space, the dotted separator, one row of space), so each line is
+ * ROW_STRIDE (19px) below the last, starting at ALPHA_ROW. ROW_SEP(next)
+ * gives the middle row of the 3px gap right before 'next', where
+ * display_stack() draws that gap's separator. */
 #define ALPHA_ROW    13
 #define ROW_GAP      3
 #define ROW_STRIDE   (16 + ROW_GAP) /* font_10x16 height + gap */
@@ -55,6 +56,7 @@ static int key_for_char(char c) {
 #define STACK_ROW_Z  (STACK_ROW_T + ROW_STRIDE)
 #define STACK_ROW_Y  (STACK_ROW_Z + ROW_STRIDE)
 #define STACK_ROW_X  (STACK_ROW_Y + ROW_STRIDE)
+#define ROW_SEP(next) ((next) - (ROW_GAP + 1) / 2)
 
 /* Starting pixel column for every text row (leaves a 4px left margin). */
 #define STACK_COL_START 4
@@ -503,13 +505,13 @@ static void display_stack() {
     display_header();
     display_footer();
     display_alpha(ALPHA_ROW);
-    display_draw_dotted_hline(0, DISPLAY_WIDTH - 1, STACK_ROW_T - ROW_GAP / 2);
+    display_draw_dotted_hline(0, DISPLAY_WIDTH - 1, ROW_SEP(STACK_ROW_T));
 
     display_reg("T:", REG_T, STACK_ROW_T);
-    display_draw_dotted_hline(0, DISPLAY_WIDTH - 1, STACK_ROW_Z - ROW_GAP / 2);
+    display_draw_dotted_hline(0, DISPLAY_WIDTH - 1, ROW_SEP(STACK_ROW_Z));
 
     display_reg("Z:", REG_Z, STACK_ROW_Z);
-    display_draw_dotted_hline(0, DISPLAY_WIDTH - 1, STACK_ROW_Y - ROW_GAP / 2);
+    display_draw_dotted_hline(0, DISPLAY_WIDTH - 1, ROW_SEP(STACK_ROW_Y));
 
     if (key_hint_active && key_hint_length > 0) {
         char buf[sizeof(key_hint_text)];
@@ -527,7 +529,7 @@ static void display_stack() {
     } else {
         display_reg("Y:", REG_Y, STACK_ROW_Y);
     }
-    display_draw_dotted_hline(0, DISPLAY_WIDTH - 1, STACK_ROW_X - ROW_GAP / 2);
+    display_draw_dotted_hline(0, DISPLAY_WIDTH - 1, ROW_SEP(STACK_ROW_X));
 
     if (mode_number_entry)
         display_entry(STACK_ROW_X);
