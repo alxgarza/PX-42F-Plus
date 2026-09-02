@@ -14,3 +14,8 @@ void rtc_get_hms(int *hour, int *min, int *sec) {
     *min = (int) ((total_sec / 60) % 60);
     *sec = (int) (total_sec % 60);
 }
+
+void rtc_set_hms(int hour, int min, int sec) {
+    uint64_t total_sec = (uint64_t) hour * 3600 + (uint64_t) min * 60 + (uint64_t) sec;
+    powman_timer_set_ms(total_sec * 1000);
+}

@@ -90,6 +90,31 @@ static void init_serial(void) {
     gpio_set_function(SERIAL_RX_PIN, GPIO_FUNC_UART);
 }
 
+/* Console commands over the USB serial link (separate from the debug
+ * UART above), for things that don't belong on the calculator keyboard.
+ * Currently just setting the RTC -- '!' isn't a key free42_process_char()
+ * (see key_for_char() in free42_app.cc) ever maps to anything, so using
+ * it to enter command mode can't collide with ordinary digit/operator
+ * typing. Line-buffered: "!SETTIME HH:MM[:SS]\n", 24-hour. */
+static void handle_serial_command(const char *cmd) {
+    int h, m, s;
+    bool ok = false;
+    if (sscanf(cmd, "SETTIME %d:%d:%d", &h, &m, &s) == 3) {
+        ok = true;
+    } else if (sscanf(cmd, "SETTIME %d:%d", &h, &m) == 2) {
+        s = 0;
+        ok = true;
+    }
+    if (!ok) {
+        printf("Unknown command: !%s\n", cmd);
+    } else if (h < 0 || h > 23 || m < 0 || m > 59 || s < 0 || s > 59) {
+        printf("SETTIME: value out of range (expected HH:MM[:SS], 24h)\n");
+    } else {
+        rtc_set_hms(h, m, s);
+        printf("RTC set to %02d:%02d:%02d\n", h, m, s);
+    }
+}
+
 static void core1_main(void)
 {
     rtc_clock_init();
@@ -121,6 +146,10 @@ static void core1_main(void)
     free42_init();
     printf("Ready. Type digits, +-*/, or Enter.\n");
 
+    bool cmd_mode = false;
+    char cmd_buf[32];
+    int cmd_len = 0;
+
     while (true) {
         watchdog_update();
 
@@ -129,10 +158,26 @@ static void core1_main(void)
          * in display.c. */
         display_tick();
 
-        /* USB serial console input (kept for convenient testing/typing). */
+        /* USB serial console input (kept for convenient testing/typing).
+         * '!' switches to line-buffered command mode (see
+         * handle_serial_command()); anything else, character by character,
+         * goes straight to the calculator as a keystroke, same as before. */
         int c = getchar_timeout_us(0);
         if (c != PICO_ERROR_TIMEOUT) {
-            free42_process_char((char) c);
+            if (!cmd_mode && c == '!') {
+                cmd_mode = true;
+                cmd_len = 0;
+            } else if (cmd_mode) {
+                if (c == '\r' || c == '\n') {
+                    cmd_buf[cmd_len] = 0;
+                    handle_serial_command(cmd_buf);
+                    cmd_mode = false;
+                } else if (cmd_len < (int) sizeof(cmd_buf) - 1) {
+                    cmd_buf[cmd_len++] = (char) c;
+                }
+            } else {
+                free42_process_char((char) c);
+            }
         }
 
         /* Physical keyboard matrix input. Split into down/hold/up instead

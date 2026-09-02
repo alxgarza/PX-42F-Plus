@@ -18,6 +18,11 @@ void rtc_clock_init(void);
  * 24h. hour is 0-23. */
 void rtc_get_hms(int *hour, int *min, int *sec);
 
+/* Sets the time of day. hour is 0-23. Takes effect immediately (no need
+ * to stop/restart the counter first -- unlike the RP2040's classic
+ * hardware_rtc, Powman's set_ms() can be called while running). */
+void rtc_set_hms(int hour, int min, int sec);
+
 #ifdef __cplusplus
 }
 #endif

@@ -8,6 +8,7 @@
 
 #include "shell.h"
 #include "free42_app.h"
+#include "rtc.h"
 
 /* The Pico SDK's newlib syscall layer (pico_clib_interface) stubs out
  * _read/_write/_open/_close/_lseek/_fstat/_isatty, but not _link/_unlink.
@@ -84,9 +85,19 @@ void shell_print(const char *text, int length,
 }
 
 void shell_get_time_date(uint4 *time, uint4 *date, int *weekday) {
-    *time = 0;
-    *date = 20260101;
-    *weekday = 4;
+    /* *time is packed HHMMSScc (cc = hundredths, always 0 here -- rtc.c is
+     * only second-resolution); confirmed against docmd_time's own
+     * unpacking (core_commands7.cc: h = time/1000000, m = time/10000%100,
+     * s = time/100%100). Date/weekday stay stubbed -- rtc.c tracks time
+     * of day only, no calendar. */
+    int hour, min, sec;
+    rtc_get_hms(&hour, &min, &sec);
+    if (time != NULL)
+        *time = (uint4) (hour * 1000000 + min * 10000 + sec * 100);
+    if (date != NULL)
+        *date = 20260101;
+    if (weekday != NULL)
+        *weekday = 4;
 }
 
 void shell_message(const char *message) {
