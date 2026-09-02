@@ -235,10 +235,176 @@ static void display_header() {
     display_draw_string(&font_8x12, battery_100, HEADER_BATTERY_X, 0, 0xFF);
 }
 
+/* Footer: 6 menu-key "tabs" in the bottom FOOTER_HEIGHT rows, replicating
+ * the subset of Free42's own redisplay() (core_display.cc) needed to read
+ * the current menu's 6 labels without going through its internal pixel
+ * renderer (draw_key()/the single-line display[] buffer), which this
+ * port has never used anywhere else. Covers the two most common menu
+ * sources: general app menus (the `menus[]` table -- MODES, DISP, CLEAR,
+ * and similar) and VARMENU (the variables menu). Not covered: CATALOG,
+ * CUSTOM1-3, and PROGRAMMABLE menus, whose label text lives in variables
+ * private (static) to core_display.cc -- the footer just stays blank for
+ * those rather than showing something wrong. Also not covered: the
+ * CMD_BINM/OCTM/DECM/HEXM highlight cases (need get_base(), not exported)
+ * and shifted alternate labels on a handful of specific top-level menus
+ * (MENU_TOP_FCN and friends) -- both narrow cosmetic gaps; the physical
+ * keys underneath still do the right thing regardless of what the label
+ * says. */
+#define FOOTER_Y0     108
+#define FOOTER_HEIGHT 14
+#define FOOTER_TABS   6
+
+static int current_menu_id() {
+    if (mode_commandmenu != MENU_NONE) return mode_commandmenu;
+    if (mode_alphamenu != MENU_NONE) return mode_alphamenu;
+    if (mode_transientmenu != MENU_NONE) return mode_transientmenu;
+    if (mode_plainmenu != MENU_NONE) return mode_plainmenu;
+    if (mode_appmenu != MENU_NONE) return mode_appmenu;
+    return MENU_NONE;
+}
+
+/* Matches draw_key()'s hide_meta=1 behavior for cmd_array-sourced labels:
+ * some command names pack a letter as ASCII|0x80 for their full
+ * spelled-out form (see the ENTER key-hint fix, free42_key_timeout1()),
+ * but a menu key label is meant to be a compact abbreviation -- upstream
+ * drops those bytes entirely here rather than unmasking them. */
+static int copy_menu_label(char *dst, int dst_size, const char *src, int src_len) {
+    int n = 0;
+    for (int i = 0; i < src_len && n < dst_size; i++) {
+        unsigned char c = (unsigned char) src[i];
+        if (undefined_char(c))
+            continue;
+        dst[n++] = (char) c;
+    }
+    return n;
+}
+
+/* The is_flag switch from redisplay()'s general-menu path, copied
+ * verbatim case by case (same command IDs, same flag/mode reads -- all
+ * of these globals are already extern in core_globals.h). Determines
+ * whether a menu item represents the calculator's current setting (e.g.
+ * RAD is highlighted while flags.f.rad is set) so it can be drawn as the
+ * "active" tab. */
+static bool menu_item_is_flag(int cmd_id) {
+    switch (cmd_id) {
+        case CMD_FIX: return flags.f.fix_or_all && !flags.f.eng_or_all;
+        case CMD_SCI: return !flags.f.fix_or_all && !flags.f.eng_or_all;
+        case CMD_ENG: return !flags.f.fix_or_all && flags.f.eng_or_all;
+        case CMD_ALL: return flags.f.fix_or_all && flags.f.eng_or_all;
+        case CMD_RDXDOT: return flags.f.decimal_point;
+        case CMD_RDXCOMMA: return !flags.f.decimal_point;
+        case CMD_DEG: return !flags.f.rad && !flags.f.grad;
+        case CMD_RAD: return flags.f.rad;
+        case CMD_GRAD: return !flags.f.rad && flags.f.grad;
+        case CMD_POLAR: return flags.f.polar;
+        case CMD_RECT: return !flags.f.polar;
+        case CMD_QUIET: return !flags.f.audio_enable;
+        case CMD_CPXRES: return !flags.f.real_result_only;
+        case CMD_REALRES: return flags.f.real_result_only;
+        case CMD_KEYASN: return !flags.f.local_label;
+        case CMD_LCLBL: return flags.f.local_label;
+        case CMD_BSIGNED: return flags.f.base_signed;
+        case CMD_BWRAP: return flags.f.base_wrap;
+        case CMD_DECINT: return mode_dec_int;
+        case CMD_BINSEP: return mode_bin_sep;
+        case CMD_OCTSEP: return mode_oct_sep;
+        case CMD_DECSEP: return mode_dec_sep;
+        case CMD_HEXSEP: return mode_hex_sep;
+        case CMD_MDY: return !flags.f.ymd && !flags.f.dmy;
+        case CMD_DMY: return !flags.f.ymd && flags.f.dmy;
+        case CMD_YMD: return flags.f.ymd;
+        case CMD_CLK12: return !mode_time_clk24;
+        case CMD_CLK24: return mode_time_clk24;
+        case CMD_4STK: return !flags.f.big_stack;
+        case CMD_NSTK: return flags.f.big_stack;
+        case CMD_CAPS: return mode_menu_caps;
+        case CMD_MIXED: return !mode_menu_caps;
+        case CMD_STATIC: return mode_menu_static;
+        case CMD_DYNAMIC: return !mode_menu_static;
+        case CMD_PON: return flags.f.printer_exists;
+        case CMD_POFF: return !flags.f.printer_exists;
+        case CMD_MAN: return !flags.f.trace_print && !flags.f.normal_print;
+        case CMD_NORM: return !flags.f.trace_print && flags.f.normal_print;
+        case CMD_TRACE: return flags.f.trace_print && !flags.f.normal_print;
+        case CMD_STRACE: return flags.f.trace_print && flags.f.normal_print;
+        case CMD_ALLSIGMA: return flags.f.all_sigma;
+        case CMD_LINSIGMA: return !flags.f.all_sigma;
+        case CMD_LINF: return flags.f.lin_fit;
+        case CMD_LOGF: return flags.f.log_fit;
+        case CMD_EXPF: return flags.f.exp_fit;
+        case CMD_PWRF: return flags.f.pwr_fit;
+        case CMD_WRAP: return !flags.f.grow;
+        case CMD_GROW: return flags.f.grow;
+        default: return false; /* includes CMD_BINM/OCTM/DECM/HEXM -- see comment above */
+    }
+}
+
+/* Draws tab i (0-5) of FOOTER_TABS equal-width segments: a filled
+ * rectangle (white if highlighted, black otherwise) with its label
+ * centered and drawn in the opposite tone, truncated to whatever fits
+ * the tab's width. A 1px gap separates adjacent tabs (except after the
+ * last one, which runs to the display's right edge) so they read as
+ * distinct tabs rather than one continuous bar. */
+static void draw_footer_tab(int i, const char *text, int text_len, bool highlight) {
+    int x0 = (i * DISPLAY_WIDTH) / FOOTER_TABS;
+    int x1 = ((i + 1) * DISPLAY_WIDTH) / FOOTER_TABS - 1;
+    int fill_x1 = (i < FOOTER_TABS - 1) ? x1 - 1 : x1;
+
+    display_fill_rect((uint8_t) x0, FOOTER_Y0, (uint8_t) fill_x1, FOOTER_Y0 + FOOTER_HEIGHT - 1, !highlight);
+
+    int max_chars = (fill_x1 - x0 + 1) / font_8x12.advance;
+    if (text_len > max_chars)
+        text_len = max_chars;
+    int text_width = text_len * font_8x12.advance;
+    int tx = x0 + ((fill_x1 - x0 + 1) - text_width) / 2;
+    int ty = FOOTER_Y0 + (FOOTER_HEIGHT - font_8x12.height) / 2;
+
+    uint8_t color = highlight ? 0x00 : 0xFF;
+    for (int k = 0; k < text_len; k++)
+        tx = display_draw_char(&font_8x12, text[k], (uint8_t) tx, (uint8_t) ty, color);
+}
+
+static void display_footer() {
+    int menu_id = current_menu_id();
+    if (menu_id == MENU_NONE)
+        return;
+
+    if (menu_id == MENU_VARMENU) {
+        if (varmenu_length == 0)
+            return;
+        for (int i = 0; i < 6; i++)
+            draw_footer_tab(i, varmenu_labeltext[i], varmenu_labellength[i], false);
+        return;
+    }
+
+    if (menu_id == MENU_CATALOG || menu_id == MENU_CUSTOM1 || menu_id == MENU_CUSTOM2
+            || menu_id == MENU_CUSTOM3 || menu_id == MENU_PROGRAMMABLE)
+        return; /* not covered yet -- see the comment above display_footer() */
+
+    const menu_spec *m = menus + menu_id;
+    for (int i = 0; i < 6; i++) {
+        const menu_item_spec *mi = m->child + i;
+        char buf[8];
+        int len;
+        bool highlight = false;
+        if (mi->menuid == MENU_NONE || (mi->menuid & 0x3000) == 0) {
+            len = copy_menu_label(buf, sizeof(buf), mi->title, mi->title_length);
+        } else {
+            int cmd_id = mi->menuid & 0xfff;
+            const command_spec *cmd = &cmd_array[cmd_id];
+            if ((mi->menuid & 0x2000) != 0)
+                highlight = menu_item_is_flag(cmd_id);
+            len = copy_menu_label(buf, sizeof(buf), cmd->name, cmd->name_length);
+        }
+        draw_footer_tab(i, buf, len, highlight);
+    }
+}
+
 static void display_stack() {
     display_clear();
 
     display_header();
+    display_footer();
     display_alpha(ALPHA_ROW);
     display_draw_dotted_hline(0, DISPLAY_WIDTH - 1, STACK_ROW_T - ROW_GAP / 2);
 
