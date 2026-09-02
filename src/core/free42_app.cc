@@ -44,12 +44,12 @@ static int key_for_char(char c) {
 }
 
 /* LCD row assignment for the Alpha register and the 4-level stack, in
- * pixels -- font_10x16 is 16px tall, with a requested 4px gap between
- * lines, so each line is ROW_STRIDE (20px) below the last, starting at
- * ALPHA_ROW. A dotted separator is drawn centered in each 4px gap (see
- * display_stack()), hence ROW_GAP / 2 below. */
+ * pixels -- font_10x16 is 16px tall, with a 3px gap between lines, so
+ * each line is ROW_STRIDE (19px) below the last, starting at ALPHA_ROW.
+ * A dotted separator is drawn centered in each gap (see display_stack()),
+ * hence ROW_GAP / 2 below. */
 #define ALPHA_ROW    13
-#define ROW_GAP      4
+#define ROW_GAP      3
 #define ROW_STRIDE   (16 + ROW_GAP) /* font_10x16 height + gap */
 #define STACK_ROW_T  (ALPHA_ROW + ROW_STRIDE)
 #define STACK_ROW_Z  (STACK_ROW_T + ROW_STRIDE)
@@ -423,9 +423,11 @@ static bool menu_item_is_flag(int cmd_id) {
 
 /* Draws tab i (0-5) of FOOTER_TABS equal-width segments: a black
  * rectangle with its (inverted, white) label, truncated to whatever fits
- * the tab's width. A 1px gap separates adjacent tabs (except after the
- * last one, which runs to the display's right edge) so they read as
- * distinct tabs rather than one continuous bar.
+ * the tab's width. Every tab (the last one included) keeps a 1px gap
+ * after it, matching the "1px margin from the edge" convention already
+ * used elsewhere (the header's battery icon) -- without it, the last
+ * tab's rounded corner had nothing beyond it to contrast against and so
+ * was unreadable right at the display's physical edge.
  *
  * FOOTER_HEIGHT (14) minus the font's height (12) leaves only 2 spare
  * rows total, so there's a tradeoff: the label sits flush against the
@@ -439,7 +441,7 @@ static bool menu_item_is_flag(int cmd_id) {
 static void draw_footer_tab(int i, const char *text, int text_len, bool highlight) {
     int x0 = (i * DISPLAY_WIDTH) / FOOTER_TABS;
     int x1 = ((i + 1) * DISPLAY_WIDTH) / FOOTER_TABS - 1;
-    int fill_x1 = (i < FOOTER_TABS - 1) ? x1 - 1 : x1;
+    int fill_x1 = x1 - 1;
     int bottom = FOOTER_Y0 + FOOTER_HEIGHT - 1;
 
     display_fill_rect((uint8_t) (x0 + 2), FOOTER_Y0, (uint8_t) (fill_x1 - 2), FOOTER_Y0, true);
