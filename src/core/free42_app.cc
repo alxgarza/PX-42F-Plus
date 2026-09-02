@@ -10,6 +10,8 @@
 #include "display.h"
 #include "keyboard.h"
 #include "font_10x16.h"
+#include "font_8x12.h"
+#include "rtc.h"
 
 /* Key codes, from the standard Free42 keymap (see keymap.txt in the
  * upstream repo): digits 0-9, the four arithmetic operators, and ENTER.
@@ -168,9 +170,52 @@ static void display_entry(uint8_t y) {
     display_line("X:", buf, y);
 }
 
+/* Status header: RTC time, angle mode, shift indicator, and flags 0-4, in
+ * the top HEADER_HEIGHT rows -- solid black background with inverted
+ * (white-on-black) text, using font_8x12 (12px tall, an exact fit for the
+ * header height, so glyphs run edge to edge with no vertical margin). A
+ * set flag (0-4) gets an extra highlight on top of that: a small white
+ * patch behind its digit, drawn non-inverted so the digit reads as
+ * ordinary black-on-white, standing out against the rest of the
+ * white-on-black header. */
+#define HEADER_HEIGHT       12
+#define HEADER_TIME_X       2
+#define HEADER_ANGLE_X      53
+#define HEADER_SHIFT_X      100
+#define HEADER_FLAG_ADVANCE 9 /* font_8x12 width (8) + 1px gap */
+#define HEADER_FLAGS_X      (DISPLAY_WIDTH - 5 * HEADER_FLAG_ADVANCE - 2)
+
+static void display_header() {
+    display_fill_rect(0, 0, DISPLAY_WIDTH - 1, HEADER_HEIGHT - 1, true);
+
+    int hour, min, sec;
+    rtc_get_hms(&hour, &min, &sec);
+    char buf[6];
+    snprintf(buf, sizeof(buf), "%02d:%02d", hour, min);
+    display_draw_string(&font_8x12, buf, HEADER_TIME_X, 0, 0xFF);
+
+    const char *angle = flags.f.rad ? "RAD" : flags.f.grad ? "GRAD" : "DEG";
+    display_draw_string(&font_8x12, angle, HEADER_ANGLE_X, 0, 0xFF);
+
+    if (mode_shift)
+        display_draw_string(&font_8x12, "^", HEADER_SHIFT_X, 0, 0xFF);
+
+    uint8_t x = HEADER_FLAGS_X;
+    for (int i = 0; i < 5; i++) {
+        char digit = (char) ('0' + i);
+        if (flags.farray[i]) {
+            display_fill_rect(x, 0, (uint8_t) (x + font_8x12.width - 1), HEADER_HEIGHT - 1, false);
+            x = display_draw_char(&font_8x12, digit, x, 0, 0x00);
+        } else {
+            x = display_draw_char(&font_8x12, digit, x, 0, 0xFF);
+        }
+    }
+}
+
 static void display_stack() {
     display_clear();
 
+    display_header();
     display_alpha(ALPHA_ROW);
     display_draw_dotted_hline(0, DISPLAY_WIDTH - 1, STACK_ROW_T - ROW_GAP / 2);
 

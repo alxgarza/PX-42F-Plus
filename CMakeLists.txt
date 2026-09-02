@@ -65,8 +65,10 @@ add_executable(PX-Free42
         main.c
         display.c
         keyboard.c
+        rtc.c
         fonts/font_10x16_data.c
         fonts/font_24x10_data.c
+        fonts/font_8x12_data.c
         ${FREE42_CORE_SOURCES}
         )
 
@@ -120,6 +122,7 @@ target_link_libraries(PX-Free42
         hardware_spi
         hardware_uart
         hardware_watchdog
+        hardware_powman
         ${LIBBID_PATH}
         )
 

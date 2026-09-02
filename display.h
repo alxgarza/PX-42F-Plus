@@ -53,6 +53,11 @@ void display_tick(void);
  * particular display_draw_char()) don't need their own bounds checks. */
 void display_set_pixel(uint8_t x, uint8_t y, bool on);
 
+/* Fills the rectangle [x0, x1] x [y0, y1] (inclusive on all sides) with
+ * on/off pixels -- e.g. the solid black status-bar background that
+ * inverted (color=0xFF) text is then drawn over. */
+void display_fill_rect(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, bool on);
+
 /* Draws one character from the given font into the framebuffer with its
  * top-left corner at pixel (x, y) -- any row/column, not just multiples
  * of some hardware-specific block size. 'color' is XORed with each font

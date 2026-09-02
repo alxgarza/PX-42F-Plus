@@ -152,6 +152,12 @@ void display_set_pixel(uint8_t x, uint8_t y, bool on) {
         disp_fb[y][x >> 3] &= (uint8_t) ~mask;
 }
 
+void display_fill_rect(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, bool on) {
+    for (int y = y0; y <= (int) y1; y++)
+        for (int x = x0; x <= (int) x1; x++)
+            display_set_pixel((uint8_t) x, (uint8_t) y, on);
+}
+
 /* Bounds-checked read, used only by the flush-time tile conversion (rows/
  * columns near the panel's bottom/right edge legitimately fall outside the
  * buffer -- see pack_tile_byte()) -- reads as "off" rather than needing a

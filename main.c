@@ -10,6 +10,7 @@
 #include "keyboard.h"
 #include "font_24x10.h"
 #include "font_10x16.h"
+#include "rtc.h"
 
 /* Free42's core is a full desktop-oriented C++ calculator engine (BID128
  * decimal string parsing/formatting, nested command dispatch, etc.), and a
@@ -91,6 +92,7 @@ static void init_serial(void) {
 
 static void core1_main(void)
 {
+    rtc_clock_init();
     display_init();
 
     display_clear();
