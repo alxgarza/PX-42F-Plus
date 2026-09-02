@@ -65,6 +65,8 @@ add_executable(PX-Free42
         main.c
         display.c
         keyboard.c
+        fonts/font_10x16_data.c
+        fonts/font_24x10_data.c
         ${FREE42_CORE_SOURCES}
         )
 
@@ -85,6 +87,7 @@ target_link_libraries(PX-Free42
 target_include_directories(PX-Free42 PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
         ${CMAKE_CURRENT_LIST_DIR}/src/core
+        ${CMAKE_CURRENT_LIST_DIR}/fonts
 )
 
 # Flags required to match the ABI that bid_functions.h declares, and to

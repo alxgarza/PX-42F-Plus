@@ -9,6 +9,7 @@
 #include "core_variables.h"
 #include "display.h"
 #include "keyboard.h"
+#include "font_24x10.h"
 
 /* Key codes, from the standard Free42 keymap (see keymap.txt in the
  * upstream repo): digits 0-9, the four arithmetic operators, and ENTER.
@@ -39,11 +40,13 @@ static int key_for_char(char c) {
     }
 }
 
-/* LCD row assignment for the 4-level stack (block-rows, see display.h). */
-#define STACK_ROW_T 1
-#define STACK_ROW_Z 3
-#define STACK_ROW_Y 5
-#define STACK_ROW_X 7
+/* LCD row assignment for the 4-level stack, in pixels -- font_24x10 is
+ * 24px tall with no inter-line gap, so these are just 0, 24, 48, 72
+ * shifted down 12px to match the original block-row-aligned layout. */
+#define STACK_ROW_T 12
+#define STACK_ROW_Z 36
+#define STACK_ROW_Y 60
+#define STACK_ROW_X 84
 
 /* Starting pixel column for every text row (leaves a 4px left margin). */
 #define STACK_COL_START 4
@@ -87,7 +90,7 @@ static int key_hint_length = 0;
  * Without this, a value long enough to overflow the line just silently
  * clips at the right edge instead of showing Free42's actual "..."
  * tail-scroll behavior. */
-static void display_line(const char *label, const char *value, uint8_t block_row) {
+static void display_line(const char *label, const char *value, uint8_t y) {
     char full[64];
     int llen = (int) strlen(label);
     int vlen = (int) strlen(value);
@@ -107,25 +110,25 @@ static void display_line(const char *label, const char *value, uint8_t block_row
      * "E", distinct from a plain letter 'E') -- no translation needed. */
 
     if (total <= LINE_CHARS) {
-        display_draw_string(full, STACK_COL_START, block_row, 0x00);
+        display_draw_string(&font_24x10, full, STACK_COL_START, y, 0x00);
     } else {
         char buf[LINE_CHARS + 1];
         int tail_len = LINE_CHARS - 1;
         buf[0] = 26;
         memcpy(buf + 1, full + (total - tail_len), tail_len);
         buf[LINE_CHARS] = 0;
-        display_draw_string(buf, STACK_COL_START, block_row, 0x00);
+        display_draw_string(&font_24x10, buf, STACK_COL_START, y, 0x00);
     }
 }
 
-static void display_reg(const char *label, int index, uint8_t block_row) {
+static void display_reg(const char *label, int index, uint8_t y) {
     char buf[48];
     /* Default 12 mantissa digits (same as Free42's own vartype2string()
      * default), worst case ~19 chars with sign/decimal/exponent --
      * display_line() truncates from the front if it ever doesn't fit. */
     int len = vartype2string(stack[index], buf, sizeof(buf) - 1);
     buf[len] = 0;
-    display_line(label, buf, block_row);
+    display_line(label, buf, y);
 }
 
 /* While typing a number, Free42's own core never updates X (stack[sp])
@@ -136,14 +139,14 @@ static void display_reg(const char *label, int index, uint8_t block_row) {
  * instead of calling display_x()/vartype2string()). We do the same here:
  * show the raw entry buffer, not the stale X register, whenever
  * mode_number_entry is set. */
-static void display_entry(uint8_t block_row) {
+static void display_entry(uint8_t y) {
     char buf[64];
     int n = 0;
     for (int i = 0; i < cmdline_length && n < (int) sizeof(buf) - 2; i++)
         buf[n++] = cmdline[i]; /* display_line() translates the exponent marker (24) */
     buf[n++] = '_'; /* entry cursor, matching the real HP-42S/Free42 display */
     buf[n] = 0;
-    display_line("X:", buf, block_row);
+    display_line("X:", buf, y);
 }
 
 static void display_stack() {
@@ -154,7 +157,7 @@ static void display_stack() {
         char buf[sizeof(key_hint_text)];
         memcpy(buf, key_hint_text, key_hint_length);
         buf[key_hint_length] = 0;
-        display_draw_string(buf, STACK_COL_START, STACK_ROW_Y, 0x00);
+        display_draw_string(&font_24x10, buf, STACK_COL_START, STACK_ROW_Y, 0x00);
     } else if (flags.f.message && status_message_length > 0) {
         /* No "Y:" label here -- this isn't Y's value, it's an override
          * message (e.g. "DIVIDE BY 0"), matching how Free42's own
@@ -162,7 +165,7 @@ static void display_stack() {
         char buf[sizeof(status_message)];
         memcpy(buf, status_message, status_message_length);
         buf[status_message_length] = 0;
-        display_draw_string(buf, STACK_COL_START, STACK_ROW_Y, 0x00);
+        display_draw_string(&font_24x10, buf, STACK_COL_START, STACK_ROW_Y, 0x00);
     } else {
         display_reg("Y:", REG_Y, STACK_ROW_Y);
     }

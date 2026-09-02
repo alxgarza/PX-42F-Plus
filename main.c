@@ -8,6 +8,8 @@
 #include "free42_app.h"
 #include "display.h"
 #include "keyboard.h"
+#include "font_24x10.h"
+#include "font_10x16.h"
 
 /* Free42's core is a full desktop-oriented C++ calculator engine (BID128
  * decimal string parsing/formatting, nested command dispatch, etc.), and a
@@ -92,8 +94,10 @@ static void core1_main(void)
     display_init();
 
     display_clear();
-    display_draw_string("PX-42S", 0, 1, 0x00);
-    display_draw_string("HELLO AGAIN", 0, 3, 0x00);
+    display_draw_string(&font_24x10, "PX-42S", 0, 0, 0x00);
+    /* y=30 is arbitrary -- not a multiple of any hardware block size --
+     * to demonstrate pixel-exact placement alongside the other font. */
+    display_draw_string(&font_10x16, "HELLO AGAIN", 0, 30, 0x00);
     display_flush();
     sleep_ms(3000);
     // for(;;);
