@@ -357,7 +357,20 @@ void free42_key_timeout1(void) {
         key_hint_length = cmd_array[pending_command].name_length;
         if (key_hint_length > (int) sizeof(key_hint_text) - 1)
             key_hint_length = (int) sizeof(key_hint_text) - 1;
-        memcpy(key_hint_text, cmd_array[pending_command].name, key_hint_length);
+        /* Some command names pack a letter as ASCII|0x80 -- e.g. ENTER is
+         * literally stored "ENT\305R" (0305 octal = 0xC5 = 'E' + 0x80),
+         * not a real symbol. Confirmed against Free42's own renderer
+         * (core_display.cc's draw_key()): it does `c &= 127` for any
+         * undefined_char() byte (>=139) before drawing. Without that mask
+         * here, our font has no glyph for the raw byte, so it drew as a
+         * blank space -- "ENT R" instead of "ENTER". */
+        const char *name = cmd_array[pending_command].name;
+        for (int i = 0; i < key_hint_length; i++) {
+            unsigned char c = (unsigned char) name[i];
+            if (undefined_char(c))
+                c &= 127;
+            key_hint_text[i] = (char) c;
+        }
         key_hint_active = true;
         display_stack();
     }
