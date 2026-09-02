@@ -197,6 +197,11 @@ uint8_t display_draw_string(const display_font_t *font, const char *s, uint8_t x
     return x;
 }
 
+void display_draw_dotted_hline(uint8_t x0, uint8_t x1, uint8_t y) {
+    for (int x = x0; x <= (int) x1; x += 2)
+        display_set_pixel((uint8_t) x, y, true);
+}
+
 /* The ST7305's "3 writes / 24 bit" GRAM format (see the Data Format Select
  * command in the init sequence) packs pixels into 2-column x 12-row tiles,
  * 3 bytes each -- top/mid/bot, each byte 4 rows x 2 columns, 1 bit/pixel.

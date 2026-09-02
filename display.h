@@ -71,6 +71,10 @@ uint8_t display_draw_char(const display_font_t *font, char c, uint8_t x, uint8_t
  * value). */
 uint8_t display_draw_string(const display_font_t *font, const char *s, uint8_t x, uint8_t y, uint8_t color);
 
+/* Draws a horizontal dotted line (alternating on/off pixels, starting
+ * on at x0) at row y, from column x0 to x1 inclusive. */
+void display_draw_dotted_hline(uint8_t x0, uint8_t x1, uint8_t y);
+
 #ifdef __cplusplus
 }
 #endif

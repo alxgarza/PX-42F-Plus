@@ -9,7 +9,7 @@
 #include "core_variables.h"
 #include "display.h"
 #include "keyboard.h"
-#include "font_24x10.h"
+#include "font_10x16.h"
 
 /* Key codes, from the standard Free42 keymap (see keymap.txt in the
  * upstream repo): digits 0-9, the four arithmetic operators, and ENTER.
@@ -40,13 +40,18 @@ static int key_for_char(char c) {
     }
 }
 
-/* LCD row assignment for the 4-level stack, in pixels -- font_24x10 is
- * 24px tall with no inter-line gap, so these are just 0, 24, 48, 72
- * shifted down 12px to match the original block-row-aligned layout. */
-#define STACK_ROW_T 12
-#define STACK_ROW_Z 36
-#define STACK_ROW_Y 60
-#define STACK_ROW_X 84
+/* LCD row assignment for the Alpha register and the 4-level stack, in
+ * pixels -- font_10x16 is 16px tall, with a requested 4px gap between
+ * lines, so each line is ROW_STRIDE (20px) below the last, starting at
+ * ALPHA_ROW. A dotted separator is drawn centered in each 4px gap (see
+ * display_stack()), hence ROW_GAP / 2 below. */
+#define ALPHA_ROW    13
+#define ROW_GAP      4
+#define ROW_STRIDE   (16 + ROW_GAP) /* font_10x16 height + gap */
+#define STACK_ROW_T  (ALPHA_ROW + ROW_STRIDE)
+#define STACK_ROW_Z  (STACK_ROW_T + ROW_STRIDE)
+#define STACK_ROW_Y  (STACK_ROW_Z + ROW_STRIDE)
+#define STACK_ROW_X  (STACK_ROW_Y + ROW_STRIDE)
 
 /* Starting pixel column for every text row (leaves a 4px left margin). */
 #define STACK_COL_START 4
@@ -76,9 +81,9 @@ static bool key_hint_active = false;
 static char key_hint_text[12];
 static int key_hint_length = 0;
 
-/* font_24x10's 11px advance per character (10px glyph + 1px gap) gives
- * (250 - STACK_COL_START) / 11 = ~22 characters per line, matching
- * Free42's own native 22-character display width. */
+/* Both fonts are 10px wide with an 11px advance per character (10px
+ * glyph + 1px gap), giving (250 - STACK_COL_START) / 11 = ~22 characters
+ * per line, matching Free42's own native 22-character display width. */
 #define LINE_CHARS 22
 
 /* Draws label+value on one row, truncating from the front if the
@@ -105,19 +110,19 @@ static void display_line(const char *label, const char *value, uint8_t y) {
      * the number-entry buffer (cmdline) and in vartype2string()'s own
      * formatted scientific-notation output (core_helpers.cc's
      * phloat2string() explicitly treats 'E'/'e'/24 as equivalent). Now that
-     * font_24x10 covers the full 0-127 range, byte 24 draws directly as
+     * font_10x16 covers the full 0-127 range, byte 24 draws directly as
      * font entry 24 -- whatever glyph lives there (a dedicated exponent
      * "E", distinct from a plain letter 'E') -- no translation needed. */
 
     if (total <= LINE_CHARS) {
-        display_draw_string(&font_24x10, full, STACK_COL_START, y, 0x00);
+        display_draw_string(&font_10x16, full, STACK_COL_START, y, 0x00);
     } else {
         char buf[LINE_CHARS + 1];
         int tail_len = LINE_CHARS - 1;
         buf[0] = 26;
         memcpy(buf + 1, full + (total - tail_len), tail_len);
         buf[LINE_CHARS] = 0;
-        display_draw_string(&font_24x10, buf, STACK_COL_START, y, 0x00);
+        display_draw_string(&font_10x16, buf, STACK_COL_START, y, 0x00);
     }
 }
 
@@ -129,6 +134,20 @@ static void display_reg(const char *label, int index, uint8_t y) {
     int len = vartype2string(stack[index], buf, sizeof(buf) - 1);
     buf[len] = 0;
     display_line(label, buf, y);
+}
+
+/* Alpha register (reg_alpha/reg_alpha_length, core_globals.h) -- unlike
+ * the stack registers, this is raw text, not a value to format. Not
+ * null-terminated in the core's own representation, so copy + terminate
+ * before handing it to display_line(). */
+static void display_alpha(uint8_t y) {
+    char buf[sizeof(reg_alpha) + 1];
+    int len = reg_alpha_length;
+    if (len > (int) sizeof(reg_alpha))
+        len = (int) sizeof(reg_alpha);
+    memcpy(buf, reg_alpha, (size_t) len);
+    buf[len] = 0;
+    display_line("A:", buf, y);
 }
 
 /* While typing a number, Free42's own core never updates X (stack[sp])
@@ -151,13 +170,21 @@ static void display_entry(uint8_t y) {
 
 static void display_stack() {
     display_clear();
+
+    display_alpha(ALPHA_ROW);
+    display_draw_dotted_hline(0, DISPLAY_WIDTH - 1, STACK_ROW_T - ROW_GAP / 2);
+
     display_reg("T:", REG_T, STACK_ROW_T);
+    display_draw_dotted_hline(0, DISPLAY_WIDTH - 1, STACK_ROW_Z - ROW_GAP / 2);
+
     display_reg("Z:", REG_Z, STACK_ROW_Z);
+    display_draw_dotted_hline(0, DISPLAY_WIDTH - 1, STACK_ROW_Y - ROW_GAP / 2);
+
     if (key_hint_active && key_hint_length > 0) {
         char buf[sizeof(key_hint_text)];
         memcpy(buf, key_hint_text, key_hint_length);
         buf[key_hint_length] = 0;
-        display_draw_string(&font_24x10, buf, STACK_COL_START, STACK_ROW_Y, 0x00);
+        display_draw_string(&font_10x16, buf, STACK_COL_START, STACK_ROW_Y, 0x00);
     } else if (flags.f.message && status_message_length > 0) {
         /* No "Y:" label here -- this isn't Y's value, it's an override
          * message (e.g. "DIVIDE BY 0"), matching how Free42's own
@@ -165,10 +192,12 @@ static void display_stack() {
         char buf[sizeof(status_message)];
         memcpy(buf, status_message, status_message_length);
         buf[status_message_length] = 0;
-        display_draw_string(&font_24x10, buf, STACK_COL_START, STACK_ROW_Y, 0x00);
+        display_draw_string(&font_10x16, buf, STACK_COL_START, STACK_ROW_Y, 0x00);
     } else {
         display_reg("Y:", REG_Y, STACK_ROW_Y);
     }
+    display_draw_dotted_hline(0, DISPLAY_WIDTH - 1, STACK_ROW_X - ROW_GAP / 2);
+
     if (mode_number_entry)
         display_entry(STACK_ROW_X);
     else
