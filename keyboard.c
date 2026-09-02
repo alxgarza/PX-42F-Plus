@@ -37,3 +37,14 @@ bool keyboard_scan(uint8_t *row, uint8_t *col) {
     }
     return false;
 }
+
+bool keyboard_is_held(uint8_t row, uint8_t col) {
+    if (row >= KB_ROWS || col >= KB_COLS)
+        return false;
+
+    gpio_put(kb_row_pins[row], 0);
+    sleep_us(5); /* let the line settle before sampling, same as keyboard_scan() */
+    bool held = !gpio_get(kb_col_pins[col]);
+    gpio_put(kb_row_pins[row], 1);
+    return held;
+}

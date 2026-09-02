@@ -213,8 +213,19 @@ static void core1_main(void)
              * new press -- firing the same key repeatedly for as long as
              * it was held. The 6000-iteration (60s) cap here is only a
              * safety net for a truly stuck/miswired key, not something a
-             * real press should ever reach. */
-            for (int i = 0; i < 6000 && keyboard_scan(&row, &col); i++) {
+             * real press should ever reach.
+             *
+             * Must check this *specific* (row, col), not re-scan for
+             * "any key down" -- re-scanning here was the actual cause of
+             * an intermittent dropped/lagging keystroke bug: if a second
+             * key got pressed (e.g. fast typing, fingers briefly
+             * overlapping) before this one was released, keyboard_scan()
+             * would report that other key as still-pressed "evidence"
+             * that the original key was being held, so this loop kept
+             * running the original key's hold-timeout logic while the
+             * second key's own press was never dispatched at all --
+             * silently swallowed until it, too, was released. */
+            for (int i = 0; i < 6000 && keyboard_is_held(row, col); i++) {
                 watchdog_update();
 
                 if (!enqueued && repeat_mode != 0) {
