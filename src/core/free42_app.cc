@@ -301,13 +301,12 @@ static void display_header() {
     uint8_t x = HEADER_FLAGS_X;
     for (int i = 0; i < 5; i++) {
         /* Each flag keeps its fixed column (x advances every iteration
-         * regardless), but only draws anything -- the white patch plus
-         * its digit -- when actually set; an unset flag leaves its
-         * column blank rather than showing a dim "always there" digit. */
+         * regardless), but only draws its digit when actually set -- same
+         * plain white-on-black style as the rest of the header, no
+         * inverted patch; an unset flag just leaves its column blank. */
         if (flags.farray[i]) {
             char digit = (char) ('0' + i);
-            display_fill_rect(x, 0, (uint8_t) (x + font_8x12.width - 1), HEADER_HEIGHT - 1, false);
-            display_draw_char(&font_8x12, digit, x, 0, 0x00);
+            display_draw_char(&font_8x12, digit, x, 0, 0xFF);
         }
         x = (uint8_t) (x + font_8x12.advance);
     }
@@ -423,35 +422,41 @@ static bool menu_item_is_flag(int cmd_id) {
 }
 
 /* Draws tab i (0-5) of FOOTER_TABS equal-width segments: a black
- * rectangle with its (inverted, white) label centered, truncated to
- * whatever fits the tab's width. A 1px gap separates adjacent tabs
- * (except after the last one, which runs to the display's right edge)
- * so they read as distinct tabs rather than one continuous bar. A
- * highlighted tab (the calculator's current setting) gets a 1px white
- * underline instead of inverting the whole tab -- the bottom row is
- * already blank margin under the vertically-centered text (12px glyph
- * in a 14px tab leaves 1px top and bottom), so the underline never
- * touches the label itself. */
+ * rectangle with its (inverted, white) label, truncated to whatever fits
+ * the tab's width. A 1px gap separates adjacent tabs (except after the
+ * last one, which runs to the display's right edge) so they read as
+ * distinct tabs rather than one continuous bar.
+ *
+ * FOOTER_HEIGHT (14) minus the font's height (12) leaves only 2 spare
+ * rows total, so there's a tradeoff: the label sits flush against the
+ * top (no centering) so both spare rows land at the bottom, free for a
+ * highlighted tab's 2px underline. Top corners get a small 2-step inset
+ * (2px, then 1px) to read as rounded -- since the label is centered
+ * horizontally with margin on both sides, this corner trim (2px into
+ * the far left/right of the top row) essentially never touches actual
+ * glyph ink; and even if it did, both are the same white/background
+ * tone, so there's nothing to clash. */
 static void draw_footer_tab(int i, const char *text, int text_len, bool highlight) {
     int x0 = (i * DISPLAY_WIDTH) / FOOTER_TABS;
     int x1 = ((i + 1) * DISPLAY_WIDTH) / FOOTER_TABS - 1;
     int fill_x1 = (i < FOOTER_TABS - 1) ? x1 - 1 : x1;
     int bottom = FOOTER_Y0 + FOOTER_HEIGHT - 1;
 
-    display_fill_rect((uint8_t) x0, FOOTER_Y0, (uint8_t) fill_x1, (uint8_t) bottom, true);
+    display_fill_rect((uint8_t) (x0 + 2), FOOTER_Y0, (uint8_t) (fill_x1 - 2), FOOTER_Y0, true);
+    display_fill_rect((uint8_t) (x0 + 1), (uint8_t) (FOOTER_Y0 + 1), (uint8_t) (fill_x1 - 1), (uint8_t) (FOOTER_Y0 + 1), true);
+    display_fill_rect((uint8_t) x0, (uint8_t) (FOOTER_Y0 + 2), (uint8_t) fill_x1, (uint8_t) bottom, true);
 
     int max_chars = (fill_x1 - x0 + 1) / font_8x12.advance;
     if (text_len > max_chars)
         text_len = max_chars;
     int text_width = text_len * font_8x12.advance;
     int tx = x0 + ((fill_x1 - x0 + 1) - text_width) / 2;
-    int ty = FOOTER_Y0 + (FOOTER_HEIGHT - font_8x12.height) / 2;
 
     for (int k = 0; k < text_len; k++)
-        tx = display_draw_char(&font_8x12, text[k], (uint8_t) tx, (uint8_t) ty, 0xFF);
+        tx = display_draw_char(&font_8x12, text[k], (uint8_t) tx, FOOTER_Y0, 0xFF);
 
     if (highlight)
-        display_fill_rect((uint8_t) x0, (uint8_t) bottom, (uint8_t) fill_x1, (uint8_t) bottom, false);
+        display_fill_rect((uint8_t) x0, (uint8_t) (bottom - 1), (uint8_t) fill_x1, (uint8_t) bottom, false);
 }
 
 static void display_footer() {
