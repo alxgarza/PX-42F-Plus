@@ -574,6 +574,30 @@ static const int key_matrix[KB_ROWS][KB_COLS] = {
         /*R7*/ { 33,          34,       35,       36,          37 }, /* ON/EXIT   0    .  R/S    + */
 };
 
+/* Alpha-mode overlay: while alpha_active() (the core's ALPHA text-entry
+ * mode), a position with a nonzero entry here types that literal
+ * character instead of its normal key_matrix (HP-42S key code) meaning
+ * -- see free42_key_down(), which injects it via Free42's ASCII/Unicode
+ * key-code convention (core_keydown() with key = 1024 + the character's
+ * byte value, per core_main.cc's core_keydown()) rather than looking it
+ * up in key_matrix at all. A 0 entry leaves that position as-is (falls
+ * through to key_matrix): most of column 0, for instance, keeps its
+ * normal meaning -- ENTER, BSP, the arrow keys, SHIFT, EXIT -- since
+ * those are still needed while typing text, not just calculating. SHIFT
+ * (R6C0, unchanged from key_matrix) lowercases a mapped letter -- see
+ * free42_key_down(). */
+static const char alpha_key_matrix[KB_ROWS][KB_COLS] = {
+        /*      C0   C1   C2   C3   C4 */
+        /*R0*/ {   0,   0,   0, 'F', 'L' },
+        /*R1*/ { 'A', 'B', 'C', 'D', 'E' },
+        /*R2*/ { 'G', 'H', 'I', 'J', 'K' },
+        /*R3*/ {   0, 'M', 'N', 'O',   0 },
+        /*R4*/ {   0, 'P', 'Q', 'R', 'S' },
+        /*R5*/ {   0, 'T', 'U', 'V', 'W' },
+        /*R6*/ {   0, 'X', 'Y', 'X', '-' },
+        /*R7*/ {   0, ':', '.', '?',   0 },
+};
+
 /* Human-readable name for an HP-42S key code 1-37 (verified against
  * keymap.txt in the upstream repo), used only for the serial debug print
  * below -- purely diagnostic, Free42's core never sees this string. */
@@ -636,6 +660,25 @@ void free42_key_down(uint8_t row, uint8_t col) {
     if (row >= KB_ROWS || col >= KB_COLS)
         return;
 
+    bool enqueued;
+    int repeat;
+
+    char alpha_c = alpha_key_matrix[row][col];
+    if (alpha_c != 0 && alpha_active()) {
+        if (mode_shift && alpha_c >= 'A' && alpha_c <= 'Z')
+            alpha_c = (char) (alpha_c - 'A' + 'a');
+        int key = 1024 + (unsigned char) alpha_c;
+        printf("R%uC%u: alpha '%c'\n", row, col, alpha_c);
+
+        held_key = key;
+        core_keydown(key, &enqueued, &repeat);
+        held_enqueued = enqueued;
+        held_repeat = repeat;
+
+        display_stack();
+        return;
+    }
+
     int key = key_matrix[row][col];
     if (key == 0)
         return;
@@ -643,9 +686,6 @@ void free42_key_down(uint8_t row, uint8_t col) {
     printf("R%uC%u: %s\n", row, col, key_name(key));
 
     held_key = key;
-
-    bool enqueued;
-    int repeat;
     core_keydown(key, &enqueued, &repeat);
     held_enqueued = enqueued;
     held_repeat = repeat;
