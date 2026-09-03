@@ -571,7 +571,7 @@ static const int key_matrix[KB_ROWS][KB_COLS] = {
         /*R4*/ { 18,          19,       20,       21,          22 }, /*     Up    7    8    9    / */
         /*R5*/ { 23,          24,       25,       26,          27 }, /*   Down    4    5    6    x */
         /*R6*/ { 28,          29,       30,       31,          32 }, /*  SHIFT    1    2    3    - */
-        /*R7*/ {  0,           0,        0,        0,           0 },
+        /*R7*/ { 33,          34,       35,       36,          37 }, /* ON/EXIT   0    .  R/S    + */
 };
 
 /* Human-readable name for an HP-42S key code 1-37 (verified against
