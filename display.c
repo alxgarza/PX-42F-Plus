@@ -90,20 +90,20 @@ static void display_run_init_sequence(const uint8_t *seq) {
 }
 
 void display_init(void) {
-    /* Raised from the original 1 MHz bring-up value now that the driver is
-     * proven stable -- 8, 16, and 32 MHz all confirmed clean, now probing
-     * higher. With no CS line, RS's state at the clock edges is the only
-     * framing (see display_write_command()) -- there's no hardware margin
-     * for a signal-integrity glitch on the wiring to be masked, so if the
-     * display starts showing corruption/garbage at this speed, that's the
-     * real ceiling for the current wiring; come back down to 32 MHz. Note
-     * this is also approaching the RP2350 SPI peripheral's own practical
-     * ceiling (a fraction of the ~150 MHz system clock), separate from
-     * whatever the wiring can tolerate -- spi_init() returns the actual
-     * achieved rate, which may not land exactly on the requested value
-     * once the clock divider can't hit it precisely. */
-    uint actual_baud = spi_init(DISP_SPI, 64 * 1000 * 1000); /* 64 MHz requested */
-    printf("Display SPI: requested 64 MHz, got %u Hz\n", actual_baud);
+    /* Backed down from 64 MHz: that was an experimental probe past the
+     * last *confirmed*-clean speed, and the display going blank is
+     * exactly the failure this comment predicted -- with no CS line, RS's
+     * state at the clock edges is the only framing (see
+     * display_write_command()), so there's no hardware margin for a
+     * signal-integrity glitch on the wiring to be masked; it just shows
+     * up as the panel never syncing to anything instead of a corrupted
+     * image. 32 MHz is the highest speed actually confirmed clean (8 and
+     * 16 also fine) -- raised from the original 1 MHz bring-up value once
+     * the driver was proven stable. If blanking recurs even at 32 MHz,
+     * that points at the wiring itself (length, routing, connector)
+     * rather than the clock rate. */
+    uint actual_baud = spi_init(DISP_SPI, 32 * 1000 * 1000); /* 32 MHz requested */
+    printf("Display SPI: requested 32 MHz, got %u Hz\n", actual_baud);
     /* Pin down the format explicitly rather than rely on spi_init()'s
      * default -- confirmed to match the AVR reference (SPI_MODE_0_gc,
      * i.e. CPOL=0/CPHA=0), MSB first. With no CS line at all, the panel
