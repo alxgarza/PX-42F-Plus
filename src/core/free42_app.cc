@@ -13,6 +13,7 @@
 #include "font_8x12.h"
 #include "rtc.h"
 #include "shell.h"
+#include "hardware/watchdog.h"
 
 /* Key codes, from the standard Free42 keymap (see keymap.txt in the
  * upstream repo): digits 0-9, the four arithmetic operators, and ENTER.
@@ -40,6 +41,41 @@ static int key_for_char(char c) {
         case '\r':
         case '\n': return 13; /* ENTER */
         default: return 0;
+    }
+}
+
+/* core_keydown() and core_keyup() (core_main.h) both return a "call me
+ * again, right away, with key=0" flag -- set when the calculator is
+ * running a user program (or continuing an interruptible operation) and
+ * is only handing control back because it noticed a pending event. Free42's
+ * own reference shells (e.g. free42-upstream/gtk/shell_main.cc) drive this
+ * via a timer, calling core_keydown(0, ...) repeatedly until it returns
+ * false, to let the program actually keep executing.
+ *
+ * This port was missing that entirely -- every call site here just
+ * discarded the return value. As long as nothing ever set the calculator
+ * running, that went unnoticed; the first keypress that did (R/S, or XEQ
+ * on a program) left it stuck forever in a running-but-never-pumped
+ * limbo: our own main-loop keyboard scan kept working fine (so presses
+ * still showed up on the debug serial log), but nothing ever advanced
+ * the program, and the display just kept re-showing the same frozen
+ * state.
+ *
+ * PUMP_ITERATION_CAP is a safety net against a genuinely infinite user
+ * program (e.g. a GTO-to-itself loop): unlike the reference shells, this
+ * can't be interrupted by a fresh keypress mid-run (there's no
+ * physical-keyboard path for program entry in this minimal port yet, so
+ * an actual infinite loop shouldn't come up in ordinary use) -- hitting
+ * the cap just gives control back to the caller rather than cleanly
+ * stopping the program. */
+#define PUMP_ITERATION_CAP 100000
+
+static void pump_running(bool keep_running) {
+    bool enqueued;
+    int repeat;
+    for (int i = 0; keep_running && i < PUMP_ITERATION_CAP; i++) {
+        watchdog_update();
+        keep_running = core_keydown(0, &enqueued, &repeat);
     }
 }
 
@@ -552,8 +588,8 @@ void free42_process_char(char c) {
 
     bool enqueued;
     int repeat;
-    core_keydown(key, &enqueued, &repeat);
-    core_keyup();
+    pump_running(core_keydown(key, &enqueued, &repeat));
+    pump_running(core_keyup());
 
     display_stack();
 }
@@ -671,7 +707,7 @@ void free42_key_down(uint8_t row, uint8_t col) {
         printf("R%uC%u: alpha '%c'\n", row, col, alpha_c);
 
         held_key = key;
-        core_keydown(key, &enqueued, &repeat);
+        pump_running(core_keydown(key, &enqueued, &repeat));
         held_enqueued = enqueued;
         held_repeat = repeat;
 
@@ -686,7 +722,7 @@ void free42_key_down(uint8_t row, uint8_t col) {
     printf("R%uC%u: %s\n", row, col, key_name(key));
 
     held_key = key;
-    core_keydown(key, &enqueued, &repeat);
+    pump_running(core_keydown(key, &enqueued, &repeat));
     held_enqueued = enqueued;
     held_repeat = repeat;
 
@@ -775,7 +811,7 @@ void free42_key_timeout2(void) {
 
 void free42_key_up(void) {
     if (held_key != 0 && !held_enqueued)
-        core_keyup();
+        pump_running(core_keyup());
 
     held_key = 0;
     held_enqueued = false;
