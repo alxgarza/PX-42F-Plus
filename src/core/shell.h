@@ -280,17 +280,4 @@ void shell_message(const char *message);
  */
 void shell_log(const char *message);
 
-/* shell_status_message()
- *
- * Pico port addition -- not part of upstream Free42.
- * Called by the emulator core (from display_error() in core_display.cc)
- * whenever it puts a one-line status or error message (e.g. "OUT OF RANGE",
- * "DIVIDE BY 0") on line 1 of the LCD. Shells with a real bitmap display
- * don't need this, since that text already reaches them through
- * shell_blitter(); this exists so a text-only shell (no display attached
- * yet) can still surface it.
- * 'text' is not null-terminated; use 'length'.
- */
-void shell_status_message(const char *text, int length);
-
 #endif

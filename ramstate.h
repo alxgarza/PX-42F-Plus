@@ -32,6 +32,11 @@ FILE *ramstate_fopen(const char *mode);
 /* A complete, intact saved state is in the buffer. */
 bool ramstate_valid(void);
 
+/* After a state was read and loaded fine: valid again (reading had used it
+ * up; the data is untouched until the next save). So a crash later on
+ * brings the calculator back with its memory as of this load, not empty. */
+void ramstate_keep(void);
+
 #ifdef __cplusplus
 }
 #endif

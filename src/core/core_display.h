@@ -38,6 +38,11 @@ const unsigned char *get_char(char c);
 void draw_string(int x, int y, const char *s, int length);
 int special_menu_key(int which);
 void clear_row(int row);
+/* Pico port addition: the text last drawn on a row (0 or 1), not
+ * NUL-terminated -- what a message (flags.f.message) says. */
+const char *display_row_text(int row, int *length);
+/* ... and of menu key n (0-5), with whether it's drawn highlighted. */
+const char *display_key_label(int n, int *length, bool *highlight);
 
 void display_prgm_line(int row, int line_offset);
 void xlabel2buf(char *buf, int buflen, int *bufptr);

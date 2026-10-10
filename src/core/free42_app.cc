@@ -127,18 +127,30 @@ void free42_request_timeout3(int delay_ms) {
 /* Starting pixel column for every text row (leaves a 4px left margin). */
 #define STACK_COL_START 4
 
-/* Last error/status message text from shell_status_message() (shell.cc),
- * shown on the Y row in place of Y's value for as long as the core
- * considers it active (flags.f.message). 22 bytes matches Free42's own
- * lasterr_text[22] -- the core never hands us anything longer. */
-static char status_message[23];
-static int status_message_length = 0;
+/* A message from the core -- an error, VIEW, AVIEW, PROMPT... -- is the
+ * text it drew on its own two-row display (core_display.cc's
+ * display_row_text()), shown for as long as the core considers it active
+ * (flags.f.message): row 0 in place of Y, and row 1 in place of X for a
+ * two-line message. */
+static void draw_message_row(int row, uint8_t y) {
+    int length;
+    const char *text = display_row_text(row, &length);
+    display_draw_chars(&font_10x16, text, length, STACK_COL_START, y, 0x00);
+}
 
-void free42_set_status_message(const char *text, int length) {
-    if (length > (int) sizeof(status_message) - 1)
-        length = sizeof(status_message) - 1;
-    memcpy(status_message, text, length);
-    status_message_length = length;
+/* MEM (in the CATALOG) and shift-VARMENU draw both rows without setting
+ * flags.f.message: a "lingering" display, up while the key is held and
+ * until the next key or a timeout (core_main.cc's CMD_LINGER1/2). */
+static bool lingering() {
+    return pending_command == CMD_LINGER1 || pending_command == CMD_LINGER2;
+}
+
+static bool message_active() {
+    return flags.f.message || lingering();
+}
+
+static bool message_two_lines() {
+    return (flags.f.message && flags.f.two_line_message) || lingering();
 }
 
 /* Transient override for the Y row while a key is held down, matching the
@@ -146,7 +158,7 @@ void free42_set_status_message(const char *text, int length) {
  * and its function name appears (see free42_key_timeout1()); keep holding
  * to 2 seconds and it switches to "NULL", meaning releasing now cancels the
  * key instead of performing it (free42_key_timeout2()). Cleared on release
- * (free42_key_up()). Takes priority over status_message -- it's describing
+ * (free42_key_up()). Takes priority over a message -- it's describing
  * the key currently under your finger, not a past error. */
 static bool key_hint_active = false;
 static char key_hint_text[12];
@@ -504,12 +516,11 @@ static void display_header() {
  * the subset of Free42's own redisplay() (core_display.cc) needed to read
  * the current menu's 6 labels without going through its internal pixel
  * renderer (draw_key()/the single-line display[] buffer), which this
- * port has never used anywhere else. Covers the two most common menu
- * sources: general app menus (the `menus[]` table -- MODES, DISP, CLEAR,
- * and similar) and VARMENU (the variables menu). Not covered: CATALOG,
- * CUSTOM1-3, and PROGRAMMABLE menus, whose label text lives in variables
- * private (static) to core_display.cc -- the footer just stays blank for
- * those rather than showing something wrong. Also not covered: the
+ * port has never used anywhere else: general app menus (the `menus[]`
+ * table -- MODES, DISP, CLEAR, and similar) and VARMENU (the variables
+ * menu). The CATALOG, CUSTOM1-3 and PROGRAMMABLE menus, whose label text
+ * lives in variables private to core_display.cc, are shown as the core
+ * drew them instead (display_key_label()). Not covered: the
  * CMD_BINM/OCTM/DECM/HEXM highlight cases (need get_base(), not exported)
  * and shifted alternate labels on a handful of specific top-level menus
  * (MENU_TOP_FCN and friends) -- both narrow cosmetic gaps; the physical
@@ -684,8 +695,20 @@ static void display_footer() {
     }
 
     if (menu_id == MENU_CATALOG || menu_id == MENU_CUSTOM1 || menu_id == MENU_CUSTOM2
-            || menu_id == MENU_CUSTOM3 || menu_id == MENU_PROGRAMMABLE)
-        return; /* not covered yet -- see the comment above display_footer() */
+            || menu_id == MENU_CUSTOM3 || menu_id == MENU_PROGRAMMABLE) {
+        /* Their labels aren't in the menu tables -- the catalog's come from
+         * the function, program and variable lists, CUSTOM's from the key
+         * assignments, a programmable menu's from KEYG/KEYX -- so they're
+         * taken as the core drew them (core_display.cc's
+         * display_key_label()). */
+        for (int i = 0; i < 6; i++) {
+            int len;
+            bool highlight;
+            const char *text = display_key_label(i, &len, &highlight);
+            draw_footer_tab(i, text, len, highlight);
+        }
+        return;
+    }
 
     const menu_spec *m = menus + menu_id;
     for (int i = 0; i < 6; i++) {
@@ -761,15 +784,12 @@ static void display_prgm_number_entry(uint8_t y, int4 line) {
  * handle them one level up. */
 static void display_prgm_listing() {
     debug_checkpoint(CKPT_DISPLAY_PRGM_LISTING, 0);
-    if (flags.f.message && status_message_length > 0) {
+    if (message_active()) {
         /* Rare (e.g. "PROGRAM LOCKED" from a locked program): no room set
          * aside for this in the listing layout, so it just takes over one
          * central row, unlabeled -- same "message replaces everything"
          * convention display_stack() uses for the Y row. */
-        char buf[sizeof(status_message)];
-        memcpy(buf, status_message, status_message_length);
-        buf[status_message_length] = 0;
-        display_draw_string(&font_10x16, buf, STACK_COL_START, prgm_row_y[PRGM_WINDOW_ROWS / 2], 0x00);
+        draw_message_row(0, prgm_row_y[PRGM_WINDOW_ROWS / 2]);
         return;
     }
 
@@ -853,7 +873,7 @@ static void display_prgm_listing() {
 }
 
 /* show_x is set only by the SHOW path (free42_key_down(), on Shift+.) --
- * it's mutually exclusive with key_hint/status_message/number-entry/
+ * it's mutually exclusive with key_hint/a message/number-entry/
  * command-entry by construction (SHOW is only reachable from plain normal
  * mode, see the gating there). When set, the Y row is left to
  * display_show_x() below (it may or may not use it -- see there) instead
@@ -887,14 +907,11 @@ static void display_stack(bool show_x = false) {
         /* By length, not as a C string: the divide key's name is the single
          * byte 0 (Free42's divide sign, font entry 0). */
         display_draw_chars(&font_10x16, key_hint_text, key_hint_length, STACK_COL_START, STACK_ROW_Y, 0x00);
-    } else if (flags.f.message && status_message_length > 0) {
+    } else if (message_active()) {
         /* No "Y:" label here -- this isn't Y's value, it's an override
          * message (e.g. "DIVIDE BY 0"), matching how Free42's own
          * display_error() replaces the line wholesale, unlabeled. */
-        char buf[sizeof(status_message)];
-        memcpy(buf, status_message, status_message_length);
-        buf[status_message_length] = 0;
-        display_draw_string(&font_10x16, buf, STACK_COL_START, STACK_ROW_Y, 0x00);
+        draw_message_row(0, STACK_ROW_Y);
     } else {
         display_reg("Y:", REG_Y, STACK_ROW_Y);
     }
@@ -902,6 +919,8 @@ static void display_stack(bool show_x = false) {
 
     if (show_x)
         display_show_x();
+    else if (message_two_lines() && !key_hint_active)
+        draw_message_row(1, STACK_ROW_X); /* e.g. a long AVIEW's second line, MEM's byte count */
     else if (mode_number_entry)
         display_entry(STACK_ROW_X);
     else if (mode_command_entry)
@@ -914,20 +933,26 @@ static void display_stack(bool show_x = false) {
 
 /* Where free42_sleep() puts the calculator's memory if it doesn't fit in
  * the RAM buffer (ramstate.c) -- at the drive's root, out of the STATE
- * list; free42_init() deletes it once it's loaded back. */
+ * list. */
 #define OFF_STATE_FILE "/OFFSTATE.f42"
 
-void free42_init(void) {
-    /* Back from OFF: the memory it saved, from RAM or, failing that, the
-     * drive. Reading the RAM state uses it up, so a state that crashes the
-     * load can't do it again at the next boot. 26: see free42_save_state(). */
-    if (ramstate_valid()) {
+void free42_init(bool after_crash) {
+    /* The memory saved at the last OFF, from RAM or, failing that, the
+     * drive. It's kept after loading, so a crash later on comes back to it
+     * (the memory as of this ON) instead of Memory Clear -- but not when
+     * this boot itself follows a crash: reading the RAM state uses it up,
+     * and the file is deleted, so a state that crashes the calculator can
+     * do it once more at most. 26: see free42_save_state(). */
+    bool from_ram = ramstate_valid();
+    if (from_ram) {
         core_init(1, 26, RAMSTATE_PATH, 0);
         pump_running(core_powercycle());
     } else if (statefs_ready() && statefs_file_exists(OFF_STATE_FILE)) {
         core_init(1, 26, OFF_STATE_FILE, 0);
-        statefs_remove(OFF_STATE_FILE);
-        statefs_sync();
+        if (after_crash) {
+            statefs_remove(OFF_STATE_FILE);
+            statefs_sync();
+        }
         pump_running(core_powercycle());
     } else {
         core_init(0, 0, NULL, 0);
@@ -936,6 +961,8 @@ void free42_init(void) {
      * OFF): kept across a reboot, a reflash or Memory Clear. */
     free42_set_formats(px_settings.date_format, px_settings.clock_24h);
     display_stack();
+    if (from_ram && !after_crash)
+        ramstate_keep(); /* loaded and drawn fine */
 }
 
 void free42_process_char(char c) {
@@ -1240,8 +1267,9 @@ void free42_key_timeout1(void) {
     if (held_key == 0 || held_enqueued)
         return;
 
-    if (pending_command != CMD_NONE && pending_command != CMD_CANCELLED
-            && !(cmd_array[pending_command].flags & FLAG_NO_SHOW)) {
+    /* >= 0: CMD_NONE, CMD_CANCELLED and CMD_LINGER1/2 (holding MEM, SHOW)
+     * are negative -- not entries of cmd_array. */
+    if (pending_command >= 0 && !(cmd_array[pending_command].flags & FLAG_NO_SHOW)) {
         key_hint_length = cmd_array[pending_command].name_length;
         if (key_hint_length > (int) sizeof(key_hint_text) - 1)
             key_hint_length = (int) sizeof(key_hint_text) - 1;
@@ -1275,8 +1303,7 @@ void free42_key_timeout2(void) {
     if (held_key == 0 || held_enqueued)
         return;
 
-    if (pending_command != CMD_NONE && pending_command != CMD_CANCELLED
-            && !(cmd_array[pending_command].flags & FLAG_NO_SHOW)) {
+    if (pending_command >= 0 && !(cmd_array[pending_command].flags & FLAG_NO_SHOW)) {
         pending_command = CMD_CANCELLED;
         memcpy(key_hint_text, "NULL", 4);
         key_hint_length = 4;
@@ -1378,14 +1405,14 @@ bool free42_powerdown_requested(void) {
     return powerdown_requested;
 }
 
-void free42_sleep(void) {
+void free42_sleep(bool quiet) {
     powerdown_requested = false;
     held_key = 0;
     held_enqueued = false;
     held_repeat = 0;
     key_hint_active = false;
 
-    if (px_settings.off_sound)
+    if (px_settings.off_sound && !quiet)
         sounds_play_off(); /* the screen still showing what it did */
 
     /* The ON key wakes the calculator, same as the real HP-42S -- it's the
@@ -1405,6 +1432,9 @@ void free42_sleep(void) {
     core_save_state(RAMSTATE_PATH);
     if (!ramstate_valid()) {
         core_save_state(OFF_STATE_FILE);
+        statefs_sync();
+    } else if (statefs_ready() && statefs_file_exists(OFF_STATE_FILE)) {
+        statefs_remove(OFF_STATE_FILE); /* from when the memory was bigger: stale now */
         statefs_sync();
     }
     settings_save_pending(); /* DMY, CLK12, a time set exactly... since the last save */

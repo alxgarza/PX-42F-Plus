@@ -220,9 +220,11 @@ bool flashdisk_flush_one(void) {
     return true;
 }
 
-void flashdisk_flush_all(void) {
+bool flashdisk_flush_all(void) {
+    uint32_t errors_before = error_count;
     while (flashdisk_flush_one())
         ;
+    return error_count == errors_before;
 }
 
 bool flashdisk_dirty(void) {

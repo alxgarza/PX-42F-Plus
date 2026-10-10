@@ -1,4 +1,4 @@
-/* USB descriptors for the PX-42S composite device. Based on the Pico SDK's
+/* USB descriptors for the PX-42F composite device. Based on the Pico SDK's
  * default stdio descriptors (src/rp2_common/pico_stdio_usb/
  * stdio_usb_descriptors.c), plus a mass-storage interface for the
  * state-file drive:
@@ -79,7 +79,7 @@ static char usbd_serial_str[PICO_UNIQUE_BOARD_ID_SIZE_BYTES * 2 + 1];
 
 static const char *const usbd_desc_str[] = {
     [USBD_STR_MANUF] = "PX-42",
-    [USBD_STR_PRODUCT] = "PX-42S",
+    [USBD_STR_PRODUCT] = "PX-42F",
     [USBD_STR_SERIAL] = usbd_serial_str,
     [USBD_STR_CDC] = "PX-42F Console",
     [USBD_STR_MSC] = "PX-42F State Disk",

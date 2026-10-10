@@ -24,6 +24,11 @@ int battery_level(void);
 /* True once the cell is below BATTERY_LOW_MV (Free42's flag 49). */
 bool battery_low(void);
 
+/* Call every 10 seconds or so: true once the cell has read below
+ * BATTERY_EMPTY_MV three times running -- time to power off, while there's
+ * still enough to save the memory. */
+bool battery_empty(void);
+
 #ifdef __cplusplus
 }
 #endif

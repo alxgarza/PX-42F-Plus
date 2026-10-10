@@ -92,6 +92,11 @@ static int ram_close_write(void *cookie) {
     return 0;
 }
 
+void ramstate_keep(void) {
+    if (ram_state.length <= RAMSTATE_CAPACITY && ram_state.checksum == checksum(ram_state.data, ram_state.length))
+        ram_state.magic = RAMSTATE_MAGIC;
+}
+
 FILE *ramstate_fopen(const char *mode) {
     pos = 0;
     if (mode[0] == 'w') {

@@ -1,7 +1,7 @@
-/* Minimal stub implementation of the Free42 shell interface (shell.h) for
- * the Pico 2 port. These are placeholder bodies whose only job right now is
- * to let the emulator core link; real hardware behavior (display, beeper,
- * persistent storage, RTC, etc.) still needs to be wired up.
+/* The Free42 shell interface (shell.h) for the PX-42F: what the core asks
+ * of its host -- sounds, the clock, files on the drive, the printer, the
+ * battery. The screen and keyboard are free42_app.cc's (this port draws
+ * its own display from the calculator's state; shell_blitter() is unused).
  */
 
 #include <stdio.h>
@@ -15,12 +15,14 @@
 #include "statefs.h"
 #include "printer.h"
 #include "shell_spool.h"
+#include "pico/time.h"
+#include "hardware/powman.h"
 
 /* The Pico SDK's newlib syscall layer (pico_clib_interface) stubs out
- * _read/_write/_open/_close/_lseek/_fstat/_isatty, but not _link/_unlink.
- * Free42's state-file save path (my_rename/my_remove, and newlib's own
- * rename() fallback) can reach them, so provide no-op stubs here -- there
- * is no filesystem on this target yet.
+ * _read/_write/_open/_close/_lseek/_fstat/_isatty, but not _link/_unlink,
+ * which newlib's own rename()/remove() reference. Free42's file access
+ * goes through my_fopen/my_rename/my_remove (-> statefs.c) instead, so
+ * these only have to exist for the link.
  */
 extern "C" int _link(const char *oldpath, const char *newpath) {
     return -1;
@@ -87,8 +89,10 @@ void shell_powerdown() {
     free42_request_powerdown();
 }
 
+/* For 0 SEED ("seed from the clock"): the calendar clock's milliseconds
+ * mixed with the microseconds since boot. */
 int8 shell_random_seed() {
-    return 0;
+    return (int8) (powman_timer_get_ms() * 1000 + time_us_64() % 1000);
 }
 
 uint4 shell_milliseconds() {
@@ -159,14 +163,4 @@ void shell_message(const char *message) {
 }
 
 void shell_log(const char *message) {
-}
-
-void shell_status_message(const char *text, int length) {
-    /* Used to printf() this over USB serial, but a blocking stdio write
-     * with no host actively reading it can stall long enough to trip the
-     * watchdog -- this fires on every error/status message (out of range,
-     * divide by zero, etc.), so it's tied to usage, not idle time. Routed
-     * to the LCD's Y row instead (see free42_set_status_message() and
-     * display_stack() in free42_app.cc). */
-    free42_set_status_message(text, length);
 }

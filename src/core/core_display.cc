@@ -709,12 +709,40 @@ bool unpersist_display(int version) {
     return true;
 }
 
+/* Pico port addition: the text on the two rows, as drawn -- this port
+ * never shows the pixel buffer below (it renders its own screen from the
+ * calculator's state), so messages drawn here (VIEW, AVIEW, PROMPT, errors,
+ * the solver's and integrator's...) are read back as text when
+ * flags.f.message is set. See display_row_text(). */
+static char row_text[2][22];
+static int row_length[2];
+
+const char *display_row_text(int row, int *length) {
+    *length = row_length[row];
+    return row_text[row];
+}
+
+/* Likewise the six menu key labels, as draw_key() was given them -- every
+ * menu's go through it, the CATALOG's and the CUSTOM and programmable
+ * menus' included. See display_key_label(). */
+static char key_text[6][12];
+static int key_length[6];
+static bool key_highlight[6];
+
+const char *display_key_label(int n, int *length, bool *highlight) {
+    *length = key_length[n];
+    *highlight = key_highlight[n];
+    return key_text[n];
+}
+
 void clear_display() {
     int i;
     for (i = 0; i < 272; i++)
         display[i] = 0;
     mark_dirty(0, 0, 16, 131);
     memset(special_key, 0, 6);
+    row_length[0] = row_length[1] = 0;
+    memset(key_length, 0, sizeof(key_length));
 }
 
 void flush_display() {
@@ -865,6 +893,11 @@ void draw_char(int x, int y, char c) {
     unsigned char uc = (unsigned char) c;
     if (x < 0 || x >= 22 || y < 0 || y >= 2)
         return;
+    while (row_length[y] < x)
+        row_text[y][row_length[y]++] = ' ';
+    row_text[y][x] = c;
+    if (row_length[y] <= x)
+        row_length[y] = x + 1;
     if (undefined_char(uc) || uc == 138)
         uc -= 128;
     X = x * 6;
@@ -920,6 +953,22 @@ static void draw_key(int n, int highlight, int hide_meta,
      * so that we know *not* to suppress menu highlights while stepping. */
     if (flags.f.prgm_mode == 1)
         highlight = 0;
+
+    /* Pico port addition: keep the label's text (see display_key_label()),
+     * meta characters dropped or unmasked as below. */
+    if (n >= 0 && n < 6) {
+        key_length[n] = 0;
+        key_highlight[n] = highlight != 0;
+        for (int k = 0; k < length && key_length[n] < (int) sizeof(key_text[n]); k++) {
+            int c = (unsigned char) s[k];
+            if (undefined_char(c) || c == 138) {
+                if (hide_meta)
+                    continue;
+                c &= 127;
+            }
+            key_text[n][key_length[n]++] = (char) c;
+        }
+    }
 
     if (highlight) {
         int f = smallchars_map[fatdot];
@@ -1012,6 +1061,8 @@ int special_menu_key(int which) {
 
 void clear_row(int row) {
     fill_rect(0, row * 8, 131, 8, 0);
+    if (row >= 0 && row < 2)
+        row_length[row] = 0;
 }
 
 int prgmline2buf(char *buf, int len, int4 line, int highlight,
@@ -1356,7 +1407,6 @@ void display_error(int error) {
         err_text = errors[error].text;
     }
     draw_string(0, 0, err_text, err_len);
-    shell_status_message(err_text, err_len); /* Pico port addition */
     flags.f.message = 1;
     flags.f.two_line_message = 0;
     if (!flags.f.prgm_mode && (flags.f.trace_print || flags.f.normal_print) && flags.f.printer_exists)

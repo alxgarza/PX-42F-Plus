@@ -39,9 +39,8 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff) {
     if (pdrv != 0 || status)
         return RES_NOTRDY;
     switch (cmd) {
-        case CTRL_SYNC:
-            flashdisk_flush_all();
-            return RES_OK;
+        case CTRL_SYNC: /* a failed write here is what fclose() reports */
+            return flashdisk_flush_all() ? RES_OK : RES_ERROR;
         case GET_SECTOR_COUNT:
             *(LBA_t *) buff = flashdisk_block_count();
             return RES_OK;

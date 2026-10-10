@@ -19,8 +19,8 @@
  * before anything that might hang, and main() reports whatever was last
  * written the next time it boots -- surviving the reset instead of
  * racing it. scratch[4] is already used by the SDK itself
- * (watchdog_enable()/watchdog_caused_reboot()); 0 and 1 are free and
- * used here, leaving 2,3,5,6,7 spare for later. */
+ * (watchdog_enable()/watchdog_caused_reboot()); 0 and 1 are used here,
+ * and 2, 3, 5, 6, 7 hold the crash record (crash_report.c). None spare. */
 enum {
     CKPT_NONE = 0,
     CKPT_MAIN_LOOP_TOP,

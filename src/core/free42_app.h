@@ -11,9 +11,11 @@ extern "C" {
 #endif
 
 /* Starts the Free42 core: with the memory free42_sleep() saved, if there
- * is one (back from OFF), otherwise from Memory Clear. Call once, after
- * statefs_init(), before free42_process_char(). */
-void free42_init(void);
+ * is one (back from OFF -- or after a crash: the memory as of the last
+ * ON), otherwise from Memory Clear. after_crash: this boot follows a fault
+ * or watchdog reset, so the saved memory isn't kept for another go. Call
+ * once, after statefs_init(), before free42_process_char(). */
+void free42_init(bool after_crash);
 
 /* Feeds one character in (typed over the serial console) as if it were an
  * HP-42S keypress, then prints the resulting 4-level stack.
@@ -54,11 +56,6 @@ void free42_key_repeat_tick(void);
 void free42_key_timeout1(void);
 void free42_key_timeout2(void);
 void free42_key_up(void);
-
-/* Called by shell.cc's shell_status_message() whenever the core displays
- * an error/status message (e.g. "DIVIDE BY 0"). Stores it so the next
- * display_stack() redraw shows it on the Y row instead of Y's value. */
-void free42_set_status_message(const char *text, int length);
 
 /* Redraws the whole screen from the current state -- e.g. to advance the
  * header clock when nothing else has changed. */
@@ -119,7 +116,8 @@ void free42_request_powerdown(void);
  * main loop's auto power-off timer must not fire then. */
 bool free42_auto_off_enabled(void);
 bool free42_powerdown_requested(void);
-void free42_sleep(void);
+/* quiet: without the off sound (an empty battery). */
+void free42_sleep(bool quiet);
 
 #ifdef __cplusplus
 }

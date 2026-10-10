@@ -17,7 +17,10 @@ reproducible."""
 import math, os, random, struct, sys, wave
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CLICK_WAV = os.path.join(ROOT, "free42-upstream/android/app/src/main/res/raw/click9.wav")
+# Free42's key click: a copy of free42-upstream/android/app/src/main/res/raw/
+# click9.wav (that folder isn't in git; this file is, so a fresh clone can
+# rebuild the sounds and run the tests).
+CLICK_WAV = os.path.join(ROOT, "tools/free42_click.wav")
 
 EDGE_S = 0.005  # default fade-in, and the fade-out at the end
 

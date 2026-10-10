@@ -748,7 +748,7 @@ static edit_result_t do_info(void) {
 
         char buf[40];
         int y = 18;
-        display_draw_string(&font_10x16, "PX-42S", 2, (uint8_t) y, 0x00);
+        display_draw_string(&font_10x16, "PX-42F", 2, (uint8_t) y, 0x00);
         y += 20;
         snprintf(buf, sizeof(buf), "Firmware  %s", PICO_PROGRAM_VERSION_STRING);
         display_draw_string(&font_8x12, buf, 2, (uint8_t) y, 0x00);

@@ -37,12 +37,6 @@ void display_attach(void);
  * display_flush() is called). */
 void display_clear(void);
 
-/* Fills the in-memory framebuffer with a raw byte value (does not touch
- * the panel until display_flush() is called). 0x00 = all pixels off,
- * 0xFF = all pixels on -- useful as a hardware bring-up test, independent
- * of any font. */
-void display_fill(uint8_t value);
-
 /* Sends the whole in-memory framebuffer to the panel. */
 void display_flush(void);
 
@@ -54,14 +48,8 @@ void display_flush(void);
 void display_set_slow_refresh(bool slow);
 
 /* Blanks the panel and puts the controller into sleep mode (lowest panel
- * power). Callers must redraw after display_wake(), which resets the
- * controller. */
+ * power), for a power-off: the next boot's display_init() resets it. */
 void display_sleep(void);
-
-/* Brings the panel back out of display_sleep(): hardware reset and the
- * full init sequence, as at power-on. Ends at the normal 8Hz refresh with
- * the display on; redraw (display_flush()) right after. */
-void display_wake(void);
 
 /* Sets one pixel in the in-memory framebuffer. (x, y) outside the visible
  * DISPLAY_WIDTH x DISPLAY_HEIGHT area is silently ignored -- callers (in

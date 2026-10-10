@@ -160,6 +160,10 @@ target_compile_definitions(PX-Free42 PRIVATE
         # drive + picotool reset). Linking tinyusb_device turns all of these
         # off by default; keep pico_stdio_usb running TinyUSB in its
         # background IRQ as before, and keep the reset-to-BOOTSEL support.
+        # A console write waits this long for a computer that has the port
+        # open but isn't reading -- the SDK's default, 500ms, outlasts the
+        # 100ms watchdog (a frozen terminal + one printf = a reset).
+        PICO_STDIO_USB_STDOUT_TIMEOUT_US=50000
         PICO_STDIO_USB_ENABLE_IRQ_BACKGROUND_TASK=1
         PICO_STDIO_USB_ENABLE_TINYUSB_INIT=1
         PICO_ENABLE_USB_RESET_VIA_BAUD_RATE=1

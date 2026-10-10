@@ -180,10 +180,6 @@ void display_clear(void) {
     memset(disp_fb, 0, FB_SIZE);
 }
 
-void display_fill(uint8_t value) {
-    memset(disp_fb, value, FB_SIZE);
-}
-
 void display_set_pixel(uint8_t x, uint8_t y, bool on) {
     if (x >= DISPLAY_WIDTH || y >= DISPLAY_HEIGHT)
         return;
@@ -358,19 +354,5 @@ void display_sleep(void) {
     display_write_instruction(0x28, NULL, 0); /* Display off -- panel shows blank */
     display_write_instruction(0x10, NULL, 0); /* Sleep in */
     sleep_ms(100);
-}
-
-void display_wake(void) {
-    /* A full hardware reset and the complete power-on init sequence, not
-     * just Sleep Out + Display On. Waking with only Sleep Out sometimes left
-     * the panel showing random noise that even a full redraw right after
-     * didn't clear -- the controller wasn't ready (or had dropped some of
-     * its configuration) when the frame arrived, after however long it had
-     * been asleep. The boot path is known to work every time, and its cost
-     * (~350ms) only applies when turning on. Ends in Low Power Mode at the
-     * normal 8Hz with the display on; GRAM is undefined until the caller's
-     * next flush. */
-    display_reset();
-    display_run_init_sequence(st7305_init_sequence);
 }
 

@@ -108,6 +108,16 @@ else at the top level is the board: display, keyboard, power, USB, storage.
 - POWMAN scratch: 0-3 splash wake state (`power.c`), 6 sounds-loading guard, 7 splash-PNG-
   loading guard (`main.c`).
   Watchdog scratch: 0-1 debug checkpoint, 2-3/5-7 crash record, 4 = SDK.
+- Free42 messages (errors, VIEW, AVIEW, PROMPT, solver...) are drawn into its own 2-row
+  display, which this port never shows: `core_display.cc` keeps their text
+  (`display_row_text()`), and `free42_app.cc` shows it while `flags.f.message` is set.
+- The RAM-kept memory is re-validated after a good load (`ramstate_keep()`), so a crash
+  comes back with the memory as of the last ON — but not twice in a row (`after_crash`).
+- A drive that isn't FAT is only formatted if it's blank (0xFF); otherwise it's left alone,
+  unmounted (USB Disk mode still exposes it). The calculator powers off by itself below
+  ~3.45 V (`battery_empty()`; the ADC can't read lower: it measures against the 3.3 V rail).
+- Console writes time out after 50 ms (`PICO_STDIO_USB_STDOUT_TIMEOUT_US`): the SDK's
+  500 ms default outlasts the 100 ms watchdog.
 - `free42_settings_requested()` consumes the request; use `free42_settings_pending()` to peek.
 - Free42 calls happen on core 1 only.
 

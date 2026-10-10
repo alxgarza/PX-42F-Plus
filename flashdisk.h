@@ -50,10 +50,11 @@ bool flashdisk_room_needed(void);
 
 /* Core 1 only. flush_one writes back the oldest dirty sector, if any, and
  * returns whether it did (false also if the write failed); flush_all
- * writes back everything it can. Each sector
- * takes tens of ms and pauses the watchdog for its duration. */
+ * writes back everything it can, and returns false if a write failed
+ * (that sector stays cached and dirty). Each sector takes tens of ms and
+ * pauses the watchdog for its duration. */
 bool flashdisk_flush_one(void);
-void flashdisk_flush_all(void);
+bool flashdisk_flush_all(void);
 
 bool flashdisk_dirty(void);
 

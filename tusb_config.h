@@ -1,7 +1,7 @@
 #ifndef TUSB_CONFIG_H
 #define TUSB_CONFIG_H
 
-/* TinyUSB configuration for the PX-42S's composite USB device: the serial
+/* TinyUSB configuration for the PX-42F's composite USB device: the serial
  * console (CDC 0, still run by pico_stdio_usb), the state-file drive (MSC,
  * usb_msc.c), the picotool reset interface (pico_usb_reset) and the
  * printer's serial port (CDC 1, printer.c). Descriptors

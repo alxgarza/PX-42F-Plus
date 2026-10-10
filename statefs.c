@@ -59,8 +59,19 @@ bool statefs_init(void) {
     if (r == FR_NO_FILESYSTEM) {
         /* First boot (blank flash): format -- FAT, no partition table, a
          * "superfloppy", which is what removable drives usually are and
-         * every OS reads. */
+         * every OS reads. Only if it really is blank: a drive that just
+         * can't be read -- reformatted as exFAT on a computer, or its
+         * first sector cut off by a power loss -- is left alone (not
+         * mounted; USB Disk mode still hands it to a computer, to rescue
+         * the files or format it), not silently wiped. */
         static BYTE work[FF_MAX_SS];
+        if (!flashdisk_read(0, work, sizeof(work)))
+            return false;
+        for (size_t i = 0; i < sizeof(work); i++)
+            if (work[i] != 0xFF) {
+                printf("The drive isn't FAT and isn't blank -- left as it is, not formatted.\n");
+                return false;
+            }
         const MKFS_PARM opt = {FM_FAT | FM_SFD, 0, 0, 0, 0};
         if (f_mkfs("", &opt, work, sizeof(work)) != FR_OK)
             return false;

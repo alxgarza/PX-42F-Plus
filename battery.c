@@ -87,6 +87,20 @@ int battery_level(void) {
     return current_level;
 }
 
+/* Below this, power off. The reading can't go much under ~3.35V whatever
+ * the cell does: the ADC measures against the 3.3V rail, which sinks with
+ * the cell once the regulator runs out of headroom -- so the threshold has
+ * to sit above that, where readings are still true. */
+#define BATTERY_EMPTY_MV 3450
+
+bool battery_empty(void) {
+    static int low_readings = 0;
+    if (sagging_after_tone())
+        return false;
+    low_readings = battery_read_mv() < BATTERY_EMPTY_MV ? low_readings + 1 : 0;
+    return low_readings >= 3;
+}
+
 bool battery_low(void) {
     if (!sagging_after_tone())
         last_low = battery_read_mv() < BATTERY_LOW_MV;

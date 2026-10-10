@@ -71,9 +71,9 @@ static uint32_t core1_stack[CORE1_STACK_WORDS] __attribute__((aligned(16)));
  * Board: the PX-42F's own (boards/px42f.h) -- RP2350A, 16MB flash, no
  * wireless chip. GP23-25 and GP29 carry WL_* net labels on the PCB but
  * connect to nothing; they're free.
- * GP8 is wired to the PSRAM (unused in firmware for now).
+ * GP8 is the PSRAM footprint's chip select (no PSRAM is fitted).
  * GP28 (ADC2) is battery sense -- see battery.h.
- * Free: GP26, GP27.
+ * GP26, GP27: I2C1, planned -- nothing in the firmware uses them yet.
  * Display pins (SPI0, RS, RST, CS) are defined in display.h.
  * Keyboard matrix pins (rows GP0-7, columns GP9-13) are defined in
  * keyboard.h.
@@ -319,7 +319,7 @@ static void core1_main(void)
 
     /* Start the Free42 core -- with its memory from before OFF, if any --
      * and draw the stack. */
-    free42_init();
+    free42_init(crashed);
     free42_set_printer(px_settings.printer != PRINTER_OFF);
     printf("Ready. Type !HELP for commands.\n");
 
@@ -357,9 +357,19 @@ static void core1_main(void)
         int64_t idle_ms = absolute_time_diff_us(last_activity, get_absolute_time()) / 1000;
         bool auto_off = free42_auto_off_enabled() && px_settings.sleep_minutes != 0
                         && idle_ms >= (int64_t) px_settings.sleep_minutes * 60000;
-        if (free42_powerdown_requested() || auto_off) {
+        /* And before the battery gives out -- whatever the Sleep Timer says,
+         * and in the middle of a program too: a brown-out can cut a flash
+         * write short, and loses the memory. Not on a computer's USB (it's
+         * charging). Checked every 10 seconds. */
+        static absolute_time_t next_battery_check;
+        bool battery_off = false;
+        if (time_reached(next_battery_check)) {
+            next_battery_check = make_timeout_time_ms(10000);
+            battery_off = !idle_usb_host_active() && battery_empty();
+        }
+        if (free42_powerdown_requested() || auto_off || battery_off) {
             watchdog_pause();
-            free42_sleep();
+            free42_sleep(battery_off); /* no off sound on an empty battery: it draws 200mA */
             watchdog_resume();
             last_activity = get_absolute_time();
             rtc_get_hms(&shown_hour, &shown_min, &shown_sec);
