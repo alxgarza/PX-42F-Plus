@@ -1014,11 +1014,11 @@ void clear_row(int row) {
     fill_rect(0, row * 8, 131, 8, 0);
 }
 
-static int prgmline2buf(char *buf, int len, int4 line, int highlight,
+int prgmline2buf(char *buf, int len, int4 line, int highlight,
                         int cmd, arg_struct *arg, const char *orig_num,
-                        bool shift_left = false,
-                        bool highlight_final_end = true,
-                        char **xstr = NULL) {
+                        bool shift_left,
+                        bool highlight_final_end,
+                        char **xstr) {
     int bufptr = 0;
     if (line != -1) {
         if (line < 10)

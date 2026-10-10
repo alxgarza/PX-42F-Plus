@@ -23,7 +23,10 @@ if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
-set(PICO_BOARD pico2_w CACHE STRING "Board type")
+# The PX-42F's own board definition (boards/px42f.h): RP2350A, 16MB W25Q128
+# flash, no wireless chip.
+set(PICO_BOARD_HEADER_DIRS ${CMAKE_CURRENT_LIST_DIR}/boards)
+set(PICO_BOARD px42f CACHE STRING "Board type")
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
@@ -66,6 +69,29 @@ add_executable(PX-Free42
         display.c
         keyboard.c
         rtc.c
+        battery.c
+        speaker.c
+        sounds.c
+        wav.c
+        sounds_data.c
+        settings.c
+        settings_menu.c
+        splash.c
+        images/splash_image.c
+        flashdisk.c
+        crash_report.c
+        png1bit.c
+        printer.c
+        power.c
+        ramstate.c
+        cpuclock.c
+        idle.c
+        fatfs_diskio.c
+        statefs.c
+        usb_msc.c
+        usb_descriptors.c
+        third_party/fatfs/ff.c
+        third_party/fatfs/ffunicode.c
         fonts/font_10x16_data.c
         fonts/font_24x10_data.c
         fonts/font_8x12_data.c
@@ -73,6 +99,11 @@ add_executable(PX-Free42
         )
 
 add_dependencies(PX-Free42 inteldecimal_lib)
+
+# The top of RAM, in SRAM bank 1, stays powered through the deep power-off
+# and holds what has to survive it -- the calculator's memory and the
+# display's framebuffer (retained.h, RETAINED_BASE): keep the heap out.
+pico_set_linker_script_var(PX-Free42 HEAP_LIMIT 0x2005F000)
 
 pico_set_program_name(PX-Free42 "PX-Free42")
 pico_set_program_version(PX-Free42 "0.1")
@@ -90,6 +121,7 @@ target_include_directories(PX-Free42 PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
         ${CMAKE_CURRENT_LIST_DIR}/src/core
         ${CMAKE_CURRENT_LIST_DIR}/fonts
+        ${CMAKE_CURRENT_LIST_DIR}/third_party/fatfs
 )
 
 # Flags required to match the ABI that bid_functions.h declares, and to
@@ -114,6 +146,26 @@ target_compile_definitions(PX-Free42 PRIVATE
         # compile definition (not just a CMake variable) because crt0.S is
         # an INTERFACE source compiled as part of this target itself.
         PICO_STACK_SIZE=0x1000
+        # PX-42 port hooks in src/core (my_fopen etc. -> statefs.c)
+        PX42
+        # The core voltage survives every reboot but a power-up -- and the
+        # idle clock (cpuclock.c) leaves it at 1.00V. Have the SDK's startup
+        # code put it back to 1.10V before it switches to 150MHz, or a wake
+        # from OFF, a reflash or a crash reboot would run full speed
+        # under-volted (it only does this by itself for RP2040 overclocks).
+        SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST=1
+        SYS_CLK_VREG_VOLTAGE_MIN=VREG_VOLTAGE_1_10
+        # This app provides its own TinyUSB config and descriptors
+        # (tusb_config.h, usb_descriptors.c: serial console + state-file
+        # drive + picotool reset). Linking tinyusb_device turns all of these
+        # off by default; keep pico_stdio_usb running TinyUSB in its
+        # background IRQ as before, and keep the reset-to-BOOTSEL support.
+        PICO_STDIO_USB_ENABLE_IRQ_BACKGROUND_TASK=1
+        PICO_STDIO_USB_ENABLE_TINYUSB_INIT=1
+        PICO_ENABLE_USB_RESET_VIA_BAUD_RATE=1
+        PICO_ENABLE_USB_RESET_VIA_VENDOR_INTERFACE=1
+        PICO_USB_RESET_SUPPORT_MS_OS_20_DESCRIPTOR=1
+        PICO_USB_RESET_MS_OS_20_DESCRIPTOR_ITF=3
 )
 
 # Add any user requested libraries
@@ -123,6 +175,11 @@ target_link_libraries(PX-Free42
         hardware_uart
         hardware_watchdog
         hardware_powman
+        hardware_adc
+        hardware_pwm
+        hardware_flash
+        pico_flash
+        tinyusb_device
         ${LIBBID_PATH}
         )
 

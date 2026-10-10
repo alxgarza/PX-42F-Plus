@@ -42,7 +42,8 @@
 #include "bid_functions.h"
 #endif
 
-#ifdef WINDOWS
+#if defined(WINDOWS) || defined(PX42)
+// PX42: provided by shell.cc, on the FAT state-file volume (statefs.c)
 FILE *my_fopen(const char *name, const char *mode);
 int my_rename(const char *oldname, const char *newname);
 int my_remove(const char *name);

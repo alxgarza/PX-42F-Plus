@@ -672,6 +672,50 @@ int docmd_time(arg_struct *arg) {
     return recall_result(new_x);
 }
 
+// SETDATE and SETIME: original HP-41 Time Module functions (XROM 26,22 and
+// 26,23) that upstream Free42 leaves out, since its shells take the time from
+// the host OS. The PX-42 has its own clock, so it needs them.
+//
+// SETDATE takes the date from X in the current date format (MDY: MM.DDYYYY,
+// DMY: DD.MMYYYY, YMD: YYYY.MMDD), parsed and validated -- leap years
+// included -- by the same date2comps() that DATE+ and DDAYS use.
+
+int docmd_setdate(arg_struct *arg) {
+    phloat x = ((vartype_real *) stack[sp])->x;
+    if (x < 0)
+        return ERR_INVALID_DATA;
+    int4 y, m, d;
+    int err = date2comps(x, &y, &m, &d);
+    if (err != ERR_NONE)
+        return err;
+    if (!shell_set_date(y, m, d))
+        return ERR_INVALID_DATA;
+    return ERR_NONE;
+}
+
+// SETIME takes the time from X as HH.MMSS, 24-hour.
+
+int docmd_setime(arg_struct *arg) {
+    phloat x = ((vartype_real *) stack[sp])->x;
+    if (x < 0 || x >= 24)
+        return ERR_INVALID_DATA;
+    int4 h, m, s;
+#ifdef BCD_MATH
+    h = to_int4(floor(x));
+    m = to_int4(floor((x - h) * 100));
+    s = to_int4(floor(x * 10000)) % 100;
+#else
+    int4 r = (int4) floor(x * 10000 + 0.5);
+    h = r / 10000;
+    m = r / 100 % 100;
+    s = r % 100;
+#endif
+    if (m > 59 || s > 59)
+        return ERR_INVALID_DATA;
+    shell_set_time(h, m, s);
+    return ERR_NONE;
+}
+
 // The YMD function is not an original Time Module function, and in Free42,
 // it is grouped with the "Programming" extension, but logically, of course,
 // it belongs here. Also, most of the YMD implementation consists of

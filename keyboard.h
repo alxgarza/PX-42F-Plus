@@ -4,8 +4,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "pico/types.h"
+#include "pico/time.h"
+
 /* 8 rows (outputs, GPIO0-7) x 5 columns (inputs w/ internal pull-ups,
- * GPIO8-12). A row is driven low (active) one at a time while scanning;
+ * GPIO9-13). A row is driven low (active) one at a time while scanning;
  * a pressed key at that row pulls its column low too. */
 #define KB_ROWS 8
 #define KB_COLS 5
@@ -42,6 +45,19 @@ bool keyboard_scan(uint8_t *row, uint8_t *col);
  * get pressed, e.g. during fast typing, before this one was released)
  * for "still held," swallowing that other key's own press entirely. */
 bool keyboard_is_held(uint8_t row, uint8_t col);
+
+/* Sleeps (WFE) until a key goes down, or until deadline -- the idle wait,
+ * instead of scanning every 10ms. All rows are driven low and every column
+ * gets a falling-edge interrupt. Returns true if a key went down (after a
+ * 10ms debounce: call keyboard_scan() next -- it can still find nothing,
+ * when it was a release's contact chatter), false at the deadline. Core 1:
+ * the interrupt is taken on the calling core. */
+bool keyboard_wait_any(absolute_time_t deadline);
+
+/* Drives only (row, col)'s row low and returns its column's GPIO, which
+ * then reads low exactly while that key is pressed -- for waking from a
+ * deep power-off (power.c), where nothing can scan the matrix. */
+uint keyboard_arm_wake_key(uint8_t row, uint8_t col);
 
 #ifdef __cplusplus
 }

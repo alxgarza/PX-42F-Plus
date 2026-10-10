@@ -4,11 +4,15 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "pico/types.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* Cold-starts the Free42 core. Call once before free42_process_char(). */
+/* Starts the Free42 core: with the memory free42_sleep() saved, if there
+ * is one (back from OFF), otherwise from Memory Clear. Call once, after
+ * statefs_init(), before free42_process_char(). */
 void free42_init(void);
 
 /* Feeds one character in (typed over the serial console) as if it were an
@@ -55,6 +59,67 @@ void free42_key_up(void);
  * an error/status message (e.g. "DIVIDE BY 0"). Stores it so the next
  * display_stack() redraw shows it on the Y row instead of Y's value. */
 void free42_set_status_message(const char *text, int length);
+
+/* Redraws the whole screen from the current state -- e.g. to advance the
+ * header clock when nothing else has changed. */
+void free42_redisplay(void);
+
+/* Call on every pass of the main loop: runs the next time slice of a
+ * running program (and handles PSE's timeout). Returns true while a
+ * program is running -- the main loop then skips its idle sleep and keeps
+ * the auto power-off from firing. */
+bool free42_service(void);
+
+/* When free42_service() next has something to do though no program is
+ * running -- the end of a PSE. False if nothing is pending. */
+bool free42_next_timeout(absolute_time_t *at);
+
+/* For shell.cc: shell_wants_cpu() (the current slice is used up) and
+ * shell_request_timeout3() (PSE and friends). */
+bool free42_slice_expired(void);
+void free42_request_timeout3(int delay_ms);
+
+/* Free42's "printer present" flag (55) -- what PRON/PROFF set; printing
+ * commands and TRACE/NORM printing only do anything while it's on. */
+void free42_set_printer(bool on);
+bool free42_printer_on(void);
+
+/* HP-42S key code (1-37) at a keyboard-matrix position, 0 if none -- for
+ * screens outside the calculator, like the settings menu. */
+int free42_key_code(uint8_t row, uint8_t col);
+
+/* True (once) after SHIFT+EXIT was pressed: the main loop should run the
+ * settings menu (settings_menu.h). */
+bool free42_settings_requested(void);
+/* The same, without taking the request (it stays for the call above). */
+bool free42_settings_pending(void);
+
+/* The ALPHA-mode letter at a keyboard-matrix position (alpha_key_matrix),
+ * 0 if none -- for typing names outside the calculator. */
+char free42_alpha_char(uint8_t row, uint8_t col);
+
+/* Sets Free42's date and time formats (DMY/MDY/YMD, CLK12/CLK24) --
+ * rtc_date_format_t, 24-hour or not -- e.g. from the settings menu. */
+void free42_set_formats(uint8_t date_format, bool clock_24h);
+
+/* Save the calculator's whole memory to a .f42 state file, or replace it
+ * with one (statefs.h has the paths). Loading a file Free42 can't read
+ * leaves the calculator in Memory Clear, as on the desktop versions. */
+void free42_save_state(const char *path);
+void free42_load_state(const char *path);
+
+/* OFF / sleep. shell_powerdown() calls free42_request_powerdown(); the main
+ * loop polls free42_powerdown_requested() and, when set, calls
+ * free42_sleep() -- which saves the calculator's memory to RAM that stays
+ * powered, shows the splash or blanks the display, and powers the chip
+ * down (power.h). It never returns: ON reboots, and free42_init() restores
+ * the memory. The caller must stop the watchdog first. */
+void free42_request_powerdown(void);
+/* False while Free42's "continuous on" (XEQ "ON", flag 44) is set -- the
+ * main loop's auto power-off timer must not fire then. */
+bool free42_auto_off_enabled(void);
+bool free42_powerdown_requested(void);
+void free42_sleep(void);
 
 #ifdef __cplusplus
 }

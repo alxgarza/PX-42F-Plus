@@ -210,6 +210,7 @@
   .section table { border-left: 3px solid var(--bar); }
 
   colgroup .c-pin { width: 90px; }
+  colgroup .c-chippin { width: 84px; }
   colgroup .c-status { width: 96px; }
 
   th {
@@ -238,6 +239,17 @@
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     color: var(--ink);
+  }
+
+  .chippin {
+    font-family: "IBM Plex Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-dim);
+  }
+
+  .chippin::before {
+    content: "pin ";
+    color: var(--ink-faint);
   }
 
   .signal {
@@ -313,7 +325,8 @@
 
   @media (max-width: 640px) {
     .stats { grid-template-columns: repeat(2, 1fr); }
-    th:nth-child(4), td:nth-child(4) { display: none; }
+    th:nth-child(2), td:nth-child(2) { display: none; }
+    th:nth-child(5), td:nth-child(5) { display: none; }
   }
 </style>
 
@@ -326,48 +339,47 @@
     </div>
     <div class="meta">
       HP&#8209;42S&#8209;class calculator, custom board<br>
-      <span class="rev">rev 2026&#8209;09&#8209;03</span>
+      <span class="rev">rev 2026&#8209;09&#8209;04</span>
     </div>
   </header>
 
   <div class="stats">
-    <div class="stat assigned"><div class="n">22</div><div class="l">Assigned</div></div>
+    <div class="stat assigned"><div class="n">23</div><div class="l">Assigned</div></div>
     <div class="stat planned"><div class="n">3</div><div class="l">Planned</div></div>
-    <div class="stat free"><div class="n">1</div><div class="l">Free</div></div>
-    <div class="stat reserved"><div class="n">4</div><div class="l">Reserved</div></div>
+    <div class="stat free"><div class="n">4</div><div class="l">Free</div></div>
+    <div class="stat reserved"><div class="n">0</div><div class="l">Reserved</div></div>
   </div>
 
   <div class="section" style="--bar:#5b7d99">
-    <div class="section-head"><span class="dot"></span><h2>Keyboard matrix</h2><span class="count">GP0&ndash;12 &middot; 13 pins</span></div>
+    <div class="section-head"><span class="dot"></span><h2>Keyboard matrix</h2><span class="count">GP0&ndash;7, GP9&ndash;13 &middot; 13 pins</span></div>
     <table>
-      <colgroup><col class="c-pin"><col><col class="c-status"><col></colgroup>
-      <thead><tr><th>GPIO</th><th>Signal</th><th>Status</th><th>Notes</th></tr></thead>
+      <colgroup><col class="c-pin"><col class="c-chippin"><col><col class="c-status"><col></colgroup>
+      <thead><tr><th>GPIO</th><th>Chip Pin</th><th>Signal</th><th>Status</th><th>Notes</th></tr></thead>
       <tbody>
-        <tr><td class="pin">GP0</td><td class="signal">KB_ROW0</td><td><span class="badge assigned">in use</span></td><td class="desc">Row output, <span class="fn">idle high</span>, driven low one row at a time while scanning</td></tr>
-        <tr><td class="pin">GP1</td><td class="signal">KB_ROW1</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
-        <tr><td class="pin">GP2</td><td class="signal">KB_ROW2</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
-        <tr><td class="pin">GP3</td><td class="signal">KB_ROW3</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
-        <tr><td class="pin">GP4</td><td class="signal">KB_ROW4</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
-        <tr><td class="pin">GP5</td><td class="signal">KB_ROW5</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
-        <tr><td class="pin">GP6</td><td class="signal">KB_ROW6</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
-        <tr><td class="pin">GP7</td><td class="signal">KB_ROW7</td><td><span class="badge assigned">in use</span></td><td class="desc">Field repair: was shorted to GND on the board &mdash; confirmed and reworked</td></tr>
-        <tr><td class="pin">GP8</td><td class="signal">KB_COL0</td><td><span class="badge assigned">in use</span></td><td class="desc">Column input, <span class="fn">internal pull-up</span>, reads low when pressed</td></tr>
-        <tr><td class="pin">GP9</td><td class="signal">KB_COL1</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
-        <tr><td class="pin">GP10</td><td class="signal">KB_COL2</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
-        <tr><td class="pin">GP11</td><td class="signal">KB_COL3</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
-        <tr><td class="pin">GP12</td><td class="signal">KB_COL4</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
+        <tr><td class="pin">GP0</td><td class="chippin">2</td><td class="signal">KB_ROW0</td><td><span class="badge assigned">in use</span></td><td class="desc">Row output, <span class="fn">idle high</span>, driven low one row at a time while scanning</td></tr>
+        <tr><td class="pin">GP1</td><td class="chippin">3</td><td class="signal">KB_ROW1</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
+        <tr><td class="pin">GP2</td><td class="chippin">4</td><td class="signal">KB_ROW2</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
+        <tr><td class="pin">GP3</td><td class="chippin">5</td><td class="signal">KB_ROW3</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
+        <tr><td class="pin">GP4</td><td class="chippin">7</td><td class="signal">KB_ROW4</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
+        <tr><td class="pin">GP5</td><td class="chippin">8</td><td class="signal">KB_ROW5</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
+        <tr><td class="pin">GP6</td><td class="chippin">9</td><td class="signal">KB_ROW6</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
+        <tr><td class="pin">GP7</td><td class="chippin">10</td><td class="signal">KB_ROW7</td><td><span class="badge assigned">in use</span></td><td class="desc">Field repair: was shorted to GND on the board &mdash; confirmed and reworked</td></tr>
+        <tr><td class="pin">GP9</td><td class="chippin">13</td><td class="signal">KB_COL0</td><td><span class="badge assigned">in use</span></td><td class="desc">Column input, <span class="fn">internal pull-up</span>, reads low when pressed</td></tr>
+        <tr><td class="pin">GP10</td><td class="chippin">14</td><td class="signal">KB_COL1</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
+        <tr><td class="pin">GP11</td><td class="chippin">15</td><td class="signal">KB_COL2</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
+        <tr><td class="pin">GP12</td><td class="chippin">16</td><td class="signal">KB_COL3</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
+        <tr><td class="pin">GP13</td><td class="chippin">17</td><td class="signal">KB_COL4</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
       </tbody>
     </table>
   </div>
 
   <div class="section" style="--bar:#8a6fb0">
-    <div class="section-head"><span class="dot"></span><h2>Audio &amp; IR</h2><span class="count">GP13&ndash;15 &middot; 3 pins</span></div>
+    <div class="section-head"><span class="dot"></span><h2>Audio &amp; IR</h2><span class="count">GP14&ndash;15 &middot; 2 pins</span></div>
     <table>
-      <colgroup><col class="c-pin"><col><col class="c-status"><col></colgroup>
+      <colgroup><col class="c-pin"><col class="c-chippin"><col><col class="c-status"><col></colgroup>
       <tbody>
-        <tr><td class="pin">GP13</td><td class="signal">SPEAKER_P</td><td><span class="badge assigned">in use</span></td><td class="desc">Piezo bridge drive, <span class="fn">12&nbsp;mA</span>, opposite phase to SPEAKER_N</td></tr>
-        <tr><td class="pin">GP14</td><td class="signal">IR_LED</td><td><span class="badge assigned">in use</span></td><td class="desc">PWM-capable &mdash; <span class="fn">38&nbsp;kHz</span> carrier, driven via transistor</td></tr>
-        <tr><td class="pin">GP15</td><td class="signal">SPEAKER_N</td><td><span class="badge assigned">in use</span></td><td class="desc">Piezo bridge drive, <span class="fn">12&nbsp;mA</span>, opposite phase to SPEAKER_P</td></tr>
+        <tr><td class="pin">GP14</td><td class="chippin">18</td><td class="signal">IR_LED</td><td><span class="badge assigned">in use</span></td><td class="desc">PWM-capable &mdash; <span class="fn">38&nbsp;kHz</span> carrier, driven via transistor</td></tr>
+        <tr><td class="pin">GP15</td><td class="chippin">19</td><td class="signal">SPEAKER</td><td><span class="badge assigned">in use</span></td><td class="desc">Piezo drive, single-ended to GND, <span class="fn">12&nbsp;mA</span></td></tr>
       </tbody>
     </table>
   </div>
@@ -375,10 +387,10 @@
   <div class="section" style="--bar:#5b8f7a">
     <div class="section-head"><span class="dot"></span><h2>Debug UART</h2><span class="count">GP16&ndash;17 &middot; 2 pins</span></div>
     <table>
-      <colgroup><col class="c-pin"><col><col class="c-status"><col></colgroup>
+      <colgroup><col class="c-pin"><col class="c-chippin"><col><col class="c-status"><col></colgroup>
       <tbody>
-        <tr><td class="pin">GP16</td><td class="signal">UART0 TX</td><td><span class="badge assigned">in use</span></td><td class="desc">Debug serial, <span class="fn">115200&nbsp;baud</span> &mdash; separate from the USB CDC console</td></tr>
-        <tr><td class="pin">GP17</td><td class="signal">UART0 RX</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
+        <tr><td class="pin">GP16</td><td class="chippin">27</td><td class="signal">UART0 TX</td><td><span class="badge assigned">in use</span></td><td class="desc">Debug serial, <span class="fn">115200&nbsp;baud</span> &mdash; separate from the USB CDC console</td></tr>
+        <tr><td class="pin">GP17</td><td class="chippin">28</td><td class="signal">UART0 RX</td><td><span class="badge assigned">in use</span></td><td class="desc">&mdash;</td></tr>
       </tbody>
     </table>
   </div>
@@ -386,14 +398,14 @@
   <div class="section" style="--bar:#b5622e">
     <div class="section-head"><span class="dot"></span><h2>Display &mdash; ST7305 LCD</h2><span class="count">GP18&ndash;22 &middot; 5 pins</span></div>
     <table>
-      <colgroup><col class="c-pin"><col><col class="c-status"><col></colgroup>
-      <thead><tr><th>GPIO</th><th>Signal</th><th>Status</th><th>Notes</th></tr></thead>
+      <colgroup><col class="c-pin"><col class="c-chippin"><col><col class="c-status"><col></colgroup>
+      <thead><tr><th>GPIO</th><th>Chip Pin</th><th>Signal</th><th>Status</th><th>Notes</th></tr></thead>
       <tbody>
-        <tr><td class="pin">GP18</td><td class="signal">DISP_SCK</td><td><span class="badge assigned">in use</span></td><td class="desc">SPI0 clock, <span class="fn">32&nbsp;MHz</span> &mdash; last speed confirmed clean (64&nbsp;MHz blanked the panel)</td></tr>
-        <tr><td class="pin">GP19</td><td class="signal">DISP_MOSI</td><td><span class="badge assigned">in use</span></td><td class="desc">SPI0 TX &mdash; write-only link, no MISO</td></tr>
-        <tr><td class="pin">GP20</td><td class="signal">DISP_RS</td><td><span class="badge assigned">in use</span></td><td class="desc">Data/command select, plain GPIO &mdash; sole framing signal since there's no CS</td></tr>
-        <tr><td class="pin">GP21</td><td class="signal">DISP_RST</td><td><span class="badge assigned">in use</span></td><td class="desc">Panel reset, active low, plain GPIO</td></tr>
-        <tr><td class="pin">GP22</td><td class="signal">DISP_CS</td><td><span class="badge planned">planned</span></td><td class="desc">Chip select &mdash; adds a per-transaction resync point the RS-only framing lacks. <code>not yet wired in firmware</code></td></tr>
+        <tr><td class="pin">GP18</td><td class="chippin">29</td><td class="signal">DISP_SCK</td><td><span class="badge assigned">in use</span></td><td class="desc">SPI0 clock, <span class="fn">32&nbsp;MHz</span> &mdash; last speed confirmed clean (64&nbsp;MHz blanked the panel)</td></tr>
+        <tr><td class="pin">GP19</td><td class="chippin">31</td><td class="signal">DISP_MOSI</td><td><span class="badge assigned">in use</span></td><td class="desc">SPI0 TX &mdash; write-only link, no MISO</td></tr>
+        <tr><td class="pin">GP20</td><td class="chippin">32</td><td class="signal">DISP_RS</td><td><span class="badge assigned">in use</span></td><td class="desc">Data/command select, plain GPIO &mdash; command/data framing within an instruction; CS now frames the instruction itself</td></tr>
+        <tr><td class="pin">GP21</td><td class="chippin">33</td><td class="signal">DISP_RST</td><td><span class="badge assigned">in use</span></td><td class="desc">Panel reset, active low, plain GPIO</td></tr>
+        <tr><td class="pin">GP22</td><td class="chippin">34</td><td class="signal">DISP_CS</td><td><span class="badge assigned">in use</span></td><td class="desc">Chip select, active low &mdash; held low for one instruction (command + its data bytes), released between instructions</td></tr>
       </tbody>
     </table>
   </div>
@@ -401,32 +413,33 @@
   <div class="section" style="--bar:#2f7d5b">
     <div class="section-head"><span class="dot"></span><h2>I&sup2;C1 &mdash; reserved for future use</h2><span class="count">GP26&ndash;27 &middot; 2 pins</span></div>
     <table>
-      <colgroup><col class="c-pin"><col><col class="c-status"><col></colgroup>
+      <colgroup><col class="c-pin"><col class="c-chippin"><col><col class="c-status"><col></colgroup>
       <tbody>
-        <tr><td class="pin">GP26</td><td class="signal">I2C1 SDA</td><td><span class="badge planned">planned</span></td><td class="desc">Also ADC0-capable. <code>not yet wired in firmware</code></td></tr>
-        <tr><td class="pin">GP27</td><td class="signal">I2C1 SCL</td><td><span class="badge planned">planned</span></td><td class="desc">Also ADC1-capable. <code>not yet wired in firmware</code></td></tr>
+        <tr><td class="pin">GP26</td><td class="chippin">40</td><td class="signal">I2C1 SDA</td><td><span class="badge planned">planned</span></td><td class="desc">Also ADC0-capable. <code>not yet wired in firmware</code></td></tr>
+        <tr><td class="pin">GP27</td><td class="chippin">41</td><td class="signal">I2C1 SCL</td><td><span class="badge planned">planned</span></td><td class="desc">Also ADC1-capable. <code>not yet wired in firmware</code></td></tr>
       </tbody>
     </table>
   </div>
 
   <div class="section" style="--bar:#8794a0">
-    <div class="section-head"><span class="dot"></span><h2>Unassigned &amp; reserved</h2><span class="count">GP23&ndash;25, GP28&ndash;29 &middot; 5 pins</span></div>
+    <div class="section-head"><span class="dot"></span><h2>Unassigned</h2><span class="count">GP8, GP23&ndash;25, GP28&ndash;29 &middot; 6 pins</span></div>
     <table>
-      <colgroup><col class="c-pin"><col><col class="c-status"><col></colgroup>
-      <thead><tr><th>GPIO</th><th>Signal</th><th>Status</th><th>Notes</th></tr></thead>
+      <colgroup><col class="c-pin"><col class="c-chippin"><col><col class="c-status"><col></colgroup>
+      <thead><tr><th>GPIO</th><th>Chip Pin</th><th>Signal</th><th>Status</th><th>Notes</th></tr></thead>
       <tbody>
-        <tr><td class="pin">GP23</td><td class="signal">&mdash;</td><td><span class="badge reserved">reserved</span></td><td class="desc">CYW43 wireless &mdash; not broken out on Pico&nbsp;2&nbsp;W</td></tr>
-        <tr><td class="pin">GP24</td><td class="signal">&mdash;</td><td><span class="badge reserved">reserved</span></td><td class="desc">CYW43 wireless &mdash; not broken out on Pico&nbsp;2&nbsp;W</td></tr>
-        <tr><td class="pin">GP25</td><td class="signal">&mdash;</td><td><span class="badge reserved">reserved</span></td><td class="desc">CYW43 wireless &mdash; not broken out on Pico&nbsp;2&nbsp;W</td></tr>
-        <tr><td class="pin">GP28</td><td class="signal">&mdash;</td><td><span class="badge free">free</span></td><td class="desc">ADC2-capable &mdash; held open for battery-voltage sensing</td></tr>
-        <tr><td class="pin">GP29</td><td class="signal">&mdash;</td><td><span class="badge reserved">reserved</span></td><td class="desc">CYW43 wireless &mdash; not broken out on Pico&nbsp;2&nbsp;W</td></tr>
+        <tr><td class="pin">GP8</td><td class="chippin">12</td><td class="signal">PSRAM</td><td><span class="badge planned">planned</span></td><td class="desc">Wired to the PSRAM. <code>not yet wired in firmware</code></td></tr>
+        <tr><td class="pin">GP23</td><td class="chippin">35</td><td class="signal">&mdash;</td><td><span class="badge free">free</span></td><td class="desc">Not connected &mdash; the PCB only has a stray <code>WL_ON</code> net label (no wireless chip on the PX-42F)</td></tr>
+        <tr><td class="pin">GP24</td><td class="chippin">36</td><td class="signal">&mdash;</td><td><span class="badge free">free</span></td><td class="desc">Not connected &mdash; the PCB only has a stray <code>WL_D</code> net label (no wireless chip on the PX-42F)</td></tr>
+        <tr><td class="pin">GP25</td><td class="chippin">37</td><td class="signal">&mdash;</td><td><span class="badge free">free</span></td><td class="desc">Not connected &mdash; the PCB only has a stray <code>WL_CS</code> net label (no wireless chip on the PX-42F)</td></tr>
+        <tr><td class="pin">GP28</td><td class="chippin">42</td><td class="signal">BATT_SENSE</td><td><span class="badge assigned">in use</span></td><td class="desc">ADC2 &mdash; midpoint of a <span class="fn">1&nbsp;M&Omega; / 1&nbsp;M&Omega;</span> divider from the Li-ion cell to GND (reads V<sub>bat</sub>&nbsp;&divide;&nbsp;2)</td></tr>
+        <tr><td class="pin">GP29</td><td class="chippin">43</td><td class="signal">&mdash;</td><td><span class="badge free">free</span></td><td class="desc">Not connected &mdash; the PCB only has a stray <code>WL_CLK</code> net label (no wireless chip on the PX-42F)</td></tr>
       </tbody>
     </table>
   </div>
 
   <div class="foot">
-    <p data-n="1.">GP22, GP26 and GP27 are electrically free today but earmarked by plan, not yet touched in firmware &mdash; nothing claims them until code is written.</p>
-    <p data-n="2.">I&sup2;C1 is the only I&sup2;C option this board has left: I&sup2;C0's SCL only lands on GP25/GP29 in the RP2350's pin-function pattern, and both are taken by the CYW43 radio.</p>
+    <p data-n="1.">GP26 and GP27 are electrically free today but earmarked by plan, not yet touched in firmware &mdash; nothing claims them until code is written.</p>
+    <p data-n="2.">The PX-42F is a custom RP2350A board (boards/px42f.h), not a Pico 2&nbsp;W: there is no CYW43 radio, so GP23&ndash;25 and GP29 are free. I&sup2;C1 on GP26/27 remains the planned I&sup2;C bus.</p>
     <p data-n="3.">The external reset button lands on <code>RUN</code>, not a GPIO &mdash; a dedicated hardware reset input firmware can't observe or block.</p>
   </div>
 

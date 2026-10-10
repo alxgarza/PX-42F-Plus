@@ -536,8 +536,11 @@
 /* For Plus42 compatibility */
 #define CMD_WIDTH       486
 #define CMD_HEIGHT      487
+/* HP-41 Time Module, PX-42 addition (see docmd_setdate()) */
+#define CMD_SETDATE     488
+#define CMD_SETIME      489
 
-#define CMD_SENTINEL    488
+#define CMD_SENTINEL    490
 
 
 /* command_spec.argtype */

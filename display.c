@@ -6,6 +6,7 @@
 
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
+#include "retained.h"
 
 static void display_reset(void) {
     /* Generic hardware reset timing for this class of controller: hold
@@ -19,21 +20,37 @@ static void display_reset(void) {
     sleep_ms(120);
 }
 
-static void display_write_command(uint8_t cmd) {
-    /* With no CS pin, RS's state at the SPI clock edges is the only thing
-     * telling the panel command from data -- settle time on both sides of
-     * the transition matters. Timing matches the working AVR driver. */
+/* Writes one instruction: a command byte, optionally followed by its
+ * parameter/data bytes, with CS held low for the whole instruction and
+ * released between instructions -- the standard framing for this class of
+ * panel. RS still distinguishes command from data on each byte the way it
+ * always has (see the RS timing below, matched to the working AVR driver);
+ * CS is what tells the panel where one instruction ends and the next
+ * begins, so a multi-byte parameter write (e.g. CASET) must not have CS
+ * bounce in the middle of it. Pass data == NULL / len == 0 for a
+ * command with no parameters. */
+static void display_write_instruction(uint8_t cmd, const uint8_t *data, size_t len) {
+    gpio_put(DISP_CS_PIN, 0); /* select */
+    sleep_us(1);
+
     gpio_put(DISP_RS_PIN, 0); /* command mode */
     sleep_us(10);
     spi_write_blocking(DISP_SPI, &cmd, 1);
     sleep_us(50);
-    gpio_put(DISP_RS_PIN, 1); /* back to data mode for any following bytes */
+    gpio_put(DISP_RS_PIN, 1); /* data mode, for the parameter bytes below (if any) and to leave the panel in its default state */
+
+    if (len > 0)
+        spi_write_blocking(DISP_SPI, data, len);
+
+    sleep_us(1);
+    gpio_put(DISP_CS_PIN, 1); /* deselect */
 }
 
-static void display_write_data(const uint8_t *data, size_t len) {
-    gpio_put(DISP_RS_PIN, 1); /* data mode */
-    spi_write_blocking(DISP_SPI, data, len);
-}
+/* Frame Rate Control (0xB2) values, from the PX-41CX's notes on this panel:
+ * 0x05 = HPM 16Hz / LPM 8Hz, 0x02 = HPM 16Hz / LPM 1Hz. The panel only ever
+ * runs in LPM here, so these pick its refresh rate. */
+#define FRAME_RATE_ON  0x05 /* LPM 8Hz: calculator on */
+#define FRAME_RATE_OFF 0x02 /* LPM 1Hz: off, splash showing */
 
 /* ST7305 power-on init sequence. Each entry is { length, command,
  * data... }, where length counts the command byte plus its data bytes.
@@ -47,7 +64,7 @@ static const uint8_t st7305_init_sequence[] = {
         0x05, 0xC2, 0x31, 0x31, 0x31, 0x31,                         /* VSLP Setting 0.98V */
         0x05, 0xC4, 0x19, 0x19, 0x19, 0x19,                         /* VSHN Setting -3.6V */
         0x05, 0xC5, 0x27, 0x27, 0x27, 0x27,                         /* VSLN Setting 0.22V */
-        0x02, 0xB2, 0x02,                                           /* Frame Rate Control: LPM 1Hz, HPM 16Hz */
+        0x02, 0xB2, FRAME_RATE_ON,                                  /* Frame Rate Control: LPM 8Hz (HPM 16Hz, unused) */
         0x09, 0xB4, 0x05, 0x46, 0x77, 0x77, 0x77, 0x77, 0x76, 0x45, /* Update Period Gate EQ Control (LPM) */
         0x02, 0xB7, 0x13,                                           /* Source EQ Enable */
         0x02, 0xB0, 0x3F,                                           /* Gate Line Setting: 252 lines */
@@ -59,16 +76,13 @@ static const uint8_t st7305_init_sequence[] = {
         0x02, 0xB9, 0x20,                                           /* Gamma Mode Setting: mono */
         0x02, 0xB8, 0x29,                                           /* Panel Setting: 1-dot/frame inversion, one-line interlace */
         0x02, 0xD0, 0xFF,                                           /* Auto power down: on */
-        /* Start in Low Power Mode (1Hz) -- display_flush() switches to
-         * High Power Mode (0x38, 16Hz) on demand for the brief window
-         * needed to cleanly show new content, then display_tick() drops
-         * back to LPM once idle. See the disp_high_power state machine
-         * below for why: with LPM, SPI transfer speed only affects how
-         * fast we can WRITE into the panel's GRAM, not how often it
-         * actually scans that GRAM out to the visible screen, so rows
-         * written on either side of a 1Hz refresh boundary visibly update
-         * up to ~1s apart -- that's what looked like "not displayed at
-         * the same time" before HPM was introduced. */
+        /* Low Power Mode, permanently -- same as the PX-41CX, whose ST7305
+         * driver this init sequence comes from. High Power Mode's 16Hz drive
+         * makes the image visibly blink, and switching between the modes
+         * flashes the whole panel, so the mode never changes; only LPM's
+         * frame rate does (0xB2 above, display_set_slow_refresh()): 8Hz while
+         * the calculator is on, so a redraw shows within ~125ms, and 1Hz
+         * while it's off. */
         0x01, 0x39,                                                 /* Low Power Mode */
         0x01, 0x29,                                                 /* Display on */
         0xFF,                                                       /* delay */
@@ -82,46 +96,69 @@ static void display_run_init_sequence(const uint8_t *seq) {
             sleep_ms(100);
             continue;
         }
-        display_write_command(*seq++);
-        if (len > 1)
-            display_write_data(seq, len - 1);
+        uint8_t cmd = *seq++;
+        display_write_instruction(cmd, len > 1 ? seq : NULL, len > 1 ? len - 1 : 0);
         seq += len - 1;
     }
 }
 
-void display_init(void) {
+/* A control line driven high, without a low glitch on the way: the level
+ * and direction are set while the pin is still not under software control
+ * -- after a deep power-off, its pad is still isolated, holding the level
+ * from before, and selecting the function is what ends that. RST must
+ * never dip (it'd reset the panel and lose the splash image); the default
+ * pull-down would waste ~60uA against the high level. */
+static void output_high(uint pin) {
+    gpio_put(pin, 1);
+    gpio_set_dir(pin, GPIO_OUT);
+    gpio_disable_pulls(pin);
+    gpio_set_function(pin, GPIO_FUNC_SIO);
+}
+
+static void setup_bus(void) {
     /* Backed down from 64 MHz: that was an experimental probe past the
      * last *confirmed*-clean speed, and the display going blank is
-     * exactly the failure this comment predicted -- with no CS line, RS's
-     * state at the clock edges is the only framing (see
-     * display_write_command()), so there's no hardware margin for a
-     * signal-integrity glitch on the wiring to be masked; it just shows
-     * up as the panel never syncing to anything instead of a corrupted
-     * image. 32 MHz is the highest speed actually confirmed clean (8 and
-     * 16 also fine) -- raised from the original 1 MHz bring-up value once
-     * the driver was proven stable. If blanking recurs even at 32 MHz,
-     * that points at the wiring itself (length, routing, connector)
-     * rather than the clock rate. */
-    uint actual_baud = spi_init(DISP_SPI, 32 * 1000 * 1000); /* 32 MHz requested */
-    printf("Display SPI: requested 32 MHz, got %u Hz\n", actual_baud);
+     * exactly the failure this comment predicted. That test predates CS
+     * being wired up (it was RS-only framing at the time), so CS now
+     * gives the panel a clean instruction boundary that wasn't there
+     * before -- but 64 MHz hasn't been re-tried since, so still requesting
+     * the last confirmed-clean speed here rather than assuming CS buys
+     * back the headroom. 32 MHz is the highest speed actually confirmed
+     * clean (8 and 16 also fine) -- raised from the original 1 MHz
+     * bring-up value once the driver was proven stable. If blanking
+     * recurs even at 32 MHz, that points at the wiring itself (length,
+     * routing, connector) rather than the clock rate.
+     *
+     * Now 24 MHz: the peripheral clock is a fixed 48 MHz (cpuclock.h),
+     * and the SPI clock is at most half of it. (At the old 150 MHz
+     * peripheral clock, a 32 MHz request actually got 25 MHz.) */
+    spi_init(DISP_SPI, 24 * 1000 * 1000);
     /* Pin down the format explicitly rather than rely on spi_init()'s
      * default -- confirmed to match the AVR reference (SPI_MODE_0_gc,
-     * i.e. CPOL=0/CPHA=0), MSB first. With no CS line at all, the panel
-     * has zero margin for a bit-order/polarity mismatch to be masked. */
+     * i.e. CPOL=0/CPHA=0), MSB first. */
     spi_set_format(DISP_SPI, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
     gpio_set_function(DISP_SCK_PIN, GPIO_FUNC_SPI);
     gpio_set_function(DISP_MOSI_PIN, GPIO_FUNC_SPI);
+    gpio_disable_pulls(DISP_SCK_PIN);
+    gpio_disable_pulls(DISP_MOSI_PIN);
 
-    gpio_init(DISP_RS_PIN);
-    gpio_set_dir(DISP_RS_PIN, GPIO_OUT);
+    /* RS, CS and RST: all idle high. CS deselected before anything else
+     * touches the bus -- SPI0's SCK/MOSI are shared with no other device
+     * here, but CS floating low between now and display_reset() below
+     * could otherwise latch the reset pulse as a stray instruction. */
+    output_high(DISP_RS_PIN);
+    output_high(DISP_CS_PIN);
+    output_high(DISP_RST_PIN);
+}
 
-    gpio_init(DISP_RST_PIN);
-    gpio_set_dir(DISP_RST_PIN, GPIO_OUT);
-    gpio_put(DISP_RST_PIN, 1);
-
+void display_init(void) {
+    setup_bus();
     display_reset();
-
     display_run_init_sequence(st7305_init_sequence);
+}
+
+void display_attach(void) {
+    setup_bus();
 }
 
 /* Canonical framebuffer: plain row-major 1bpp, hardware-independent. One
@@ -132,14 +169,19 @@ void display_init(void) {
  * everything built on it) work at any (x, y), not just positions aligned
  * to some hardware block size. */
 #define FB_STRIDE ((DISPLAY_WIDTH + 7) / 8) /* 32 bytes/row */
-static uint8_t disp_fb[DISPLAY_HEIGHT][FB_STRIDE];
+#define FB_SIZE   (DISPLAY_HEIGHT * FB_STRIDE)
+
+/* In RAM that survives a deep power-off (retained.h): a wake just to
+ * update the splash's clock redraws only that, over the image still here. */
+static uint8_t (*const disp_fb)[FB_STRIDE] = (uint8_t (*)[FB_STRIDE]) RETAINED_DISPLAY_FB;
+_Static_assert(RETAINED_DISPLAY_FB + FB_SIZE <= RETAINED_RAMSTATE, "framebuffer overlaps the RAM state");
 
 void display_clear(void) {
-    memset(disp_fb, 0, sizeof(disp_fb));
+    memset(disp_fb, 0, FB_SIZE);
 }
 
 void display_fill(uint8_t value) {
-    memset(disp_fb, value, sizeof(disp_fb));
+    memset(disp_fb, value, FB_SIZE);
 }
 
 void display_set_pixel(uint8_t x, uint8_t y, bool on) {
@@ -203,6 +245,23 @@ uint8_t display_draw_string(const display_font_t *font, const char *s, uint8_t x
     return x;
 }
 
+uint8_t display_draw_chars(const display_font_t *font, const char *s, int len, uint8_t x, uint8_t y, uint8_t color) {
+    for (int i = 0; i < len; i++)
+        x = display_draw_char(font, s[i], x, y, color);
+    return x;
+}
+
+void display_draw_bitmap(const uint8_t *bits, int width, int height, int x, int y) {
+    int stride = (width + 7) / 8;
+    for (int row = 0; row < height; row++)
+        for (int col = 0; col < width; col++) {
+            int px = x + col, py = y + row;
+            if (px >= 0 && px < DISPLAY_WIDTH && py >= 0 && py < DISPLAY_HEIGHT)
+                display_set_pixel((uint8_t) px, (uint8_t) py,
+                                  (bits[row * stride + col / 8] & (0x80 >> (col & 7))) != 0);
+        }
+}
+
 void display_draw_dotted_hline(uint8_t x0, uint8_t x1, uint8_t y) {
     for (int x = x0; x <= (int) x1; x += 2)
         display_set_pixel((uint8_t) x, y, true);
@@ -262,34 +321,11 @@ static void display_set_window(uint8_t start_row, uint8_t num_rows) {
     uint8_t caset[2] = {(uint8_t) (25 + start_row), (uint8_t) (25 + start_row + num_rows)};
     uint8_t raset[2] = {0x00, TILE_COLS - 1};
 
-    display_write_command(0x2A); /* CASET: our block-row axis, +25 offset */
-    display_write_data(caset, sizeof(caset));
-
-    display_write_command(0x2B); /* RASET: our block-column axis, 0-based */
-    display_write_data(raset, sizeof(raset));
+    display_write_instruction(0x2A, caset, sizeof(caset)); /* CASET: our block-row axis, +25 offset */
+    display_write_instruction(0x2B, raset, sizeof(raset)); /* RASET: our block-column axis, 0-based */
 }
 
-/* Power-mode state machine: the panel starts in Low Power Mode (1Hz
- * refresh, set by the init sequence) to save power at rest. display_flush()
- * wakes it to High Power Mode (16Hz) on demand so new content shows up
- * promptly and uniformly across all rows, and display_tick() drops it back
- * to LPM once it's been idle for a bit. DISP_HPM_IDLE_MS must be at least
- * one full HPM refresh period (1/16Hz = 62.5ms) -- dropping back to LPM
- * before the panel has actually scanned out the new GRAM contents at least
- * once would reintroduce the same up-to-1s staggered-update problem HPM
- * was added to fix, just shifted to whichever rows lost the race back to
- * LPM. 150ms gives that a couple of refresh cycles of margin. */
-#define DISP_HPM_IDLE_MS 150
-
-static bool disp_high_power = false; /* matches the init sequence's LPM start state */
-static absolute_time_t disp_last_flush_time;
-
 void display_flush(void) {
-    if (!disp_high_power) {
-        display_write_command(0x38); /* High Power Mode: 16Hz refresh */
-        disp_high_power = true;
-    }
-
     /* The panel can't take the whole frame in one window/RAMWR burst --
      * the working AVR reference (buffRows_2_disp) writes 2 block-rows at
      * a time, each as its own complete CASET/RASET/RAMWR transaction, not
@@ -308,18 +344,33 @@ void display_flush(void) {
 
         display_set_window(start_row, rows);
 
-        display_write_command(0x2C); /* RAMWR: memory write */
-        display_write_data((const uint8_t *) chunk, (size_t) rows * TILE_COLS * 3);
-    }
-
-    disp_last_flush_time = get_absolute_time();
-}
-
-void display_tick(void) {
-    if (!disp_high_power)
-        return;
-    if (absolute_time_diff_us(disp_last_flush_time, get_absolute_time()) / 1000 >= DISP_HPM_IDLE_MS) {
-        display_write_command(0x39); /* Low Power Mode: 1Hz refresh, saves power while idle */
-        disp_high_power = false;
+        /* RAMWR: memory write */
+        display_write_instruction(0x2C, (const uint8_t *) chunk, (size_t) rows * TILE_COLS * 3);
     }
 }
+
+void display_set_slow_refresh(bool slow) {
+    uint8_t rate = slow ? FRAME_RATE_OFF : FRAME_RATE_ON;
+    display_write_instruction(0xB2, &rate, 1); /* Frame Rate Control */
+}
+
+void display_sleep(void) {
+    display_write_instruction(0x28, NULL, 0); /* Display off -- panel shows blank */
+    display_write_instruction(0x10, NULL, 0); /* Sleep in */
+    sleep_ms(100);
+}
+
+void display_wake(void) {
+    /* A full hardware reset and the complete power-on init sequence, not
+     * just Sleep Out + Display On. Waking with only Sleep Out sometimes left
+     * the panel showing random noise that even a full redraw right after
+     * didn't clear -- the controller wasn't ready (or had dropped some of
+     * its configuration) when the frame arrived, after however long it had
+     * been asleep. The boot path is known to work every time, and its cost
+     * (~350ms) only applies when turning on. Ends in Low Power Mode at the
+     * normal 8Hz with the display on; GRAM is undefined until the caller's
+     * next flush. */
+    display_reset();
+    display_run_init_sequence(st7305_init_sequence);
+}
+

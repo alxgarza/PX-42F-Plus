@@ -7,8 +7,8 @@
 #include "hardware/spi.h"
 #include "font.h"
 
-/* Sitronix ST7305, 250x122 monochrome LCD, write-only SPI (no MISO, no
- * hardware CS -- RS/RST are plain GPIO). */
+/* Sitronix ST7305, 250x122 monochrome LCD, write-only SPI (no MISO;
+ * RS/RST/CS are plain GPIO). */
 #define DISPLAY_WIDTH  250
 #define DISPLAY_HEIGHT 122
 
@@ -17,6 +17,7 @@
 #define DISP_MOSI_PIN 19  /* SPI0 TX */
 #define DISP_RS_PIN   20  /* Register select: 0 = command, 1 = data */
 #define DISP_RST_PIN  21  /* Reset, active low */
+#define DISP_CS_PIN   22  /* Chip select, active low */
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,6 +27,11 @@ extern "C" {
  * power-on initialization sequence. Must be called once before any other
  * display_* function. */
 void display_init(void);
+
+/* Takes over the bus to a panel that's already running -- after a wake
+ * from a deep power-off that kept it showing the splash -- without
+ * resetting it: it keeps its image and settings. */
+void display_attach(void);
 
 /* Clears the in-memory framebuffer (does not touch the panel until
  * display_flush() is called). */
@@ -37,16 +43,25 @@ void display_clear(void);
  * of any font. */
 void display_fill(uint8_t value);
 
-/* Sends the whole in-memory framebuffer to the panel. Automatically wakes
- * the panel to High Power Mode (16Hz refresh) first if it had been idled
- * down to Low Power Mode (1Hz) by display_tick() -- see there. */
+/* Sends the whole in-memory framebuffer to the panel. */
 void display_flush(void);
 
-/* Call periodically (e.g. once per main-loop iteration) to drop the panel
- * back to Low Power Mode (1Hz refresh, lower power draw) once it's been
- * idle for a bit after the last display_flush(). Only touches the panel
- * when a transition is actually due, so calling this often is cheap. */
-void display_tick(void);
+/* The panel always runs in Low Power Mode (no visible blinking, like the
+ * PX-41CX); this picks its refresh rate: 8Hz normally, 1Hz (slow = true,
+ * lowest draw while still showing an image) for the off-screen splash. At
+ * 1Hz, rows written on either side of a refresh can appear up to ~1s
+ * apart, so it's only for screens that change once a minute. */
+void display_set_slow_refresh(bool slow);
+
+/* Blanks the panel and puts the controller into sleep mode (lowest panel
+ * power). Callers must redraw after display_wake(), which resets the
+ * controller. */
+void display_sleep(void);
+
+/* Brings the panel back out of display_sleep(): hardware reset and the
+ * full init sequence, as at power-on. Ends at the normal 8Hz refresh with
+ * the display on; redraw (display_flush()) right after. */
+void display_wake(void);
 
 /* Sets one pixel in the in-memory framebuffer. (x, y) outside the visible
  * DISPLAY_WIDTH x DISPLAY_HEIGHT area is silently ignored -- callers (in
@@ -76,6 +91,16 @@ uint8_t display_draw_char(const display_font_t *font, char c, uint8_t x, uint8_t
  * comes next, so calls can be chained (e.g. a label followed by a
  * value). */
 uint8_t display_draw_string(const display_font_t *font, const char *s, uint8_t x, uint8_t y, uint8_t color);
+
+/* Same as display_draw_string(), but draws exactly len characters instead
+ * of stopping at a 0 byte -- for Free42 text, where byte 0 is a real
+ * character (the divide sign), not a terminator. */
+uint8_t display_draw_chars(const display_font_t *font, const char *s, int len, uint8_t x, uint8_t y, uint8_t color);
+
+/* Copies a 1bpp bitmap into the framebuffer at (x, y), clipped to the
+ * screen: rows of ceil(width/8) bytes, MSB-first, 1 = black. Both ink and
+ * background pixels are written. */
+void display_draw_bitmap(const uint8_t *bits, int width, int height, int x, int y);
 
 /* Draws a horizontal dotted line (alternating on/off pixels, starting
  * on at x0) at row y, from column x0 to x1 inclusive. */

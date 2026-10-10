@@ -255,6 +255,16 @@ bool shell_always_on(int always_on);
  */
 void shell_get_time_date(uint4 *time, uint4 *date, int *weekday);
 
+/* shell_set_date() / shell_set_time()
+ *
+ * PX-42 additions, not part of the upstream shell interface: back the HP-41
+ * Time Module's SETDATE and SETIME commands. The date is already validated
+ * as a real Gregorian date (date2comps()); shell_set_date() returns false
+ * if the clock can't represent it (before 1970). The time is 24-hour.
+ */
+bool shell_set_date(int4 year, int4 month, int4 day);
+void shell_set_time(int4 hour, int4 min, int4 sec);
+
 /* shell_message()
  *
  * Displays a modal pop-up message box.

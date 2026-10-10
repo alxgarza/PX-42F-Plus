@@ -56,6 +56,20 @@ int print_program(int prgm_index, int4 pc, int4 lines, bool normal);
 void print_program_line(int prgm_index, int4 pc);
 int command2buf(char *buf, int len, int cmd, const arg_struct *arg);
 
+/* Formats one program line (its "NNh" line-number-and-cursor prefix, or
+ * the "{ NN-Byte Prgm }" line-0 header, or a live in-progress ALPHA entry)
+ * into buf, the same way the real HP-42S/Free42 does for its own 1-2 line
+ * program display (display_prgm_line() above) -- exposed (was static)
+ * so a port with more display real estate, like free42_app.cc's
+ * multi-line program listing, can lay out as many of these as it has
+ * room for instead of being limited to display_prgm_line()'s fixed
+ * row-count assumptions. */
+int prgmline2buf(char *buf, int len, int4 line, int highlight,
+                        int cmd, arg_struct *arg, const char *orig_num,
+                        bool shift_left = false,
+                        bool highlight_final_end = true,
+                        char **xstr = NULL);
+
 struct textbuf {
     char *buf;
     size_t size;

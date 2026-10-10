@@ -571,6 +571,10 @@ const command_spec cmd_array[] =
     /* For Plus42 Compatibility */
     { /* WIDTH */       docmd_width,       "WIDTH",               0x00, 0x00, 0xa2, 0x72,  5, ARG_NONE,   0, NA_T },
     { /* HEIGHT */      docmd_height,      "HEIGHT",              0x00, 0x00, 0xa2, 0x73,  6, ARG_NONE,   0, NA_T },
+
+    /* HP-41 Time Module, PX-42 addition (XROM 26,22 and 26,23) */
+    { /* SETDATE */     docmd_setdate,     "SETDATE",             0x00, 0x00, 0xa6, 0x96,  7, ARG_NONE,   1, 0x01 },
+    { /* SETIME */      docmd_setime,      "SETIME",              0x00, 0x00, 0xa6, 0x97,  6, ARG_NONE,   1, 0x01 },
 };
 
 /*
