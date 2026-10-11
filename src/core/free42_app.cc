@@ -10,8 +10,7 @@
 #include "core_display.h"
 #include "display.h"
 #include "keyboard.h"
-#include "font_10x16.h"
-#include "font_8x12.h"
+#include "fonts.h"
 #include "rtc.h"
 #include "battery.h"
 #include "splash.h"
@@ -135,7 +134,7 @@ void free42_request_timeout3(int delay_ms) {
 static void draw_message_row(int row, uint8_t y) {
     int length;
     const char *text = display_row_text(row, &length);
-    display_draw_chars(&font_10x16, text, length, STACK_COL_START, y, 0x00);
+    display_draw_chars(&font_large, text, length, STACK_COL_START, y, 0x00);
 }
 
 /* MEM (in the CATALOG) and shift-VARMENU draw both rows without setting
@@ -145,8 +144,14 @@ static bool lingering() {
     return pending_command == CMD_LINGER1 || pending_command == CMD_LINGER2;
 }
 
+/* Only with text to show: the flag also comes back set from a loaded state
+ * (turned off, or crashed, with a message up) whose text is gone -- the Y
+ * row was blank then. */
 static bool message_active() {
-    return flags.f.message || lingering();
+    int length0, length1;
+    display_row_text(0, &length0);
+    display_row_text(1, &length1);
+    return (flags.f.message || lingering()) && length0 + length1 > 0;
 }
 
 static bool message_two_lines() {
@@ -199,13 +204,13 @@ static void display_line_n(const char *label, const char *value, int vlen, uint8
      * "E", distinct from a plain letter 'E') -- no translation needed. */
 
     if (total <= LINE_CHARS) {
-        display_draw_chars(&font_10x16, full, total, STACK_COL_START, y, 0x00);
+        display_draw_chars(&font_large, full, total, STACK_COL_START, y, 0x00);
     } else {
         char buf[LINE_CHARS];
         int tail_len = LINE_CHARS - 1;
         buf[0] = 26;
         memcpy(buf + 1, full + (total - tail_len), tail_len);
-        display_draw_chars(&font_10x16, buf, LINE_CHARS, STACK_COL_START, y, 0x00);
+        display_draw_chars(&font_large, buf, LINE_CHARS, STACK_COL_START, y, 0x00);
     }
 }
 
@@ -258,13 +263,13 @@ static void display_show_x() {
     buf[len] = 0;
 
     if (len <= LINE_CHARS) {
-        display_draw_string(&font_10x16, buf, STACK_COL_START, STACK_ROW_Y, 0x00);
+        display_draw_string(&font_large, buf, STACK_COL_START, STACK_ROW_Y, 0x00);
     } else {
         char first[LINE_CHARS + 1];
         memcpy(first, buf, LINE_CHARS);
         first[LINE_CHARS] = 0;
-        display_draw_string(&font_10x16, first, STACK_COL_START, STACK_ROW_Y, 0x00);
-        display_draw_string(&font_10x16, buf + LINE_CHARS, STACK_COL_START, STACK_ROW_X, 0x00);
+        display_draw_string(&font_large, first, STACK_COL_START, STACK_ROW_Y, 0x00);
+        display_draw_string(&font_large, buf + LINE_CHARS, STACK_COL_START, STACK_ROW_X, 0x00);
     }
 }
 
@@ -454,7 +459,7 @@ typedef struct {
 } header_layout_t;
 
 static header_layout_t layout_header() {
-    const int c = font_8x12.advance;
+    const int c = font_small.advance;
     int date_w = (px_settings.date_format == RTC_WMD ? 10 : 5) * c;
     int time_w = (px_settings.clock_24h ? 5 : 7) * c;
     int used = date_w + time_w + 4 * c + 5 * c + c;
@@ -486,12 +491,12 @@ static void display_header() {
     rtc_get_datetime(&now);
     char buf[12];
     rtc_format_day_month(buf, sizeof(buf), &now);
-    display_draw_string(&font_8x12, buf, l.date, 0, 0xFF);
+    display_draw_string(&font_small, buf, l.date, 0, 0xFF);
     rtc_format_time(buf, sizeof(buf), &now, true);
-    display_draw_string(&font_8x12, buf, l.time, 0, 0xFF);
+    display_draw_string(&font_small, buf, l.time, 0, 0xFF);
 
     const char *angle = flags.f.rad ? "RAD" : flags.f.grad ? "GRAD" : "DEG";
-    display_draw_string(&font_8x12, angle, l.angle, 0, 0xFF);
+    display_draw_string(&font_small, angle, l.angle, 0, 0xFF);
 
     uint8_t x = l.flags;
     for (int i = 0; i < 5; i++) {
@@ -501,15 +506,15 @@ static void display_header() {
          * inverted patch; an unset flag just leaves its column blank. */
         if (flags.farray[i]) {
             char digit = (char) ('0' + i);
-            display_draw_char(&font_8x12, digit, x, 0, 0xFF);
+            display_draw_char(&font_small, digit, x, 0, 0xFF);
         }
-        x = (uint8_t) (x + font_8x12.advance);
+        x = (uint8_t) (x + font_small.advance);
     }
 
     if (mode_shift)
-        display_draw_string(&font_8x12, "^", l.shift, 0, 0xFF);
+        display_draw_string(&font_small, "^", l.shift, 0, 0xFF);
 
-    display_draw_string(&font_8x12, battery_icons[battery_level()], HEADER_BATTERY_X, 0, 0xFF);
+    display_draw_string(&font_small, battery_icons[battery_level()], HEADER_BATTERY_X, 0, 0xFF);
 }
 
 /* Footer: 6 menu-key "tabs" in the bottom FOOTER_HEIGHT rows, replicating
@@ -668,14 +673,14 @@ static void draw_footer_tab(int i, const char *text, int text_len, bool highligh
     display_fill_rect((uint8_t) (x0 + 1), (uint8_t) (FOOTER_Y0 + 1), (uint8_t) (fill_x1 - 1), (uint8_t) (FOOTER_Y0 + 1), true);
     display_fill_rect((uint8_t) x0, (uint8_t) (FOOTER_Y0 + 2), (uint8_t) fill_x1, (uint8_t) bottom, true);
 
-    int max_chars = (fill_x1 - x0 + 1) / font_8x12.advance;
+    int max_chars = (fill_x1 - x0 + 1) / font_small.advance;
     if (text_len > max_chars)
         text_len = max_chars;
-    int text_width = text_len * font_8x12.advance;
+    int text_width = text_len * font_small.advance;
     int tx = x0 + ((fill_x1 - x0 + 1) - text_width) / 2;
 
     for (int k = 0; k < text_len; k++)
-        tx = display_draw_char(&font_8x12, text[k], (uint8_t) tx, FOOTER_Y0, 0xFF);
+        tx = display_draw_char(&font_small, text[k], (uint8_t) tx, FOOTER_Y0, 0xFF);
 
     if (highlight)
         display_fill_rect((uint8_t) x0, (uint8_t) (bottom - 1), (uint8_t) fill_x1, (uint8_t) bottom, false);
@@ -758,7 +763,7 @@ static void display_prgm_number_entry(uint8_t y, int4 line) {
     if (n > (int) sizeof(buf) - 1)
         n = (int) sizeof(buf) - 1;
     buf[n] = 0;
-    display_draw_string(&font_10x16, buf, STACK_COL_START, y, 0x00);
+    display_draw_string(&font_large, buf, STACK_COL_START, y, 0x00);
 }
 
 /* While flags.f.prgm_mode is set, replaces the Alpha+T+Z+Y+X stack view
@@ -866,7 +871,7 @@ static void display_prgm_listing() {
         if (len > LINE_CHARS)
             len = LINE_CHARS;
         /* By length -- a divide step contains byte 0 (the divide sign). */
-        display_draw_chars(&font_10x16, buf, len, STACK_COL_START, y, 0x00);
+        display_draw_chars(&font_large, buf, len, STACK_COL_START, y, 0x00);
         if (cmd == CMD_END)
             ended = true;
     }
@@ -906,7 +911,7 @@ static void display_stack(bool show_x = false) {
     } else if (key_hint_active && key_hint_length > 0) {
         /* By length, not as a C string: the divide key's name is the single
          * byte 0 (Free42's divide sign, font entry 0). */
-        display_draw_chars(&font_10x16, key_hint_text, key_hint_length, STACK_COL_START, STACK_ROW_Y, 0x00);
+        display_draw_chars(&font_large, key_hint_text, key_hint_length, STACK_COL_START, STACK_ROW_Y, 0x00);
     } else if (message_active()) {
         /* No "Y:" label here -- this isn't Y's value, it's an override
          * message (e.g. "DIVIDE BY 0"), matching how Free42's own
@@ -960,6 +965,7 @@ void free42_init(bool after_crash) {
     /* The formats as last saved (they follow Free42's DMY, CLK12... at
      * OFF): kept across a reboot, a reflash or Memory Clear. */
     free42_set_formats(px_settings.date_format, px_settings.clock_24h);
+    watchdog_update(); /* loading a big memory, then drawing it */
     display_stack();
     if (from_ram && !after_crash)
         ramstate_keep(); /* loaded and drawn fine */

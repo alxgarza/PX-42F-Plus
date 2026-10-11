@@ -8,16 +8,25 @@ UF2=build/PX-Free42.uf2
 [ -f "$UF2" ] || { echo "no $UF2 -- build first"; exit 1; }
 echo "Flashing $UF2 ($(stat -f '%Sm' "$UF2"))"
 
+# In USB Drive mode the Mac has the calculator's drive: eject it first, so
+# nothing is lost and the calculator writes it back to flash.
+if [ -d /Volumes/PX-42F ]; then
+    echo "Ejecting the PX-42F drive"
+    diskutil eject /Volumes/PX-42F >/dev/null 2>&1
+    sleep 4
+fi
+
 # Into BOOTSEL, wait for it, load. 'load -f' alone gives up before the
-# RP2350 has come back, and now and then the reboot request itself doesn't
-# take -- so check the load really happened, and try again if not.
+# RP2350 has come back. Firmware before the --wrap in main.c only took the
+# reboot request when the timing was lucky -- so check the load really
+# happened, and try again if not.
 loaded=no
-for attempt in 1 2 3; do
+for attempt in 1 2 3 4 5 6; do
     "$PT" reboot -f -u >/dev/null 2>&1   # fails harmlessly if already in BOOTSEL
     # picotool info sometimes crashes while polling -- harmless. The shell's
     # own crash notice goes to its stderr, so the whole loop's is silenced.
     {
-        for i in $(seq 1 30); do
+        for i in $(seq 1 8); do
             "$PT" info >/dev/null 2>&1 && break
             sleep 1
         done

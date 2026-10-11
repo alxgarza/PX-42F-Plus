@@ -47,8 +47,9 @@ void display_flush(void);
  * apart, so it's only for screens that change once a minute. */
 void display_set_slow_refresh(bool slow);
 
-/* Blanks the panel and puts the controller into sleep mode (lowest panel
- * power), for a power-off: the next boot's display_init() resets it. */
+/* Clears the panel (and the framebuffer) and puts the controller into
+ * sleep mode (lowest panel power), for a power-off: the next boot's
+ * display_init() resets it. Takes ~0.4s. */
 void display_sleep(void);
 
 /* Sets one pixel in the in-memory framebuffer. (x, y) outside the visible

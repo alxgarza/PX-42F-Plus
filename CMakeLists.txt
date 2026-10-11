@@ -95,6 +95,8 @@ add_executable(PX-Free42
         fonts/font_10x16_data.c
         fonts/font_24x10_data.c
         fonts/font_8x12_data.c
+        fonts.c
+        fontsheet.c
         ${FREE42_CORE_SOURCES}
         )
 
@@ -173,6 +175,10 @@ target_compile_definitions(PX-Free42 PRIVATE
 )
 
 # Add any user requested libraries
+# The restart-into-the-bootloader request goes through main.c first (see
+# __wrap_rom_reset_usb_boot_extra there).
+target_link_options(PX-Free42 PRIVATE -Wl,--wrap=rom_reset_usb_boot_extra)
+
 target_link_libraries(PX-Free42
         pico_multicore
         hardware_spi

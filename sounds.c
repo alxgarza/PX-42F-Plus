@@ -212,6 +212,10 @@ void sounds_play_boot(void) {
     play("BOOT.wav");
 }
 
+void sounds_play_on(void) {
+    play("ON.wav");
+}
+
 void sounds_play_off(void) {
     play("OFF.wav");
 }
@@ -263,8 +267,13 @@ bool sounds_key_select(const char *name, char *error, size_t error_size) {
         return false;
     }
     uint32_t n = 0, got;
-    while ((got = stream_fill(&play_stream, key_duty + n, (uint32_t) count_of(key_duty) - n)) != 0)
+    while ((got = stream_fill(&play_stream, key_duty + n, 1024 < (uint32_t) count_of(key_duty) - n
+                                                                  ? 1024 : (uint32_t) count_of(key_duty) - n)) != 0) {
         n += got;
+        watchdog_update(); /* converting 250ms of sound takes a while */
+        if (n == count_of(key_duty))
+            break;
+    }
     wav_close(&play_stream.src);
     key_len = n;
     return true;
@@ -311,6 +320,7 @@ static void write_missing(void) {
     for (unsigned i = 0; i < builtin_sound_count; i++) {
         char full[64];
         snprintf(full, sizeof(full), "%s/%s", SOUNDS_DIR, builtin_sounds[i].path);
+        watchdog_update();
         if (statefs_file_exists(full))
             continue;
         FILE *f = statefs_fopen(full, "wb");

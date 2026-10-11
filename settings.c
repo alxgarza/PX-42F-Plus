@@ -16,7 +16,7 @@
 #define SETTINGS_FLASH_OFFSET (4u * 1024u * 1024u - FLASH_SECTOR_SIZE)
 
 #define SETTINGS_MAGIC   0x32345850u /* "PX42" */
-#define SETTINGS_VERSION 6           /* bump when px_settings_t changes */
+#define SETTINGS_VERSION 8           /* bump when px_settings_t changes */
 
 typedef struct {
     uint32_t magic;
@@ -25,7 +25,7 @@ typedef struct {
     uint32_t checksum;
 } settings_record_t;
 
-/* Version 5: before Date & Time. */
+/* Version 6: before the on sound. */
 typedef struct {
     uint16_t sleep_minutes;
     uint16_t splash_minutes;
@@ -34,14 +34,20 @@ typedef struct {
     char key_sound[KEY_SOUND_NAME_MAX + 1];
     bool boot_sound;
     bool off_sound;
-} px_settings_v5_t;
+    uint8_t date_format;
+    bool clock_24h;
+    int16_t time_trim;
+    int16_t cal_drift;
+    uint16_t cal_span_h;
+    uint64_t cal_ref_ms;
+} px_settings_v6_t;
 
 typedef struct {
     uint32_t magic;
     uint32_t version;
-    px_settings_v5_t settings;
+    px_settings_v6_t settings;
     uint32_t checksum;
-} settings_record_v5_t;
+} settings_record_v6_t;
 
 _Static_assert(sizeof(settings_record_t) <= FLASH_PAGE_SIZE, "settings record must fit one flash page");
 
@@ -50,6 +56,7 @@ px_settings_t px_settings;
 static const px_settings_t defaults = {
     .key_sound = "",
     .boot_sound = true,
+    .on_sound = true,
     .off_sound = true,
     .sleep_minutes = 10,  /* the HP-42S's own auto-off time */
     .splash_minutes = 10,
@@ -57,6 +64,8 @@ static const px_settings_t defaults = {
     .printer = 0, /* PRINTER_OFF */
     .date_format = RTC_YMD,
     .clock_24h = true,
+    .small_font = "",
+    .large_font = "",
 };
 
 /* FNV-1a over everything before the checksum field. */
@@ -76,26 +85,45 @@ static const settings_record_t *stored_record(void) {
     return (const settings_record_t *) (XIP_BASE + SETTINGS_FLASH_OFFSET);
 }
 
-/* The current layout, or the one before (version 5); anything older
- * gets the defaults. */
+/* Version 7 was today's layout without the fonts, which were added at the
+ * end: its settings are the first V7_SIZE bytes, its checksum right after. */
+#define V7_SIZE        offsetof(px_settings_t, small_font)
+#define V7_CHECKSUM_AT (offsetof(settings_record_t, settings) + V7_SIZE)
+
+/* The current layout, or one of the two before -- version 6 too: settings
+ * are only written when one changes, so a calculator can still hold it.
+ * Anything older gets the defaults. */
 void settings_load(void) {
     const settings_record_t *r = stored_record();
-    const settings_record_v5_t *r5 = (const settings_record_v5_t *) r;
+    const settings_record_v6_t *r6 = (const settings_record_v6_t *) r;
+    uint32_t v7_checksum;
+    memcpy(&v7_checksum, (const uint8_t *) r + V7_CHECKSUM_AT, sizeof(v7_checksum));
     px_settings = defaults;
     if (r->magic == SETTINGS_MAGIC && r->version == SETTINGS_VERSION && r->checksum == checksum(r)) {
         px_settings = r->settings;
-    } else if (r5->magic == SETTINGS_MAGIC && r5->version == 5
-               && r5->checksum == checksum_bytes(r5, offsetof(settings_record_v5_t, checksum))) {
-        px_settings.sleep_minutes = r5->settings.sleep_minutes;
-        px_settings.splash_minutes = r5->settings.splash_minutes;
-        memcpy(px_settings.splash_image, r5->settings.splash_image, sizeof(px_settings.splash_image));
-        px_settings.printer = r5->settings.printer;
-        memcpy(px_settings.key_sound, r5->settings.key_sound, sizeof(px_settings.key_sound));
-        px_settings.boot_sound = r5->settings.boot_sound;
-        px_settings.off_sound = r5->settings.off_sound;
+    } else if (r->magic == SETTINGS_MAGIC && r->version == 7 && v7_checksum == checksum_bytes(r, V7_CHECKSUM_AT)) {
+        memcpy(&px_settings, &r->settings, V7_SIZE);
+    } else if (r6->magic == SETTINGS_MAGIC && r6->version == 6
+               && r6->checksum == checksum_bytes(r6, offsetof(settings_record_v6_t, checksum))) {
+        const px_settings_v6_t *o = &r6->settings;
+        px_settings.sleep_minutes = o->sleep_minutes;
+        px_settings.splash_minutes = o->splash_minutes;
+        memcpy(px_settings.splash_image, o->splash_image, sizeof(px_settings.splash_image));
+        px_settings.printer = o->printer;
+        memcpy(px_settings.key_sound, o->key_sound, sizeof(px_settings.key_sound));
+        px_settings.boot_sound = o->boot_sound;
+        px_settings.off_sound = o->off_sound;
+        px_settings.date_format = o->date_format;
+        px_settings.clock_24h = o->clock_24h;
+        px_settings.time_trim = o->time_trim;
+        px_settings.cal_drift = o->cal_drift;
+        px_settings.cal_span_h = o->cal_span_h;
+        px_settings.cal_ref_ms = o->cal_ref_ms;
     }
     px_settings.splash_image[SPLASH_NAME_MAX] = 0;
     px_settings.key_sound[KEY_SOUND_NAME_MAX] = 0;
+    px_settings.small_font[FONT_SETTING_MAX] = 0;
+    px_settings.large_font[FONT_SETTING_MAX] = 0;
     if (px_settings.date_format > RTC_WMD)
         px_settings.date_format = RTC_YMD;
 }

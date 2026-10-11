@@ -16,8 +16,8 @@ extern "C" {
  *
  *   /SOUNDS/KEY/<name>.wav     the Key Sound choices -- held in RAM, at
  *                              most 250ms (longer ones are cut, with a fade)
- *   /SOUNDS/BOOT.wav           turning on (a cold boot)   } played straight
- *   /SOUNDS/OFF.wav            turning off                } from the drive,
+ *   /SOUNDS/BOOT.wav           a cold boot                } played straight
+ *   /SOUNDS/ON.wav, OFF.wav    turning on (ON), off       } from the drive,
  *   /SOUNDS/TONES/TONE0..9.wav TONE 0-9 (and BEEP)        } any length
  *   /SOUNDS/ERROR.wav          Free42's error squeak      }
  *
@@ -45,9 +45,10 @@ extern const unsigned builtin_sound_count;
  * see main.c). */
 void sounds_init(bool use_files);
 
-/* Play /SOUNDS/BOOT.wav, OFF.wav; blocking. The callers check the Boot
- * Sound / Off Sound settings. */
+/* Play /SOUNDS/BOOT.wav, ON.wav, OFF.wav; blocking. The callers check the
+ * Boot Sound / On Sound / Off Sound settings. */
 void sounds_play_boot(void);
+void sounds_play_on(void);
 void sounds_play_off(void);
 
 /* Free42's shell_beeper(): 0-9 = TONE n, 10 = the error squeak. Blocking. */

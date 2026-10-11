@@ -160,6 +160,9 @@ def sounds():
     out.append(("BOOT.wav", render([(1046.50, 0.00, 0.22, 1, 0), (1318.51, 0.14, 0.22, 1, 0),
                                     (1567.98, 0.28, 0.22, 1, 0), (2093.00, 0.42, 0.45, 1, 0)],
                                    1.4, sine_wave, 16000), 16000))
+    # Turning on (from OFF): just the top of it -- G6 C7, short.
+    out.append(("ON.wav", render([(1567.98, 0.00, 0.12, 1, 0), (2093.00, 0.09, 0.30, 1, 0)],
+                                 0.7, sine_wave, 16000), 16000))
     # Turning off: the same bell, coming down -- C7 G6 E6 C6, a little quicker.
     out.append(("OFF.wav", render([(2093.00, 0.00, 0.18, 1, 0), (1567.98, 0.11, 0.18, 1, 0),
                                    (1318.51, 0.22, 0.18, 1, 0), (1046.50, 0.33, 0.40, 1, 0)],

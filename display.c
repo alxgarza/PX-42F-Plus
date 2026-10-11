@@ -351,7 +351,15 @@ void display_set_slow_refresh(bool slow) {
 }
 
 void display_sleep(void) {
-    display_write_instruction(0x28, NULL, 0); /* Display off -- panel shows blank */
+    /* A blank frame first: the reflective panel goes on showing its last
+     * picture after the controller sleeps (the splash, when its time ran
+     * out). At the normal refresh rate, and given a few frames, so it's
+     * really on the glass before the controller stops. */
+    display_set_slow_refresh(false);
+    display_clear();
+    display_flush();
+    sleep_ms(300);
+    display_write_instruction(0x28, NULL, 0); /* Display off */
     display_write_instruction(0x10, NULL, 0); /* Sleep in */
     sleep_ms(100);
 }

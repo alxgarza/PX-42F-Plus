@@ -14,6 +14,9 @@
 #include "png1bit.h"
 #include "wav.h"
 #include "images/image.h"
+#include "fontsheet.h"
+#include "fonts/font_8x12.h"
+#include "fonts/font_10x16.h"
 
 static int failures;
 
@@ -308,11 +311,64 @@ static void test_wav_file(const char *path) {
     wav_close(&s);
 }
 
+/* ===================== font sheets ===================== */
+
+static bool load_sheet(const uint8_t *png, size_t size, const display_font_t *font, int gap, uint8_t *glyphs,
+                       char *error) {
+    mem_t m = {png, size, 0};
+    png_source_t src = {mem_read, &m, NULL};
+    alarm(5);
+    bool ok = font_sheet_load(&src, font->width, font->height, gap, glyphs, error, 64);
+    alarm(0);
+    return ok;
+}
+
+/* A font's sheet must slice into exactly the table gen_font.py made from
+ * it (the built-in font); anything else must be refused, leaving the
+ * glyphs alone. */
+static void test_font_sheet(const char *path, const display_font_t *font, int gap) {
+    static uint8_t glyphs[FONT_SHEET_GLYPHS * 32];
+    size_t glyph_bytes = (size_t) FONT_SHEET_GLYPHS * font->bytes_per_char;
+    char error[64];
+    size_t size;
+    uint8_t *png = read_file(path, &size);
+    CHECK(png != NULL, "can't read %s", path);
+    if (png == NULL)
+        return;
+
+    memset(glyphs, 0xA5, sizeof(glyphs));
+    bool ok = load_sheet(png, size, font, gap, glyphs, error);
+    CHECK(ok, "%s: %s", path, error);
+    CHECK(ok && memcmp(glyphs, font->data, glyph_bytes) == 0, "%s slices differently from the built-in font", path);
+    CHECK(glyphs[glyph_bytes] == 0xA5, "%s: wrote past the glyphs", path);
+
+    /* The wrong size, and truncations: refused with the glyphs left alone
+     * -- or, cut only after the last row's data (the checksum, IEND),
+     * still the whole font. */
+    memset(glyphs, 0xA5, sizeof(glyphs));
+    CHECK(!load_sheet(png, size, font, gap + 1, glyphs, error), "%s: accepted with the wrong gap", path);
+    CHECK(strstr(error, "not") != NULL, "%s: wrong size reported as \"%s\"", path, error);
+    for (size_t cut = 0; cut < size; cut += 7) {
+        if (load_sheet(png, cut, font, gap, glyphs, error)) {
+            CHECK(memcmp(glyphs, font->data, glyph_bytes) == 0, "%s cut at %zu: accepted, but a different font", path,
+                  cut);
+            memset(glyphs, 0xA5, glyph_bytes);
+        }
+        bool untouched = true;
+        for (size_t i = 0; i < sizeof(glyphs); i++)
+            untouched = untouched && glyphs[i] == 0xA5;
+        CHECK(untouched, "%s cut at %zu: a refused sheet changed the glyphs", path, cut);
+    }
+    free(png);
+}
+
 int main(int argc, char **argv) {
     signal(SIGALRM, on_alarm);
     test_png("images/splash.png", true);
     test_png("fonts/font_10x16.png", false);
     test_png("fonts/font_12x8.png", false);
+    test_font_sheet("fonts/font_12x8.png", &font_8x12, 0);
+    test_font_sheet("fonts/font_10x16.png", &font_10x16, 1);
     test_wav();
     for (int i = 1; i < argc; i++)
         test_wav_file(argv[i]);

@@ -36,6 +36,11 @@ typedef struct {
 bool png_decode_1bit(const png_source_t *src, uint8_t *bits, int width, int height, int stride,
                      char *error, size_t error_size);
 
+/* The same, for an image that has to be exactly width x height (a font
+ * sheet -- fontsheet.h): any other size fails, with both sizes in error. */
+bool png_decode_1bit_exact(const png_source_t *src, uint8_t *bits, int width, int height, int stride,
+                           char *error, size_t error_size);
+
 #ifdef __cplusplus
 }
 #endif

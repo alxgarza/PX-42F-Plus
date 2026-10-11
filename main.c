@@ -31,6 +31,7 @@
 #include "cpuclock.h"
 #include "idle.h"
 #include "sounds.h"
+#include "fonts.h"
 #include "tusb.h"
 #include "hardware/clocks.h"
 #include "hardware/vreg.h"
@@ -39,6 +40,7 @@
 /* powman_hw->scratch[7] while the splash image loads at boot, and [6]
  * while the sounds load (see there). */
 #define SPLASH_LOADING_FLAG 0x5A1A5Au
+#define FONTS_LOADING_FLAG  0xF0A75Au
 #define SOUNDS_LOADING_FLAG 0x50DA5Au
 
 /* Free42's core is a full desktop-oriented C++ calculator engine (BID128
@@ -229,6 +231,7 @@ static void core1_main(void)
     char crash1[32], crash2[32], crash3[32];
     bool crashed = crash_report_take(crash1, crash2, crash3, sizeof(crash1),
                                      debug_checkpoint_name(watchdog_hw->scratch[0]), watchdog_caused_reboot());
+    keyboard_init();
     if (!woke_from_off || crashed) {
         display_clear();
         display_draw_string(&font_24x10, "PX-42F", 0, 0, 0x00);
@@ -237,19 +240,28 @@ static void core1_main(void)
             display_draw_string(&font_8x12, crash1, 0, 69, 0x00);
             display_draw_string(&font_8x12, crash2, 0, 82, 0x00);
             display_draw_string(&font_8x12, crash3, 0, 95, 0x00);
+            display_draw_string(&font_8x12, "Press Any Key", 0, 108, 0x00);
         }
         display_flush();
-        /* After a crash, leave the report up a second; otherwise the boot
-         * sound plays once the drive is up (below), the screen still up. */
-        if (crashed)
-            sleep_ms(1000);
+        /* After a crash, leave the report up until a key is pressed -- long
+         * enough to read or photograph it (a second wasn't) -- but a minute
+         * at most, so one that crashes at every boot, unattended, still
+         * gets on with it. The watchdog isn't running yet. Otherwise the
+         * boot sound plays once the drive is up (below), the screen still up. */
+        if (crashed) {
+            uint8_t row, col;
+            while (keyboard_scan(&row, &col)) /* the ON press that woke it, still held */
+                sleep_ms(10);
+            for (int i = 0; i < 6000 && !keyboard_scan(&row, &col); i++)
+                sleep_ms(10);
+        }
     }
     bool boot_sound = !woke_from_off && !crashed;
 
-    keyboard_init();
-    /* Swallow the ON press that woke it: the main loop would otherwise
-     * take it, still held, as a fresh EXIT keypress. */
-    if (woke_from_off) {
+    /* Swallow the ON press that woke it (or the key that dismissed the
+     * crash report): the main loop would otherwise take it, still held, as
+     * a fresh keypress. */
+    if (woke_from_off || crashed) {
         uint8_t row, col;
         while (keyboard_scan(&row, &col))
             sleep_ms(10);
@@ -287,6 +299,7 @@ static void core1_main(void)
      * already be running by then. */
     if (!statefs_init())
         printf("State disk unavailable (program image overlaps it?)\n");
+    watchdog_update(); /* between the boot's stages: each is short, together they aren't */
     /* The user's splash image, if one is chosen -- guarded against boot
      * loops: POWMAN's scratch registers survive a crash or watchdog reset,
      * so a flag still set at the next boot means that boot died while
@@ -301,6 +314,21 @@ static void core1_main(void)
     powman_hw->scratch[7] = SPLASH_LOADING_FLAG;
     splash_reload();
     powman_hw->scratch[7] = 0;
+    watchdog_update();
+
+    /* The calculator screen's fonts (/FONTS), under the same guard: a boot
+     * that died loading one goes back to the built-in fonts. */
+    if (powman_hw->scratch[7] == FONTS_LOADING_FLAG) {
+        printf("The last boot died loading a font (\"%s\", \"%s\") -- using the built-in fonts.\n",
+               px_settings.small_font, px_settings.large_font);
+        px_settings.small_font[0] = 0;
+        px_settings.large_font[0] = 0;
+        settings_save();
+    }
+    powman_hw->scratch[7] = FONTS_LOADING_FLAG;
+    fonts_init();
+    powman_hw->scratch[7] = 0;
+    watchdog_update();
 
     /* The sounds (/SOUNDS, made with the built-ins on first boot), with the
      * same guard: should a boot die loading one -- a broken WAV -- the
@@ -316,10 +344,13 @@ static void core1_main(void)
     if (boot_sound && px_settings.boot_sound)
         sounds_play_boot();
     powman_hw->scratch[6] = 0;
+    watchdog_update();
 
     /* Start the Free42 core -- with its memory from before OFF, if any --
      * and draw the stack. */
     free42_init(crashed);
+    if (woke_from_off && !crashed && px_settings.on_sound)
+        sounds_play_on(); /* turned on with ON: the stack is already back on screen */
     free42_set_printer(px_settings.printer != PRINTER_OFF);
     printf("Ready. Type !HELP for commands.\n");
 
@@ -355,8 +386,11 @@ static void core1_main(void)
          * while this core is halted waiting for ON, so stop it for the
          * duration. */
         int64_t idle_ms = absolute_time_diff_us(last_activity, get_absolute_time()) / 1000;
+        /* ... and not while a computer has it on USB: it's on USB power then,
+         * and off it would drop off USB -- no console, no drive, and no
+         * flashing without the BOOT button. */
         bool auto_off = free42_auto_off_enabled() && px_settings.sleep_minutes != 0
-                        && idle_ms >= (int64_t) px_settings.sleep_minutes * 60000;
+                        && idle_ms >= (int64_t) px_settings.sleep_minutes * 60000 && !idle_usb_host_active();
         /* And before the battery gives out -- whatever the Sleep Timer says,
          * and in the middle of a program too: a brown-out can cut a flash
          * write short, and loses the memory. Not on a computer's USB (it's
@@ -527,6 +561,20 @@ static void core1_main(void)
             idle_wait(until);
         }
     }
+}
+
+/* picotool's "restart into the bootloader" request (pico_usb_reset, in core
+ * 0's USB interrupt) ends in the boot ROM arming the watchdog to fire 10ms
+ * later. But core 1 went on feeding the watchdog -- every 10ms or less
+ * while a computer is connected -- which puts 100ms back each time, so the
+ * restart only happened when the timing was lucky: flashing took retries,
+ * or the BOOT button, and never worked from USB Drive mode. So stop core 1
+ * first. The SDK's function is linked with --wrap (CMakeLists.txt). */
+void __real_rom_reset_usb_boot_extra(int pin, uint32_t disable_mask, bool active_low) __attribute__((noreturn));
+
+void __wrap_rom_reset_usb_boot_extra(int pin, uint32_t disable_mask, bool active_low) {
+    multicore_reset_core1();
+    __real_rom_reset_usb_boot_extra(pin, disable_mask, active_low);
 }
 
 int main()

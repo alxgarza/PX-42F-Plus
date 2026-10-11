@@ -518,8 +518,8 @@ static void read_header(reader_t *r, image_t *im) {
     }
 }
 
-bool png_decode_1bit(const png_source_t *src, uint8_t *bits_out, int width, int height, int stride,
-                     char *error, size_t error_size) {
+static bool decode_1bit(const png_source_t *src, uint8_t *bits_out, int width, int height, int stride, bool exact,
+                        char *error, size_t error_size) {
     static reader_t r;
     static image_t im;
     static inflate_t s;
@@ -530,6 +530,13 @@ bool png_decode_1bit(const png_source_t *src, uint8_t *bits_out, int width, int 
     uint8_t *row_mem = NULL;
 
     read_header(&r, &im);
+
+    static char size_error[40];
+    if (!failed(&r) && exact && (im.width != (uint32_t) width || im.height != (uint32_t) height)) {
+        snprintf(size_error, sizeof(size_error), "is %lu x %lu, not %d x %d", (unsigned long) im.width,
+                 (unsigned long) im.height, width, height);
+        fail(&r, size_error);
+    }
 
     if (!failed(&r)) {
         uint32_t bits_per_pixel = (uint32_t) (im.channels * im.depth);
@@ -586,4 +593,14 @@ bool png_decode_1bit(const png_source_t *src, uint8_t *bits_out, int width, int 
         return false;
     }
     return true;
+}
+
+bool png_decode_1bit(const png_source_t *src, uint8_t *bits_out, int width, int height, int stride,
+                     char *error, size_t error_size) {
+    return decode_1bit(src, bits_out, width, height, stride, false, error, error_size);
+}
+
+bool png_decode_1bit_exact(const png_source_t *src, uint8_t *bits_out, int width, int height, int stride,
+                           char *error, size_t error_size) {
+    return decode_1bit(src, bits_out, width, height, stride, true, error, error_size);
 }
