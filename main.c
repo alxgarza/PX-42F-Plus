@@ -512,6 +512,16 @@ static void core1_main(void)
             for (int i = 0; i < 6000 && keyboard_is_held(row, col); i++) {
                 watchdog_update();
 
+                /* EXIT is the ON/OFF key: kept down, it turns the
+                 * calculator off (having done its EXIT at key-down). Not
+                 * after SHIFT, where it's opening the settings menu.
+                 * power_deep_off() waits for the key to be let go. */
+                if (free42_key_code(row, col) == FREE42_KEY_EXIT && !free42_settings_pending()
+                        && absolute_time_diff_us(press_time, get_absolute_time()) / 1000 >= EXIT_HOLD_OFF_MS) {
+                    free42_request_powerdown();
+                    break;
+                }
+
                 if (!enqueued && repeat_mode != 0) {
                     if (absolute_time_diff_us(get_absolute_time(), next_repeat_time) <= 0) {
                         debug_checkpoint(CKPT_KEY_REPEAT_TICK, ((uint32_t) row << 8) | col);

@@ -69,6 +69,13 @@ static bool shift_on = false;
  * pressed before it. */
 static uint8_t last_row, last_col;
 static bool last_shifted;
+static int last_key; /* the key wait_key() last returned */
+
+/* Back out of a screen: EXIT, or the backspace arrow. (Where digits or a
+ * name are typed, the arrow deletes first, and backs out once it's empty.) */
+static bool is_back(int key) {
+    return key == K_EXIT || key == K_BSP;
+}
 
 static int digit_of(int key) {
     switch (key) {
@@ -109,8 +116,16 @@ static int wait_key_timeout(uint32_t timeout_ms) {
         if (keyboard_scan(&row, &col)) {
             cpuclock_set_fast(true); /* work: full speed until it's idle again */
             sounds_key_play();
+            absolute_time_t press_time = get_absolute_time();
             while (keyboard_is_held(row, col)) {
                 watchdog_update();
+                /* EXIT kept down turns the calculator off, here as on the
+                 * calculator screen (main.c). */
+                if (free42_key_code(row, col) == K_EXIT
+                        && absolute_time_diff_us(press_time, get_absolute_time()) / 1000 >= EXIT_HOLD_OFF_MS) {
+                    shift_on = false;
+                    return K_POWEROFF;
+                }
                 sleep_ms(10);
             }
             idle_since = get_absolute_time();
@@ -126,8 +141,10 @@ static int wait_key_timeout(uint32_t timeout_ms) {
             shift_on = false;
             if (last_shifted && key == K_EXIT)
                 return K_POWEROFF;
-            if (key != 0)
+            if (key != 0) {
+                last_key = key;
                 return key;
+            }
             continue;
         }
 
@@ -220,7 +237,7 @@ static edit_result_t show_message(const char *title, const char *const *lines, i
             return EDIT_POWER_OFF;
         if (key == K_ENTER)
             return EDIT_OK;
-        if (key == K_EXIT)
+        if (is_back(key))
             return EDIT_CANCEL;
     }
 }
@@ -276,7 +293,7 @@ static int run_list(const char *title, const char *const *names, int count, item
         int key = wait_key();
         if (key == K_POWEROFF || key == K_SLEEP)
             return LIST_POWER_OFF;
-        if (key == K_EXIT)
+        if (is_back(key))
             return LIST_BACK;
         if (key == K_UP)
             *selected = (*selected + count - 1) % count;
@@ -331,11 +348,10 @@ static edit_result_t edit_number(const char *title, const char *note, const char
         int key = wait_key();
         if (key == K_POWEROFF || key == K_SLEEP)
             return EDIT_POWER_OFF;
-        if (key == K_EXIT)
+        if (key == K_EXIT || (key == K_BSP && len == 0))
             return EDIT_CANCEL;
         if (key == K_BSP) {
-            if (len > 0)
-                digits[--len] = 0;
+            digits[--len] = 0;
             error = NULL;
         } else if (key == K_ENTER) {
             if (len == slots || (!require_full && len > 0))
@@ -383,11 +399,10 @@ static edit_result_t edit_name(const char *title, char *name) {
         int key = wait_key();
         if (key == K_POWEROFF || key == K_SLEEP)
             return EDIT_POWER_OFF;
-        if (key == K_EXIT)
+        if (key == K_EXIT || (key == K_BSP && len == 0))
             return EDIT_CANCEL;
         if (key == K_BSP) {
-            if (len > 0)
-                name[--len] = 0;
+            name[--len] = 0;
             continue;
         }
         if (key == K_ENTER) {
@@ -778,7 +793,7 @@ static edit_result_t do_info(void) {
         int key = wait_key();
         if (key == K_POWEROFF || key == K_SLEEP)
             return EDIT_POWER_OFF;
-        if (key == K_EXIT || key == K_ENTER)
+        if (is_back(key) || key == K_ENTER)
             return EDIT_OK;
     }
 }
@@ -801,7 +816,7 @@ static edit_result_t preview_splash(void) {
             return EDIT_POWER_OFF;
         if (key == K_ENTER)
             return EDIT_OK;
-        if (key == K_EXIT)
+        if (is_back(key))
             return EDIT_CANCEL;
     }
 }
@@ -1199,7 +1214,7 @@ static edit_result_t do_usb_disk(void) {
             result = EDIT_POWER_OFF;
             break;
         }
-        if (key == K_EXIT)
+        if (is_back(key))
             break;
         if (key == K_TICK || key == K_SHIFT)
             redraw = true;
@@ -1344,7 +1359,7 @@ static edit_result_t preview_font(const display_font_t *font) {
             return EDIT_POWER_OFF;
         if (key == K_ENTER)
             return EDIT_OK;
-        if (key == K_EXIT)
+        if (is_back(key))
             return EDIT_CANCEL;
     }
 }
@@ -1481,8 +1496,13 @@ settings_menu_result_t settings_menu_run(void) {
         int pick = run_list("Settings", item_names, ITEM_COUNT, item_value, &selected, "Enter:Select  Exit:Back");
         if (pick == LIST_POWER_OFF)
             return SETTINGS_MENU_POWER_OFF;
-        if (pick == LIST_BACK)
+        if (pick == LIST_BACK) {
+            /* EXIT is also the OFF key: on "Off" it turns the calculator
+             * off, like ENTER. The backspace arrow still just leaves. */
+            if (selected == ITEM_OFF && last_key == K_EXIT)
+                return SETTINGS_MENU_POWER_OFF;
             return SETTINGS_MENU_EXIT;
+        }
 
         edit_result_t r = EDIT_OK;
         switch (pick) {

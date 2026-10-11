@@ -1091,6 +1091,8 @@ static int held_repeat = 0;
 
 static bool settings_requested = false;
 
+static_assert(FREE42_KEY_EXIT == KEY_EXIT, "free42_app.h's EXIT key code");
+
 int free42_key_code(uint8_t row, uint8_t col) {
     if (row >= KB_ROWS || col >= KB_COLS)
         return 0;

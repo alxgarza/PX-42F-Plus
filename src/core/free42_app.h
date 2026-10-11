@@ -85,6 +85,12 @@ bool free42_printer_on(void);
  * screens outside the calculator, like the settings menu. */
 int free42_key_code(uint8_t row, uint8_t col);
 
+/* free42_key_code() of EXIT -- the ON/OFF key. Held down this long, it
+ * turns the calculator off: on the calculator screen (main.c) and in the
+ * settings menu. */
+#define FREE42_KEY_EXIT     33
+#define EXIT_HOLD_OFF_MS    2000
+
 /* True (once) after SHIFT+EXIT was pressed: the main loop should run the
  * settings menu (settings_menu.h). */
 bool free42_settings_requested(void);
