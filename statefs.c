@@ -91,8 +91,8 @@ bool statefs_ready(void) {
     return mounted;
 }
 
-void statefs_sync(void) {
-    flashdisk_flush_all();
+bool statefs_sync(void) {
+    return flashdisk_flush_all();
 }
 
 void statefs_state_path(const char *name, char *path, size_t size) {

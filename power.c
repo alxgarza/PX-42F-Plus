@@ -15,8 +15,8 @@
 #include "splash.h"
 #include "rtc.h"
 #include "settings.h"
+#include "irtx.h"
 
-#define IR_LED_PIN    14 /* see main.c */
 #define SERIAL_RX_PIN 17 /* see main.c */
 
 /* Until the power-down request is made, a step that hangs reboots instead
@@ -24,13 +24,15 @@
  * has paused the normal 100ms watchdog). */
 #define OFF_SAFETY_WATCHDOG_MS 5000
 
-/* The low-power regulator's voltage while off (VSEL: 0.55V + 50mV steps;
- * 0b00111 = 0.90V, the reset default is 1.10V). It feeds the always-on
- * logic and the RAM kept powered for the calculator's memory, which both
- * leak less lower down. Should the RAM not hold its contents at this
- * voltage, ramstate.c's checksum catches it (the calculator then starts
- * from Memory Clear). */
-#define OFF_VREG_VSEL 0x07u
+/* The low-power regulator's voltage while off, POWER_OFF_MV (VSEL: 0.55V +
+ * 50mV steps; the reset default is 1.10V). It feeds the always-on logic and
+ * the RAM kept powered for the calculator's memory, which both leak less
+ * lower down -- and the low-power oscillator, the clock while off, whose
+ * rate is measured for that voltage (rtc_lposc_hz_at()). Should the RAM not
+ * hold its contents at this voltage, ramstate.c's checksum catches it (the
+ * calculator then starts from Memory Clear). */
+#define OFF_VREG_VSEL ((POWER_OFF_MV - 550) / 50)
+_Static_assert((POWER_OFF_MV - 550) % 50 == 0 && OFF_VREG_VSEL <= 0x0B, "POWER_OFF_MV: a VSEL step, at most 1.10V");
 
 static volatile bool core0_park_request = false;
 static volatile bool core0_parked = false;
@@ -61,15 +63,24 @@ void power_core0_poll(void) {
         __wfi();
 }
 
-/* While the splash shows, the power manager's timer wakes the chip once a
- * minute: power_splash_wake() redraws the clock and powers down again. What
- * it needs is kept in the power manager's scratch registers, which are in
- * the always-on domain. */
-#define SPLASH_MAGIC 0x53504C53u /* "SPLS" */
-#define SCRATCH_MAGIC   0 /* SPLASH_MAGIC while a splash is up */
+/* While off, the power manager's timer wakes the chip now and then
+ * (power_off_wake()): every RECAL_MS to measure the low-power oscillator
+ * again -- its rate follows the temperature, and it's the clock while off
+ * -- and once a minute while the splash shows, to redraw its clock. Each
+ * time it powers straight down again. What the wakes need is kept in the
+ * power manager's scratch registers, which are in the always-on domain. */
+#define OFF_WAKE_MAGIC 0x4F464657u /* "OFFW" */
+#define SCRATCH_MAGIC   0 /* OFF_WAKE_MAGIC while off */
 #define SCRATCH_ON_KEY  1 /* on_row | on_col << 8 */
-#define SCRATCH_UNTIL_L 2 /* when the splash ends: always-on timer ms, low half */
+#define SCRATCH_UNTIL_L 2 /* when the splash ends: always-on timer ms, low half (0: no splash) */
 #define SCRATCH_UNTIL_H 3 /* ... high half */
+#define SCRATCH_OFF_HZ  4 /* the power-off's measurement (rtc_lposc_hz_again()): the rate it gave */
+#define SCRATCH_SLOW_HZ 5 /* ... and its reading at the slow voltage */
+
+/* A wake costs roughly a millicoulomb (boot, ~70ms measuring at 48MHz):
+ * ~1.5uA on average at this interval. The clock had drifted 0.4% while off
+ * with one measurement per power-off, day against night. */
+#define RECAL_MS (10 * 60 * 1000)
 
 /* The wake from LAST_SWCORE_PWRUP: one bit per source -- bit 0 chip reset,
  * 1-4 the GPIO sources (ours, the ON key, is 1), 5 the debugger, 6 the
@@ -97,7 +108,7 @@ static void quiet_pins(void) {
 /* The power-down itself, from the only core running (the other parked, or
  * never started): woken by the ON key (wake_pin low), and also by the
  * timer at alarm_ms (always-on timer time) unless it's 0. lposc_hz: the
- * low-power oscillator's measured rate (rtc_lposc_hz()), or 0 to keep the
+ * low-power oscillator's measured rate (rtc_lposc_hz_at()), or 0 to keep the
  * one already set. Never returns; if the power manager refuses, the chip
  * reboots. */
 static void __attribute__((noreturn)) power_down(uint wake_pin, uint64_t alarm_ms, uint32_t lposc_hz) {
@@ -171,11 +182,22 @@ static void __attribute__((noreturn)) power_down(uint wake_pin, uint64_t alarm_m
         __wfi();
 }
 
-/* The next wake while the splash shows: the start of the next minute, or
- * the end of the splash if that's sooner. */
-static uint64_t next_splash_alarm(uint64_t now_ms, uint64_t until_ms) {
-    uint64_t next_minute = (now_ms / 60000 + 1) * 60000;
-    return until_ms < next_minute ? until_ms : next_minute;
+/* The next wake: RECAL_MS from now -- or while the splash shows, the start
+ * of the next minute or the end of the splash, if sooner. */
+static uint64_t next_wake(uint64_t now_ms, uint64_t until_ms) {
+    uint64_t wake = now_ms + RECAL_MS;
+    if (until_ms != 0) {
+        uint64_t next_minute = (now_ms / 60000 + 1) * 60000;
+        uint64_t splash = until_ms < next_minute ? until_ms : next_minute;
+        if (splash < wake)
+            wake = splash;
+    }
+    return wake;
+}
+
+static void set_until(uint64_t until_ms) {
+    powman_hw->scratch[SCRATCH_UNTIL_L] = (uint32_t) until_ms;
+    powman_hw->scratch[SCRATCH_UNTIL_H] = (uint32_t) (until_ms >> 32);
 }
 
 void power_deep_off(uint8_t on_row, uint8_t on_col, uint64_t splash_until_ms) {
@@ -196,19 +218,16 @@ void power_deep_off(uint8_t on_row, uint8_t on_col, uint64_t splash_until_ms) {
     }
     sleep_ms(50); /* contact bounce */
 
-    /* Measured now, while the crystal still runs to measure it against. */
-    uint32_t lposc_hz = rtc_lposc_hz();
-
-    uint64_t alarm_ms = 0;
-    if (splash_until_ms != 0) {
-        powman_hw->scratch[SCRATCH_ON_KEY] = on_row | (uint32_t) on_col << 8;
-        powman_hw->scratch[SCRATCH_UNTIL_L] = (uint32_t) splash_until_ms;
-        powman_hw->scratch[SCRATCH_UNTIL_H] = (uint32_t) (splash_until_ms >> 32);
-        powman_hw->scratch[SCRATCH_MAGIC] = SPLASH_MAGIC;
-        alarm_ms = next_splash_alarm(powman_timer_get_ms(), splash_until_ms);
-    } else {
-        powman_hw->scratch[SCRATCH_MAGIC] = 0;
-    }
+    /* Measured now, while the crystal still runs to measure it against --
+     * for the voltage it will run at; kept for the wakes while off. */
+    uint32_t slow_hz;
+    uint32_t lposc_hz = rtc_lposc_hz_at(POWER_OFF_MV, NULL, &slow_hz);
+    powman_hw->scratch[SCRATCH_OFF_HZ] = lposc_hz;
+    powman_hw->scratch[SCRATCH_SLOW_HZ] = slow_hz;
+    powman_hw->scratch[SCRATCH_ON_KEY] = on_row | (uint32_t) on_col << 8;
+    set_until(splash_until_ms);
+    powman_hw->scratch[SCRATCH_MAGIC] = OFF_WAKE_MAGIC;
+    uint64_t alarm_ms = next_wake(powman_timer_get_ms(), splash_until_ms);
 
     /* Park core 0. It idles in WFE (main()), which an event from this core
      * ends -- it can't be left to an interrupt: on battery there's no USB
@@ -221,16 +240,16 @@ void power_deep_off(uint8_t on_row, uint8_t on_col, uint64_t splash_until_ms) {
     power_down(wake_pin, alarm_ms, lposc_hz);
 }
 
-bool power_splash_wake(void) {
-    bool splash_wake = (powman_hw->chip_reset & POWMAN_CHIP_RESET_HAD_SWCORE_PD_BITS)
-                       && (powman_hw->last_swcore_pwrup & PWRUP_ALARM_BIT)
-                       && powman_hw->scratch[SCRATCH_MAGIC] == SPLASH_MAGIC;
-    /* Whatever this boot is, the splash wakes are over unless set up again
-     * below: no alarm left armed while the calculator is on, and should
-     * anything here crash, the next boot is an ordinary one, not this. */
+bool power_off_wake(void) {
+    bool timer_wake = (powman_hw->chip_reset & POWMAN_CHIP_RESET_HAD_SWCORE_PD_BITS)
+                      && (powman_hw->last_swcore_pwrup & PWRUP_ALARM_BIT)
+                      && powman_hw->scratch[SCRATCH_MAGIC] == OFF_WAKE_MAGIC;
+    /* Whatever this boot is, the wakes are over unless set up again below:
+     * no alarm left armed while the calculator is on, and should anything
+     * here crash, the next boot is an ordinary one, not this. */
     powman_hw->scratch[SCRATCH_MAGIC] = 0;
     powman_disable_alarm_wakeup();
-    if (!splash_wake)
+    if (!timer_wake)
         return false;
 
     uint8_t on_row = (uint8_t) powman_hw->scratch[SCRATCH_ON_KEY];
@@ -243,19 +262,23 @@ bool power_splash_wake(void) {
         return false; /* ON is down already: turn on, an ordinary boot */
 
     watchdog_enable(OFF_SAFETY_WATCHDOG_MS, true);
-    settings_load(); /* the date and time formats, for the clock bar */
-    display_attach(); /* not reset: the panel is still showing the splash */
-    quiet_pins();
+    settings_load(); /* the clock trim, and the date and time formats for the clock bar */
+    uint32_t lposc_hz = rtc_lposc_hz_again(powman_hw->scratch[SCRATCH_OFF_HZ], powman_hw->scratch[SCRATCH_SLOW_HZ]);
+
     uint64_t now_ms = powman_timer_get_ms();
-    uint64_t alarm_ms = 0;
-    if (now_ms + 50 >= until_ms) {
-        display_sleep(); /* Splash Time is up: blank, and wait for ON only */
-    } else {
-        splash_update_clock();
-        alarm_ms = next_splash_alarm(now_ms, until_ms);
-        powman_hw->scratch[SCRATCH_MAGIC] = SPLASH_MAGIC;
+    if (until_ms != 0) {
+        display_attach(); /* not reset: the panel is still showing the splash */
+        if (now_ms + 50 >= until_ms) {
+            display_sleep(); /* Splash Time is up: blank */
+            until_ms = 0;
+            set_until(0);
+        } else {
+            splash_update_clock();
+        }
     }
-    power_down(wake_pin, alarm_ms, 0); /* the rate measured at the power-off still holds */
+    quiet_pins();
+    powman_hw->scratch[SCRATCH_MAGIC] = OFF_WAKE_MAGIC;
+    power_down(wake_pin, next_wake(now_ms, until_ms), lposc_hz);
 }
 
 bool power_woke_from_off(void) {

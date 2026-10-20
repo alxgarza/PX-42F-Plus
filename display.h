@@ -11,6 +11,7 @@
  * RS/RST/CS are plain GPIO). */
 #define DISPLAY_WIDTH  250
 #define DISPLAY_HEIGHT 122
+#define DISPLAY_STRIDE ((DISPLAY_WIDTH + 7) / 8) /* bytes per framebuffer row: 32 */
 
 #define DISP_SPI      spi0
 #define DISP_SCK_PIN  18  /* SPI0 SCK */
@@ -85,6 +86,10 @@ uint8_t display_draw_string(const display_font_t *font, const char *s, uint8_t x
  * of stopping at a 0 byte -- for Free42 text, where byte 0 is a real
  * character (the divide sign), not a terminator. */
 uint8_t display_draw_chars(const display_font_t *font, const char *s, int len, uint8_t x, uint8_t y, uint8_t color);
+
+/* Copies the framebuffer out -- what's on the screen, for a screenshot:
+ * DISPLAY_HEIGHT rows of DISPLAY_STRIDE bytes, MSB-first, 1 = black. */
+void display_copy(uint8_t *bits);
 
 /* Copies a 1bpp bitmap into the framebuffer at (x, y), clipped to the
  * screen: rows of ceil(width/8) bytes, MSB-first, 1 = black. Both ink and

@@ -7,7 +7,9 @@
 #include "hardware/clocks.h"
 #include "hardware/powman.h"
 #include "hardware/watchdog.h"
+#include "hardware/timer.h"
 #include "settings.h"
+#include "cpuclock.h"
 
 /* Where the clock starts after a power-on (it has no battery backup):
  * 2021-03-05 00:59:00. */
@@ -186,6 +188,10 @@ void rtc_format_day_month(char *buf, size_t size, const rtc_datetime_t *dt) {
     }
 }
 
+void rtc_format_stamp(char *buf, size_t size, const rtc_datetime_t *dt) {
+    snprintf(buf, size, "%04d%02d%02d-%02d%02d%02d", dt->year, dt->month, dt->day, dt->hour, dt->min, dt->sec);
+}
+
 void rtc_format_time(char *buf, size_t size, const rtc_datetime_t *dt, bool compact) {
     if (px_settings.clock_24h) {
         snprintf(buf, size, "%02d:%02d", dt->hour, dt->min);
@@ -202,11 +208,21 @@ void rtc_format_time(char *buf, size_t size, const rtc_datetime_t *dt, bool comp
  * one reading is good to ~0.1% of the LPOSC's ~32kHz. Averaging 8 readings,
  * each over the longest window (~33ms), gets well below that. */
 #define LPOSC_READINGS 8
+/* At a wake while off: two (~70ms), for the cost of the wake -- ~0.1%. */
+#define LPOSC_QUICK_READINGS 2
 
-uint32_t rtc_lposc_hz(void) {
+/* How much of the straight line through the two measurements the rate
+ * follows below them (rtc_lposc_hz_at()), in percent: measured on the
+ * PX-42F, Oct 2026. */
+#define LPOSC_CURVE_PERCENT 72
+
+/* One measurement at the present core voltage, untrimmed: the average of
+ * readings readings. */
+static uint32_t measure_lposc(int readings) {
     fc_hw_t *fc = &clocks_hw->fc0;
     uint64_t sum = 0; /* in 1/32 kHz */
-    for (int i = 0; i < LPOSC_READINGS; i++) {
+    busy_wait_ms(2); /* the oscillator settling, after a voltage change */
+    for (int i = 0; i < readings; i++) {
         watchdog_update(); /* the whole measurement outlasts the 100ms window */
         while (fc->status & CLOCKS_FC0_STATUS_RUNNING_BITS)
             tight_loop_contents();
@@ -219,8 +235,36 @@ uint32_t rtc_lposc_hz(void) {
             tight_loop_contents();
         sum += fc->result;
     }
-    uint32_t hz = (uint32_t) (sum * 1000 / (32 * LPOSC_READINGS));
+    uint32_t hz = (uint32_t) (sum * 1000 / (32 * (uint64_t) readings));
     if (hz < 20000 || hz > 50000)
         hz = 32768; /* a reading that can't be right: the nominal rate */
-    return trimmed(hz);
+    return hz;
+}
+
+uint32_t rtc_lposc_hz_at(int mv, uint32_t *at_fast, uint32_t *at_slow) {
+    cpuclock_set_fast(true);
+    uint32_t fast = measure_lposc(LPOSC_READINGS);
+    cpuclock_set_fast(false);
+    uint32_t slow = measure_lposc(LPOSC_READINGS);
+    if (at_fast != NULL)
+        *at_fast = fast;
+    if (at_slow != NULL)
+        *at_slow = slow;
+    /* Below the slow voltage the rate climbs less steeply than between the
+     * two measured: off at 0.90V, the clock ran 0.8% slow with a straight
+     * line (twice, 3.7h and 5h), which puts the curve at 72% of it. */
+    int64_t hz = (int64_t) slow
+                 + ((int64_t) slow - fast) * (CPUCLOCK_SLOW_MV - mv) * LPOSC_CURVE_PERCENT
+                           / ((CPUCLOCK_FAST_MV - CPUCLOCK_SLOW_MV) * 100);
+    if (hz < 20000 || hz > 50000)
+        hz = slow; /* a line that can't be right: the nearest measurement */
+    return trimmed((uint32_t) hz);
+}
+
+uint32_t rtc_lposc_hz_again(uint32_t off_hz, uint32_t slow_hz) {
+    cpuclock_set_fast(false);
+    uint32_t now = measure_lposc(LPOSC_QUICK_READINGS);
+    if (off_hz == 0 || slow_hz == 0)
+        return 0; /* nothing to scale: keep the rate set */
+    return (uint32_t) ((uint64_t) off_hz * now / slow_hz);
 }

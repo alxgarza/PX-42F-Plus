@@ -14,8 +14,7 @@
 #include "png1bit.h"
 #include "statefs.h"
 
-#define BITMAP_STRIDE ((DISPLAY_WIDTH + 7) / 8)
-#define BITMAP_SIZE   (BITMAP_STRIDE * DISPLAY_HEIGHT)
+#define BITMAP_SIZE (DISPLAY_STRIDE * DISPLAY_HEIGHT)
 
 /* The image shown while off: the built-in one (images/splash.png, compiled
  * in), or a user PNG from /SPLASH decoded into active_bits. preview_bits
@@ -43,7 +42,7 @@ static bool decode_file(const char *name, uint8_t *bits, char *error, size_t err
         return false;
     }
     png_source_t src = {file_read, f, feed_watchdog};
-    bool ok = png_decode_1bit(&src, bits, DISPLAY_WIDTH, DISPLAY_HEIGHT, BITMAP_STRIDE, error, error_size);
+    bool ok = png_decode_1bit(&src, bits, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_STRIDE, error, error_size);
     fclose(f);
     return ok;
 }

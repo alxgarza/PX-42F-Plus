@@ -5,7 +5,8 @@ argument-hint: "[!COMMAND]"
 ---
 
 Run `tools/console.py '$ARGUMENTS'` (default `!STATUS` when no argument). Other commands:
-`!HELP`, `!PRINTER`, `!PRINTTEST`, `!SETDATE YYYY-MM-DD`, `!SETTIME HH:MM[:SS]`.
+`!HELP`, `!PRINTER`, `!PRINTTEST`, `!SETDATE YYYY-MM-DD`, `!SETTIME HH:MM[:SS]`
+(`!SCREENSHOT` has its own skill, `/screenshot`).
 (The console prints its `!HELP` list whenever a port is opened; the script drops it.)
 
 - It finds the console among `/dev/cu.usbmodem*` by which port answers.

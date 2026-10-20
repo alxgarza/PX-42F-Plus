@@ -28,6 +28,9 @@
 #include "idle.h"
 #include "sounds.h"
 #include "fonts.h"
+#include "keyhold.h"
+#include "remote.h"
+#include "icons.h"
 
 #ifndef PICO_PROGRAM_VERSION_STRING
 #define PICO_PROGRAM_VERSION_STRING "?"
@@ -36,14 +39,13 @@
 /* The Free42 release src/core was taken from (free42-upstream/HISTORY). */
 #define FREE42_VERSION "3.3.12"
 
-/* HP-42S key codes, as free42_key_code() returns them -- same values as
- * KEY_* in src/core/core_globals.h, which is C++ only. */
-#define K_ENTER 13
-#define K_BSP   17
-#define K_UP    18
-#define K_DOWN  23
-#define K_SHIFT 28
-#define K_EXIT  33
+/* HP-42S key codes, as free42_key_code() returns them. */
+#define K_ENTER FREE42_KEY_ENTER
+#define K_BSP   FREE42_KEY_BSP
+#define K_UP    FREE42_KEY_UP
+#define K_DOWN  FREE42_KEY_DOWN
+#define K_SHIFT FREE42_KEY_SHIFT
+#define K_EXIT  FREE42_KEY_EXIT
 
 /* Pseudo key codes from wait_key(). */
 #define K_NONE     0  /* timed out (only with a timeout) */
@@ -115,14 +117,18 @@ static int wait_key_timeout(uint32_t timeout_ms) {
         uint8_t row, col;
         if (keyboard_scan(&row, &col)) {
             cpuclock_set_fast(true); /* work: full speed until it's idle again */
+            key_hold_begin(row, col);
             sounds_key_play();
-            absolute_time_t press_time = get_absolute_time();
-            while (keyboard_is_held(row, col)) {
+            for (int i = 0; i < KEY_STUCK_MS / 10 && keyboard_is_held(row, col); i++) {
                 watchdog_update();
-                /* EXIT kept down turns the calculator off, here as on the
-                 * calculator screen (main.c). */
-                if (free42_key_code(row, col) == K_EXIT
-                        && absolute_time_diff_us(press_time, get_absolute_time()) / 1000 >= EXIT_HOLD_OFF_MS) {
+                /* Keys held down (keyhold.h). After a screenshot the keys
+                 * are up and SHIFT wasn't toggled; K_TICK redraws. */
+                key_hold_t hold = key_hold_poll();
+                if (hold == KEY_HOLD_SCREENSHOT) {
+                    idle_since = get_absolute_time();
+                    return K_TICK;
+                }
+                if (hold == KEY_HOLD_OFF) {
                     shift_on = false;
                     return K_POWEROFF;
                 }
@@ -187,7 +193,7 @@ static void draw_title(const char *title) {
     display_fill_rect(0, 0, DISPLAY_WIDTH - 1, TITLE_HEIGHT - 2, true);
     display_draw_string(&font_8x12, title, 2, 0, 0xFF);
     if (shift_on)
-        display_draw_string(&font_8x12, "^", 174, 0, 0xFF);
+        display_draw_char(&font_8x12, '\r', 174, 0, 0xFF); /* ↵, code 13, like the calculator's */
 
     char buf[8];
     rtc_datetime_t now;
@@ -284,9 +290,9 @@ static int run_list(const char *title, const char *const *names, int count, item
         }
         /* More above / below the visible rows. */
         if (first > 0)
-            display_draw_string(&font_8x12, "^", DISPLAY_WIDTH - 20, (uint8_t) (HINT_Y), 0x00);
+            display_draw_string(&font_8x12, "\x5e", DISPLAY_WIDTH - 20, (uint8_t) (HINT_Y), 0x00); /* up arrow */
         if (first + LIST_ROWS < count)
-            display_draw_string(&font_8x12, "v", DISPLAY_WIDTH - 10, (uint8_t) (HINT_Y), 0x00);
+            display_draw_string(&font_8x12, "\x0e", DISPLAY_WIDTH - 10, (uint8_t) (HINT_Y), 0x00); /* down arrow */
         draw_hint(hint);
         display_flush();
 
@@ -1041,8 +1047,7 @@ static edit_result_t do_save_state(void) {
     char name[STATEFS_NAME_MAX + 1];
     rtc_datetime_t now;
     rtc_get_datetime(&now);
-    snprintf(name, sizeof(name), "%04d%02d%02d-%02d%02d%02d", now.year, now.month, now.day,
-             now.hour, now.min, now.sec);
+    rtc_format_stamp(name, sizeof(name), &now);
     edit_result_t r = edit_name("Save State", name);
     if (r != EDIT_OK)
         return r;
@@ -1433,10 +1438,60 @@ static edit_result_t do_fonts(void) {
     }
 }
 
+/* ===================== IR Remote ===================== */
+
+#define MAX_REMOTES     32
+#define REMOTE_NAME_MAX 28 /* file name without ".ir" */
+
+/* The remotes in /IR: one is read, and the calculator becomes that remote
+ * (remote.h) until ON. EDIT_OK when it's left that way -- back to the
+ * calculator, not to this menu. */
+static edit_result_t do_ir_remote(void) {
+    static char names[MAX_REMOTES][REMOTE_NAME_MAX + 1];
+    static ir_remote_t remote;
+    int count = statefs_list_files(IR_DIR, ".ir", (char *) names, REMOTE_NAME_MAX + 1, MAX_REMOTES);
+    if (count == 0) {
+        const char *const lines[] = {"No remotes yet.", "", "Copy .ir files to the IR", "folder in USB Drive mode."};
+        return show_message("IR Remote", lines, 4, "Exit:Back") == EDIT_POWER_OFF ? EDIT_POWER_OFF : EDIT_CANCEL;
+    }
+    const char *items[MAX_REMOTES];
+    for (int i = 0; i < count; i++)
+        items[i] = names[i];
+
+    static int selected = 0;
+    while (true) {
+        int pick = run_list("IR Remote", items, count, NULL, &selected, "Enter:Use  Exit:Back");
+        if (pick == LIST_POWER_OFF)
+            return EDIT_POWER_OFF;
+        if (pick == LIST_BACK)
+            return EDIT_CANCEL;
+
+        char path[48], error[32] = "Can't open the file";
+        int line = 0;
+        snprintf(path, sizeof(path), "%s/%s.ir", IR_DIR, names[pick]);
+        FILE *f = statefs_fopen(path, "rb");
+        bool ok = f != NULL && ir_remote_load(f, &remote, &line, error, sizeof(error));
+        if (f != NULL)
+            fclose(f);
+        if (!ok) {
+            error_beep();
+            char head[40], where[16];
+            snprintf(head, sizeof(head), "Can't use %.20s:", names[pick]);
+            snprintf(where, sizeof(where), "Line %d:", line);
+            const char *const lines[] = {head, line > 0 ? where : "", error};
+            if (show_message("IR Remote", lines, 3, "Exit:Back") == EDIT_POWER_OFF)
+                return EDIT_POWER_OFF;
+            continue;
+        }
+        return remote_run(&remote, names[pick]) ? EDIT_POWER_OFF : EDIT_OK;
+    }
+}
+
 /* ===================== the main list ===================== */
 
 enum {
     ITEM_OFF,
+    ITEM_IR_REMOTE,
     ITEM_DATE_TIME,
     ITEM_SOUNDS,
     ITEM_FONTS,
@@ -1451,6 +1506,7 @@ enum {
 
 static const char *const item_names[ITEM_COUNT] = {
         "Off",
+        "IR Remote",
         "Date & Time",
         "Sounds",
         "Fonts",
@@ -1468,6 +1524,7 @@ static void item_value(int item, char *buf, size_t size) {
         case ITEM_DATE_TIME:
             snprintf(buf, size, ">");
             break;
+        case ITEM_IR_REMOTE:
         case ITEM_SOUNDS:
         case ITEM_FONTS:
             snprintf(buf, size, ">");
@@ -1508,6 +1565,11 @@ settings_menu_result_t settings_menu_run(void) {
         switch (pick) {
             case ITEM_OFF:
                 return SETTINGS_MENU_POWER_OFF;
+            case ITEM_IR_REMOTE:
+                r = do_ir_remote();
+                if (r == EDIT_OK)
+                    return SETTINGS_MENU_EXIT; /* ON in the remote: back to the calculator */
+                break;
             case ITEM_DATE_TIME:
                 r = do_date_time();
                 break;

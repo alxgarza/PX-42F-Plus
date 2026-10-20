@@ -97,6 +97,14 @@ add_executable(PX-Free42
         fonts/font_8x12_data.c
         fonts.c
         fontsheet.c
+        pngwrite.c
+        screenshot.c
+        keyhold.c
+        irproto.c
+        irfile.c
+        irtx.c
+        remote.c
+        icons.c
         ${FREE42_CORE_SOURCES}
         )
 
@@ -179,7 +187,10 @@ target_compile_definitions(PX-Free42 PRIVATE
 # __wrap_rom_reset_usb_boot_extra there).
 target_link_options(PX-Free42 PRIVATE -Wl,--wrap=rom_reset_usb_boot_extra)
 
+pico_generate_pio_header(PX-Free42 ${CMAKE_CURRENT_LIST_DIR}/irtx.pio)
+
 target_link_libraries(PX-Free42
+        hardware_pio
         pico_multicore
         hardware_spi
         hardware_uart

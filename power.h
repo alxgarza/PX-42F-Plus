@@ -4,6 +4,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* The low-power regulator's voltage while off, in mV (power.c). */
+#define POWER_OFF_MV 900
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -17,8 +20,10 @@ extern "C" {
  *
  * splash_until_ms = 0: the panel is put to sleep (blank) first. Otherwise
  * it keeps showing the splash already drawn on it, and the chip wakes
- * once a minute to update the splash's clock (power_splash_wake()), until
- * splash_until_ms (always-on timer time), when the panel is blanked.
+ * once a minute to update the splash's clock (power_off_wake()), until
+ * splash_until_ms (always-on timer time), when the panel is blanked. Either
+ * way it also wakes every 10 minutes to measure the oscillator that keeps
+ * the time while off.
  *
  * Call from core 1; never returns. Core 0 is parked first (see
  * power_core0_poll()). If the power manager refuses the request, the chip
@@ -26,10 +31,11 @@ extern "C" {
 void power_deep_off(uint8_t on_row, uint8_t on_col, uint64_t splash_until_ms);
 
 /* Call first thing at boot, from main() (core 0, core 1 not started). If
- * this is one of the once-a-minute splash wakes, updates the splash's
- * clock (or blanks it, its time up) and powers straight back down -- it
- * doesn't return. False for any other boot: carry on as normal. */
-bool power_splash_wake(void);
+ * this is one of the timer wakes while off, measures the clock's oscillator
+ * again, updates the splash's clock (or blanks it, its time up) and powers
+ * straight back down -- it doesn't return. False for any other boot: carry
+ * on as normal. */
+bool power_off_wake(void);
 
 /* Core 0's idle loop calls this after every wakeup: once power_deep_off()
  * has asked for it, core 0 masks all of its interrupts and sleeps for good,

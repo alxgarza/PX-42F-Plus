@@ -168,16 +168,19 @@ void display_attach(void) {
  * needs to know about it. This is what makes display_set_pixel() (and
  * everything built on it) work at any (x, y), not just positions aligned
  * to some hardware block size. */
-#define FB_STRIDE ((DISPLAY_WIDTH + 7) / 8) /* 32 bytes/row */
-#define FB_SIZE   (DISPLAY_HEIGHT * FB_STRIDE)
+#define FB_SIZE (DISPLAY_HEIGHT * DISPLAY_STRIDE)
 
 /* In RAM that survives a deep power-off (retained.h): a wake just to
  * update the splash's clock redraws only that, over the image still here. */
-static uint8_t (*const disp_fb)[FB_STRIDE] = (uint8_t (*)[FB_STRIDE]) RETAINED_DISPLAY_FB;
+static uint8_t (*const disp_fb)[DISPLAY_STRIDE] = (uint8_t (*)[DISPLAY_STRIDE]) RETAINED_DISPLAY_FB;
 _Static_assert(RETAINED_DISPLAY_FB + FB_SIZE <= RETAINED_RAMSTATE, "framebuffer overlaps the RAM state");
 
 void display_clear(void) {
     memset(disp_fb, 0, FB_SIZE);
+}
+
+void display_copy(uint8_t *bits) {
+    memcpy(bits, disp_fb, FB_SIZE);
 }
 
 void display_set_pixel(uint8_t x, uint8_t y, bool on) {

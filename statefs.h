@@ -24,7 +24,7 @@ bool statefs_ready(void);
 
 /* Writes anything still cached to flash. Call after saving or loading, so
  * a power loss can't lose it. */
-void statefs_sync(void);
+bool statefs_sync(void); /* false if a write to flash failed */
 
 /* "/STATE/<name>.f42" */
 void statefs_state_path(const char *name, char *path, size_t size);

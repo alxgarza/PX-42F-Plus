@@ -11,6 +11,7 @@
 #include "display.h"
 #include "keyboard.h"
 #include "fonts.h"
+#include "icons.h"
 #include "rtc.h"
 #include "battery.h"
 #include "splash.h"
@@ -388,33 +389,23 @@ static void display_incomplete(uint8_t y) {
  * battery, left to right, in the top HEADER_HEIGHT rows -- solid black
  * background with inverted (white-on-black) text, using font_8x12 (12px
  * tall, an exact fit for the header height, so glyphs run edge to edge
- * with no vertical margin). Each field gets a fixed width -- the longest
- * it can be in the current date and time formats -- so a shorter/longer
- * value (GRAD vs DEG, 9 vs 10 o'clock) never shifts anything after it; the
- * room left is shared out evenly between the fields (layout_header()).
- * A set flag (0-4)
- * gets an extra highlight on top of the normal styling: a small white
- * patch behind its digit, drawn non-inverted so the digit reads as
- * ordinary black-on-white, standing out against the rest of the
- * white-on-black header. */
-#define HEADER_HEIGHT        12
-/* font_8x12's advance == width (no gap baked in -- see font.h), so 3
- * glyphs occupy exactly 3*8px with nothing between them. */
-#define HEADER_BATTERY_WIDTH (3 * 8)
-#define HEADER_BATTERY_X     (DISPLAY_WIDTH - HEADER_BATTERY_WIDTH - 1) /* 1px margin from the right edge */
-
-/* Battery icon glyphs, from the font_12x8.png sheet's raw byte codes
- * (16-22): 16/17/18 are the left cap with 0/1/2 bars filled, 19/20/21 are
- * the right cap with 0/1/2 bars filled, 22 is the terminal nub -- three
- * glyphs concatenated give a 5-step battery gauge, indexed by
- * battery_level() (0 = empty, 4 = full). */
-static const char battery_icons[5][4] = {
-        {16, 19, 22, 0},
-        {17, 19, 22, 0},
-        {18, 19, 22, 0},
-        {18, 20, 22, 0},
-        {18, 21, 22, 0},
-};
+ * with no vertical margin). Every field has a fixed place, whatever the
+ * date and time formats: each as wide as its longest value -- the date
+ * "FRI-OCT-19", the time "12:43PM", the angle mode (one character: ∡ DEG,
+ * π RAD, G GRAD), the five flags, the shift mark -- with a character's
+ * width between them, so a shorter value (10/09, 15:43) leaves the end of
+ * its field blank and nothing moves. A set flag (0-4) shows
+ * its digit in its own column; an unset one leaves the column blank. */
+#define HEADER_HEIGHT    12
+#define HEADER_CHAR      8 /* font_small's advance: font sizes are fixed (fonts.h) */
+#define HEADER_GAP       HEADER_CHAR
+#define HEADER_DATE_X    1
+#define HEADER_TIME_X    (HEADER_DATE_X + 10 * HEADER_CHAR + HEADER_GAP)
+#define HEADER_ANGLE_X   (HEADER_TIME_X + 7 * HEADER_CHAR + HEADER_GAP)
+#define HEADER_FLAGS_X   (HEADER_ANGLE_X + HEADER_CHAR + HEADER_GAP)
+#define HEADER_SHIFT_X   (HEADER_FLAGS_X + 5 * HEADER_CHAR + HEADER_GAP)
+#define HEADER_BATTERY_X (DISPLAY_WIDTH - 19) /* icons.h: 18px, then a 1px margin */
+static_assert(HEADER_SHIFT_X + HEADER_CHAR + 2 <= HEADER_BATTERY_X, "header fields overlap the battery");
 
 /* ===================== date and time formats ===================== */
 
@@ -449,41 +440,9 @@ static void mirror_formats() {
     }
 }
 
-/* Where each header field starts, for the current date and time formats:
- * each as wide as its longest value -- the date "10/09" or "FRI-OCT-19",
- * the time "15:43" or "12:43PM", "GRAD", five flags, the shift mark --
- * with what's left of the width up to the battery shared out evenly
- * between them (just a pixel each with the two longest formats). */
-typedef struct {
-    uint8_t date, time, angle, flags, shift;
-} header_layout_t;
-
-static header_layout_t layout_header() {
-    const int c = font_small.advance;
-    int date_w = (px_settings.date_format == RTC_WMD ? 10 : 5) * c;
-    int time_w = (px_settings.clock_24h ? 5 : 7) * c;
-    int used = date_w + time_w + 4 * c + 5 * c + c;
-    int gap = (HEADER_BATTERY_X - 1 - used) / 5;
-    if (gap < 1)
-        gap = 1;
-    header_layout_t l;
-    int x = 1;
-    l.date = (uint8_t) x;
-    x += date_w + gap;
-    l.time = (uint8_t) x;
-    x += time_w + gap;
-    l.angle = (uint8_t) x;
-    x += 4 * c + gap;
-    l.flags = (uint8_t) x;
-    x += 5 * c + gap;
-    l.shift = (uint8_t) x;
-    return l;
-}
-
 static void display_header() {
     mirror_formats();
     display_fill_rect(0, 0, DISPLAY_WIDTH - 1, HEADER_HEIGHT - 1, true);
-    header_layout_t l = layout_header();
 
     /* One clock reading for both, so date and time can't disagree across
      * midnight. In the calculator's formats (YMD/DMY/MDY, CLK12/CLK24). */
@@ -491,30 +450,21 @@ static void display_header() {
     rtc_get_datetime(&now);
     char buf[12];
     rtc_format_day_month(buf, sizeof(buf), &now);
-    display_draw_string(&font_small, buf, l.date, 0, 0xFF);
+    display_draw_string(&font_small, buf, HEADER_DATE_X, 0, 0xFF);
     rtc_format_time(buf, sizeof(buf), &now, true);
-    display_draw_string(&font_small, buf, l.time, 0, 0xFF);
+    display_draw_string(&font_small, buf, HEADER_TIME_X, 0, 0xFF);
 
-    const char *angle = flags.f.rad ? "RAD" : flags.f.grad ? "GRAD" : "DEG";
-    display_draw_string(&font_small, angle, l.angle, 0, 0xFF);
+    char angle = flags.f.rad ? 7 : flags.f.grad ? 'G' : 23; /* π, G, ∡ */
+    display_draw_char(&font_small, angle, HEADER_ANGLE_X, 0, 0xFF);
 
-    uint8_t x = l.flags;
-    for (int i = 0; i < 5; i++) {
-        /* Each flag keeps its fixed column (x advances every iteration
-         * regardless), but only draws its digit when actually set -- same
-         * plain white-on-black style as the rest of the header, no
-         * inverted patch; an unset flag just leaves its column blank. */
-        if (flags.farray[i]) {
-            char digit = (char) ('0' + i);
-            display_draw_char(&font_small, digit, x, 0, 0xFF);
-        }
-        x = (uint8_t) (x + font_small.advance);
-    }
+    for (int i = 0; i < 5; i++)
+        if (flags.farray[i])
+            display_draw_char(&font_small, (char) ('0' + i), (uint8_t) (HEADER_FLAGS_X + i * HEADER_CHAR), 0, 0xFF);
 
     if (mode_shift)
-        display_draw_string(&font_small, "^", l.shift, 0, 0xFF);
+        display_draw_char(&font_small, '\r', HEADER_SHIFT_X, 0, 0xFF); /* ↵, code 13 */
 
-    display_draw_string(&font_small, battery_icons[battery_level()], HEADER_BATTERY_X, 0, 0xFF);
+    icon_battery(HEADER_BATTERY_X, 0, battery_level());
 }
 
 /* Footer: 6 menu-key "tabs" in the bottom FOOTER_HEIGHT rows, replicating
@@ -1091,7 +1041,28 @@ static int held_repeat = 0;
 
 static bool settings_requested = false;
 
-static_assert(FREE42_KEY_EXIT == KEY_EXIT, "free42_app.h's EXIT key code");
+static_assert(FREE42_KEY_ENTER == KEY_ENTER && FREE42_KEY_BSP == KEY_BSP && FREE42_KEY_UP == KEY_UP
+                      && FREE42_KEY_DOWN == KEY_DOWN && FREE42_KEY_SHIFT == KEY_SHIFT && FREE42_KEY_MINUS == KEY_SUB
+                      && FREE42_KEY_EXIT == KEY_EXIT,
+              "free42_app.h's key codes");
+
+/* The key down, from free42_key_down() to free42_key_up(), and the shift
+ * before it -- for free42_key_cancel(). */
+static int down_code = 0;
+static bool shift_before_down = false;
+
+/* Only SHIFT has done anything by now that can be taken back: put the
+ * shift as it was. Through the core's own SHIFT key, not by setting
+ * mode_shift -- that also redraws the menus whose labels change with shift
+ * (core_keydown_2()). With no calculator key down (the settings menu),
+ * nothing to do. */
+void free42_key_cancel(void) {
+    if (down_code == KEY_SHIFT && mode_shift != shift_before_down) {
+        bool enqueued;
+        int repeat;
+        pump_running(core_keydown(KEY_SHIFT, &enqueued, &repeat));
+    }
+}
 
 int free42_key_code(uint8_t row, uint8_t col) {
     if (row >= KB_ROWS || col >= KB_COLS)
@@ -1110,6 +1081,8 @@ bool free42_settings_pending(void) {
 }
 
 void free42_key_down(uint8_t row, uint8_t col) {
+    down_code = free42_key_code(row, col);
+    shift_before_down = mode_shift;
     held_key = 0;
     held_enqueued = false;
     held_repeat = 0;
@@ -1321,6 +1294,7 @@ void free42_key_timeout2(void) {
 }
 
 void free42_key_up(void) {
+    down_code = 0;
     if (held_key != 0 && !held_enqueued)
         pump_running(core_keyup());
 

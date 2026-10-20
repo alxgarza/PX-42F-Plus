@@ -7,6 +7,11 @@
 extern "C" {
 #endif
 
+/* The core voltage at each speed (below), in mV: the low-power oscillator's
+ * rate depends on it (rtc_lposc_hz_at()). */
+#define CPUCLOCK_FAST_MV 1100 /* VREG_VOLTAGE_DEFAULT */
+#define CPUCLOCK_SLOW_MV 1000 /* IDLE_VREG, cpuclock.c */
+
 /* Two system clock speeds, to save power while the calculator waits for a
  * key: fast, 150MHz from the system PLL (the speed it boots at), for work
  * -- a keypress being handled, a program running; and slow, 48MHz taken

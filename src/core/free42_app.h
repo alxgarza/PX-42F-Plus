@@ -47,6 +47,10 @@ void free42_process_char(char c);
  *                                    still held and not repeating
  *   free42_key_timeout2()         -- once, 2000ms after key_down(), if
  *                                    still held and not repeating
+ *   free42_key_cancel()           -- instead of acting on the key, if it
+ *                                    was used for something else (a
+ *                                    screenshot, keyhold.h); key_up()
+ *                                    still follows
  *   free42_key_up()               -- once, when the key is released
  */
 void free42_key_down(uint8_t row, uint8_t col);
@@ -55,6 +59,7 @@ int free42_key_repeat_mode(void);
 void free42_key_repeat_tick(void);
 void free42_key_timeout1(void);
 void free42_key_timeout2(void);
+void free42_key_cancel(void);
 void free42_key_up(void);
 
 /* Redraws the whole screen from the current state -- e.g. to advance the
@@ -85,11 +90,15 @@ bool free42_printer_on(void);
  * screens outside the calculator, like the settings menu. */
 int free42_key_code(uint8_t row, uint8_t col);
 
-/* free42_key_code() of EXIT -- the ON/OFF key. Held down this long, it
- * turns the calculator off: on the calculator screen (main.c) and in the
- * settings menu. */
-#define FREE42_KEY_EXIT     33
-#define EXIT_HOLD_OFF_MS    2000
+/* The free42_key_code()s used outside the calculator -- the same values as
+ * KEY_* in src/core/core_globals.h, which is C++ only. */
+#define FREE42_KEY_ENTER 13
+#define FREE42_KEY_BSP   17
+#define FREE42_KEY_UP    18
+#define FREE42_KEY_DOWN  23
+#define FREE42_KEY_SHIFT 28
+#define FREE42_KEY_MINUS 32
+#define FREE42_KEY_EXIT  33 /* also ON */
 
 /* True (once) after SHIFT+EXIT was pressed: the main loop should run the
  * settings menu (settings_menu.h). */

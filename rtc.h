@@ -57,11 +57,15 @@ void rtc_format_date(char *buf, size_t size, const rtc_datetime_t *dt);
 void rtc_format_day_month(char *buf, size_t size, const rtc_datetime_t *dt);
 void rtc_format_time(char *buf, size_t size, const rtc_datetime_t *dt, bool compact);
 
+/* "20261009-154312": names made from the time (states, screenshots) sort
+ * oldest first. */
+void rtc_format_stamp(char *buf, size_t size, const rtc_datetime_t *dt);
+
 /* ===================== calibration ===================== */
 
 /* The clock counts from the 12MHz crystal while the calculator is on, and
  * from the chip's low-power oscillator while it's off -- that one is
- * measured against the crystal at each power-off (rtc_lposc_hz()). On top
+ * measured against the crystal at each power-off (rtc_lposc_hz_at()). On top
  * of both, px_settings.time_trim: tenths of a second per day added (Time
  * Calibration in the menu).
  *
@@ -78,9 +82,24 @@ bool rtc_set_measured(void);
 /* Applies px_settings.time_trim to the running clock (after changing it). */
 void rtc_apply_trim(void);
 
-/* The low-power oscillator, measured against the crystal (~0.25s), with
- * the trim applied: the rate to give the clock for a power-off. */
-uint32_t rtc_lposc_hz(void);
+/* The low-power oscillator's rate at core voltage mv, with the trim
+ * applied: the rate to give the clock for a power-off (at POWER_OFF_MV).
+ * It's an RC oscillator whose rate changes with its supply voltage (RP2350
+ * datasheet 8.4.1: by up to 20%), and while off that's lower than any the
+ * processor runs at: measured at 1.10V alone, the clock gained 2.4% while
+ * off (13 hours). So it's measured against the crystal at both of the
+ * processor's voltages (cpuclock.h) and extended to mv -- along 72% of the
+ * straight line through them, as measured with the clock while off.
+ * ~0.5s, feeding the watchdog; leaves the processor at the slow speed.
+ * at_fast and at_slow (or NULL) get the two measurements, untrimmed. */
+uint32_t rtc_lposc_hz_at(int mv, uint32_t *at_fast, uint32_t *at_slow);
+
+/* At a timer wake while off: the rate again, for the temperature now --
+ * measured quickly (~70ms) at the slow voltage and scaled like the
+ * power-off's measurement: off_hz, the rate rtc_lposc_hz_at() gave, and
+ * slow_hz, its reading at the slow voltage. 0 (keep the rate) without
+ * them. Leaves the processor at the slow speed. */
+uint32_t rtc_lposc_hz_again(uint32_t off_hz, uint32_t slow_hz);
 
 #ifdef __cplusplus
 }

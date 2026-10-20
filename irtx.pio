@@ -1,0 +1,21 @@
+; The infrared LED's carrier (irtx.c): the TX FIFO alternates the length
+; of a pulse and of the gap after it, each in carrier periods, minus one.
+; A period is 32 cycles -- 16 on, 16 off while pulsing: 50%, not the
+; usual 33%, for more light per burst (the LED's current is set by its
+; 22 ohm resistor, ~85mA) -- so the state machine runs at 32 x the carrier.
+; Waiting for the next pulse, the LED is off.
+
+.program ir_carrier
+.wrap_target
+    pull block
+    out x, 32
+pulse:
+    set pins, 1 [15]
+    set pins, 0 [14]
+    jmp x-- pulse
+    pull block
+    out x, 32
+gap:
+    nop [30]
+    jmp x-- gap
+.wrap

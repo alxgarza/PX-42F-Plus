@@ -13,8 +13,10 @@ else at the top level is the board: display, keyboard, power, USB, storage.
 - Pico SDK 2.3.0 at `~/.pico-sdk/sdk/2.3.0`. Board header: `boards/px42f.h` (`PICO_BOARD px42f`).
 - Output: `build/PX-Free42.uf2`, `build/PX-Free42.elf` (+ `.elf.map`, `.dis`).
 - Host tests: `tests/run.sh` builds `tests/test_parsers.c` on the Mac (ASan/UBSan) and runs it:
-  the PNG decoder (`png1bit.c`), WAV parser (`wav.c`) and font sheet slicer (`fontsheet.c`)
-  against good, truncated and damaged files, plus the built-in sounds and fonts. Run it after
+  the PNG decoder (`png1bit.c`), WAV parser (`wav.c`), font sheet slicer (`fontsheet.c`) and
+  `.ir` reader (`irfile.c`) against good, truncated and damaged files, plus the built-in sounds
+  and fonts; the PNG writer (`pngwrite.c`) read back by the decoder and checked by Python's
+  zlib; and the IR encoders (`irproto.c`) against Flipper's (`tests/ir_vectors.h`). Run it after
   touching any of them — they read files users drop on the drive, and a parser bug there
   freezes or resets the calculator.
 - Flashing over USB (only when the user asks): `picotool reboot -f -u`, wait until
@@ -48,11 +50,30 @@ else at the top level is the board: display, keyboard, power, USB, storage.
   sheets from the drive chosen in Settings → Fonts: `/FONTS/SMALL/<name>.png` (128x96, 16x8
   glyphs, no gaps) and `/FONTS/LARGE/<name>.png` (175x135, 1 px between glyphs); sizes are
   fixed. The built-in fonts' own sheets are `fonts/font_12x8.png` and `fonts/font_10x16.png`.
+  Every code of the small font is the HP-42S character Free42 means by it (0-31: ÷ × √ ∫ ▒ Σ ▶
+  π ¿ ≤ LF ≥ ≠ ↵ ↓ → ← µ £ ° Å Ñ Ä ∡ ᴇ Æ … Esc Ö Ü ^ •; 94 ↑, 126 ~): menu labels use them.
+  The shift indicator is ↵ (code 13); the battery gauge is drawn by `icons.c`, not from the font.
   The settings menu, boot/crash screens and splash clock always use the built-in fonts
   (the menu must stay readable; the splash clock is redrawn while off, without the drive).
-- Settings menu (`settings_menu.c`, SHIFT+EXIT): Off, Date & Time, Sounds, Fonts, Sleep Timer,
+- Held keys (`keyhold.c`, one place for both key loops — main.c and the settings menu): EXIT
+  2 s = off; SHIFT and "−" (PRINT) together 0.5 s = a screenshot (`screenshot.c`): the screen
+  as it was when SHIFT went down, to `/SCREENSHOTS/<date>-<time>.png` (250x122 1-bit PNG,
+  uncompressed, ~4 KB; usable as a splash image), Free42's shift put back. Not in USB Drive
+  mode (the computer has the drive). Add new hold gestures there, not in the loops.
+- Settings menu (`settings_menu.c`, SHIFT+EXIT): Off, IR Remote, Date & Time, Sounds, Fonts, Sleep Timer,
   Splash (Timer, Image), Printer, States (save/load/rename/delete), USB Drive, Info.
   A boot that dies loading sounds moves the folder to `/SOUNDS.BAD` (POWMAN scratch 6).
+- IR remote (`remote.c`, Settings → IR Remote): `/IR/<name>.ir`, Flipper's format plus
+  `button: RxCy` (the key's place: row 0-6, column 0-5; R6C0 = ON is reserved) and `label:`
+  (`irfile.c`). The calculator shows a map of the keys with labels; a key sends its code, and
+  repeats while held. Protocols (`irproto.c`): Flipper's 14 (NEC/NECext/NEC42/NEC42ext,
+  Samsung32, RC5/RC5X, RC6, SIRC/15/20, Kaseikyo, RCA, Pioneer) with Flipper's exact timings
+  and repeats — `tests/ir_vectors.h` is made from Flipper's encoders by
+  `tools/ir_vectors/make.sh`; regenerate after touching a protocol. Raw codes aren't sent.
+  The LED (GP14, high = on, through a transistor) is driven by PIO0 (`irtx.c`/`irtx.pio`), not
+  PWM: GP14 shares PWM slice 7 with the speaker. PIO0's clock is on only while sending.
+  The keyboard matrix has XEQ and TAN on row 7; files use where keys sit (R0C5, R1C5).
+  No IR receiver on the board (learning codes would need one).
 - Battery: GP28/ADC2, 1M/1M divider. Free: GP23-25, 29.
 
 ## Architecture
@@ -62,8 +83,8 @@ else at the top level is the board: display, keyboard, power, USB, storage.
   IRQ at lowest priority), the printer pump and its WFE idle loop; core 1 parks it in RAM
   for flash writes (`flash_safe_execute`).
 - USB composite: CDC0 console ("PX-42F Console", `!` commands: `!HELP`/`!?` (also printed
-  whenever a terminal opens the port), `!STATUS`, `!PRINTER`, `!PRINTTEST`, `!SETDATE`,
-  `!SETTIME`; other characters are keypresses), MSC drive "PX-42F", picotool reset,
+  whenever a terminal opens the port), `!STATUS`, `!PRINTER`, `!PRINTTEST`, `!SCREENSHOT`,
+  `!SETDATE`, `!SETTIME`; other characters are keypresses), MSC drive "PX-42F", picotool reset,
   CDC1 printer.
 - Flash: program 0-4 MB-4 KB; settings sector at 0x3FF000; FAT16 disk 4-16 MB
   (`flashdisk.c` write-back cache, `statefs.c` FatFs; Free42's file I/O routes through
@@ -78,11 +99,19 @@ else at the top level is the board: display, keyboard, power, USB, storage.
 - OFF (`power.c`): POWMAN power-down, only SRAM bank 1 + always-on domain kept, ON key
   (GPIO level-low) wakes = full reboot. Calculator memory is saved to retained RAM
   (`ramstate.c`) and restored by `free42_init()`. With a Splash Time, a POWMAN timer alarm
-  wakes the chip each minute: `power_splash_wake()` (first thing in `main()`) redraws the
-  clock bar and powers down again.
+  wakes the chip each minute: `power_off_wake()` (first thing in `main()`) redraws the
+  clock bar and powers down again. It also wakes every 10 min while off (`RECAL_MS`) to measure
+  the LPOSC again (~70 ms at 1.00 V, scaled by the power-off's two-voltage measurement kept in
+  POWMAN scratch 4-5): the rate follows temperature, which left the clock 0.4% off overnight.
 - Clock (`rtc.c`): POWMAN always-on timer, ms since 1970. On: from the crystal; off: from the
-  LPOSC (this board's: ~27.8 kHz, not 32.768), measured with the frequency counter at each
-  power-off (`rtc_lposc_hz()`, ~0.26 s, feeds the watchdog). `time_trim` (tenths s/day)
+  LPOSC (this board's: ~27.6-27.8 kHz, not 32.768), measured with the frequency counter at each
+  power-off (`rtc_lposc_hz_at()`, ~0.5 s, feeds the watchdog). The LPOSC's rate follows its
+  supply voltage (datasheet 8.4.1: up to ±20%), and while off that's `POWER_OFF_MV` (0.90 V),
+  below anything the processor runs at: measured at 1.10 V alone, the clock gained 2.4% while
+  off. So it's measured at 1.10 V and 1.00 V and extended to 0.90 V along 72% of the straight
+  line through them (`LPOSC_CURVE_PERCENT`): the straight line itself left the clock 0.8% slow
+  while off (two runs). A key-OFF used to measure at 1.10 V (clock +5% while off), a Sleep
+  Timer OFF at 1.00 V (+2%). The real fix is the RA8900CE RTC on the next board. `time_trim` (tenths s/day)
   adjusts both rates. Setting the time exactly twice ≥6 h apart measures the drift
   (`cal_drift`), offered in Settings → Date & Time → Time Calibration → Measured (which
   also takes the exact time, HH:MM:SS, to measure). Date/time formats are
@@ -117,7 +146,7 @@ else at the top level is the board: display, keyboard, power, USB, storage.
   restores it at boot because of `SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST/MIN` in CMakeLists —
   without them, wakes and reflashes ran 150 MHz at the idle 1.00 V.
 - `POWMAN LAST_SWCORE_PWRUP` is a bitmask (bit 1 = ON key / pwrup0, bit 6 = alarm).
-- POWMAN scratch: 0-3 splash wake state (`power.c`), 6 sounds-loading guard, 7 splash-PNG-
+- POWMAN scratch: 0-5 the wakes while off (`power.c`), 6 sounds-loading guard, 7 splash-PNG-
   and font-loading guard (`main.c`, one after the other, different flag values).
   Watchdog scratch: 0-1 debug checkpoint, 2-3/5-7 crash record, 4 = SDK.
 - Free42 messages (errors, VIEW, AVIEW, PROMPT, solver...) are drawn into its own 2-row
@@ -144,6 +173,9 @@ else at the top level is the board: display, keyboard, power, USB, storage.
 - `debug_checkpoint()` codes (`debug_checkpoint.h`) show where a watchdog reset happened.
 - `/status` runs `!STATUS` over the console (needs the console port not held open by a
   terminal app).
+- `/screenshot` (`tools/screenshot.py`) fetches the screen as a PNG over the console
+  (`!SCREENSHOT`): look at what the firmware drew instead of asking for a photo. Calculator
+  screen only — the settings menu doesn't read the console.
 
 ## Power baseline (measured on the board, battery)
 

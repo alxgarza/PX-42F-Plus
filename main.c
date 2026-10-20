@@ -32,6 +32,10 @@
 #include "idle.h"
 #include "sounds.h"
 #include "fonts.h"
+#include "screenshot.h"
+#include "keyhold.h"
+#include "irtx.h"
+#include "remote.h"
 #include "tusb.h"
 #include "hardware/clocks.h"
 #include "hardware/vreg.h"
@@ -92,9 +96,6 @@ static void release_psram_cs(void) {
     gpio_disable_pulls(PSRAM_CS_PIN);
 }
 
-/* --- IR --- (the speaker, GP15, is in speaker.h) */
-#define IR_LED_PIN    14  /* PWM-capable; drive via transistor, see note */
-
 /* --- Debug serial (UART0, separate from the USB CDC console) --- */
 #define SERIAL_UART     uart0
 #define SERIAL_BAUD     115200
@@ -132,6 +133,7 @@ static void print_help(void) {
            "  !STATUS                clock, core voltage, USB, battery, time, idle counts\n"
            "  !PRINTER               printer state and byte counters\n"
            "  !PRINTTEST             send a test line to the printer port\n"
+           "  !SCREENSHOT            the screen as a PNG, in base64 (tools/screenshot.py saves it)\n"
            "  !SETDATE YYYY-MM-DD    set the date\n"
            "  !SETTIME HH:MM[:SS]    set the time (24h)\n"
            "Anything else is a keypress: 0-9 + - * /  . or , (decimal point)  e (EEX)\n"
@@ -144,6 +146,10 @@ static void handle_serial_command(const char *cmd) {
     bool ok = false;
     if (strcmp(cmd, "HELP") == 0 || strcmp(cmd, "?") == 0) {
         print_help();
+        return;
+    }
+    if (strcmp(cmd, "SCREENSHOT") == 0) {
+        screenshot_to_console();
         return;
     }
     if (strcmp(cmd, "PRINTER") == 0) {
@@ -172,7 +178,12 @@ static void handle_serial_command(const char *cmd) {
                    px_settings.cal_span_h);
         else
             printf("none yet\n");
-        printf("low-power oscillator (the clock while off): %lu Hz\n", (unsigned long) rtc_lposc_hz());
+        uint32_t at_fast, at_slow;
+        uint32_t off_hz = rtc_lposc_hz_at(POWER_OFF_MV, &at_fast, &at_slow);
+        printf("low-power oscillator (the clock while off): %lu Hz at %d mV, %lu Hz at %d mV -> %lu Hz at %d mV "
+               "(off, with the correction)\n",
+               (unsigned long) at_fast, CPUCLOCK_FAST_MV, (unsigned long) at_slow, CPUCLOCK_SLOW_MV,
+               (unsigned long) off_hz, POWER_OFF_MV);
         uint32_t waits, key_waits;
         idle_stats(&waits, &key_waits);
         printf("idle waits on battery: %lu (ended by a key: %lu)\n", (unsigned long) waits, (unsigned long) key_waits);
@@ -328,6 +339,7 @@ static void core1_main(void)
     powman_hw->scratch[7] = FONTS_LOADING_FLAG;
     fonts_init();
     powman_hw->scratch[7] = 0;
+    statefs_mkdir(IR_DIR); /* where remotes go (remote.h) */
     watchdog_update();
 
     /* The sounds (/SOUNDS, made with the built-ins on first boot), with the
@@ -472,6 +484,7 @@ static void core1_main(void)
         if (keyboard_scan(&row, &col)) {
             debug_checkpoint(CKPT_KEY_DOWN, ((uint32_t) row << 8) | col);
             cpuclock_set_fast(true); /* work: full speed until it's idle again */
+            key_hold_begin(row, col);
             sounds_key_play();
             free42_key_down(row, col);
 
@@ -495,7 +508,7 @@ static void core1_main(void)
              * that fell through to the top of the main loop while the key
              * was still down, and the very next scan saw it as a brand
              * new press -- firing the same key repeatedly for as long as
-             * it was held. The 6000-iteration (60s) cap here is only a
+             * it was held. The KEY_STUCK_MS (60s) cap here is only a
              * safety net for a truly stuck/miswired key, not something a
              * real press should ever reach.
              *
@@ -509,15 +522,19 @@ static void core1_main(void)
              * running the original key's hold-timeout logic while the
              * second key's own press was never dispatched at all --
              * silently swallowed until it, too, was released. */
-            for (int i = 0; i < 6000 && keyboard_is_held(row, col); i++) {
+            for (int i = 0; i < KEY_STUCK_MS / 10 && keyboard_is_held(row, col); i++) {
                 watchdog_update();
 
-                /* EXIT is the ON/OFF key: kept down, it turns the
-                 * calculator off (having done its EXIT at key-down). Not
+                /* Keys held down (keyhold.h): a screenshot has been
+                 * taken and both keys are up again (free42_key_up() below
+                 * redraws the screen); or EXIT kept down turns the
+                 * calculator off (having done its EXIT at key-down) -- not
                  * after SHIFT, where it's opening the settings menu.
                  * power_deep_off() waits for the key to be let go. */
-                if (free42_key_code(row, col) == FREE42_KEY_EXIT && !free42_settings_pending()
-                        && absolute_time_diff_us(press_time, get_absolute_time()) / 1000 >= EXIT_HOLD_OFF_MS) {
+                key_hold_t hold = key_hold_poll();
+                if (hold == KEY_HOLD_SCREENSHOT)
+                    break;
+                if (hold == KEY_HOLD_OFF && !free42_settings_pending()) {
                     free42_request_powerdown();
                     break;
                 }
@@ -592,7 +609,7 @@ int main()
     cpuclock_init(); /* first: the peripheral clock the UART and SPI are set up with */
     /* One of the once-a-minute wakes while off with the splash showing:
      * update its clock and power down again, nothing else (power.h). */
-    power_splash_wake();
+    power_off_wake();
     stdio_init_all();
 
     /* Everything else runs on core 1, with the large explicit stack

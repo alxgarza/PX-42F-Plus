@@ -15,6 +15,10 @@
 #include "wav.h"
 #include "images/image.h"
 #include "fontsheet.h"
+#include "pngwrite.h"
+#include "irproto.h"
+#include "irfile.h"
+#include "ir_vectors.h"
 #include "fonts/font_8x12.h"
 #include "fonts/font_10x16.h"
 
@@ -362,6 +366,199 @@ static void test_font_sheet(const char *path, const display_font_t *font, int ga
     free(png);
 }
 
+/* ===================== the PNG writer ===================== */
+
+typedef struct {
+    uint8_t *data;
+    size_t size, room;
+} sink_t;
+
+static bool sink_write(void *ctx, const uint8_t *data, size_t len) {
+    sink_t *s = ctx;
+    if (len > s->room - s->size)
+        return false;
+    memcpy(s->data + s->size, data, len);
+    s->size += len;
+    return true;
+}
+
+/* What png_write_1bit() writes, png1bit.c must read back as the same
+ * picture -- at the screen's size, tiny, not a multiple of 8 wide, and
+ * tall enough to need more than one deflate block. (tests/run.sh also has
+ * Python's zlib check the screen-sized one: its CRCs and Adler-32, which
+ * png1bit.c doesn't look at.) */
+static void test_png_write(int width, int height, const char *save_as) {
+    int stride = (width + 7) / 8 + 1; /* a spare byte per row: stride isn't the row length */
+    size_t bitmap = (size_t) stride * (size_t) height;
+    uint8_t *in = malloc(bitmap), *back = malloc(bitmap);
+    sink_t s = {malloc(bitmap + 4096), 0, bitmap + 4096};
+    uint32_t seed = (uint32_t) (width * 7919 + height);
+    for (size_t i = 0; i < bitmap; i++) {
+        seed = seed * 1664525u + 1013904223u;
+        in[i] = (uint8_t) (seed >> 24);
+    }
+
+    CHECK(png_write_1bit(in, width, height, stride, sink_write, &s), "%dx%d: write failed", width, height);
+    mem_t m = {s.data, s.size, 0};
+    png_source_t src = {mem_read, &m, NULL};
+    char error[64] = "";
+    alarm(5);
+    bool ok = png_decode_1bit_exact(&src, back, width, height, stride, error, sizeof(error));
+    alarm(0);
+    CHECK(ok, "%dx%d: written PNG doesn't decode: %s", width, height, error);
+    bool same = ok;
+    for (int y = 0; same && y < height; y++)
+        for (int x = 0; same && x < width; x++)
+            same = ((in[y * stride + x / 8] ^ back[y * stride + x / 8]) & (0x80 >> (x % 8))) == 0;
+    CHECK(same, "%dx%d: written PNG decodes to a different picture", width, height);
+
+    /* A sink that fills up is reported, not written past. */
+    sink_t small = {s.data, 0, s.size - 1};
+    CHECK(!png_write_1bit(in, width, height, stride, sink_write, &small), "%dx%d: a full sink went unnoticed", width,
+          height);
+
+    if (save_as != NULL) {
+        FILE *f = fopen(save_as, "wb");
+        CHECK(f != NULL && fwrite(s.data, 1, s.size, f) == s.size, "can't write %s", save_as);
+        if (f != NULL)
+            fclose(f);
+    }
+    free(in);
+    free(back);
+    free(s.data);
+}
+
+/* ===================== infrared ===================== */
+
+/* Every protocol sends what the Flipper firmware sends for the same code
+ * (tests/ir_vectors.h, made from its encoders): the first press, and two
+ * transmissions more of a held key. */
+static void test_ir_encode(void) {
+    for (size_t v = 0; v < sizeof(ir_vectors) / sizeof(ir_vectors[0]); v++) {
+        ir_code_t code = {ir_protocol_by_name(ir_vectors[v].protocol), ir_vectors[v].address, ir_vectors[v].command};
+        CHECK(code.protocol != IR_PROTOCOL_COUNT, "%s: no such protocol", ir_vectors[v].protocol);
+        if (code.protocol == IR_PROTOCOL_COUNT)
+            continue;
+        CHECK(ir_code_valid(&code), "%s: vector's code out of range", ir_vectors[v].protocol);
+        uint32_t us[400];
+        int n = 0;
+        for (int t = 0; t < IR_VECTOR_TRANSMISSIONS; t++) {
+            ir_burst_t b;
+            ir_encode(&code, ir_vectors[v].toggle, t, &b);
+            for (int i = 0; i < b.count; i++) {
+                if (n % 2 != i % 2)
+                    us[n - 1] += b.us[i]; /* a gap after a gap (Pioneer) */
+                else if (n < 400)
+                    us[n++] = b.us[i];
+            }
+        }
+        CHECK(n == ir_vectors[v].count && memcmp(us, ir_vectors[v].us, sizeof(uint32_t) * (size_t) n) == 0,
+              "%s %X/%X toggle %d: sends something else than Flipper", ir_vectors[v].protocol, ir_vectors[v].address,
+              ir_vectors[v].command, ir_vectors[v].toggle);
+    }
+}
+
+static bool load_ir(const char *text, ir_remote_t *remote, int *line, char *error) {
+    /* (fmemopen() can't open an empty buffer) */
+    FILE *f = text[0] ? fmemopen((void *) text, strlen(text), "r") : fopen("/dev/null", "r");
+    bool ok = ir_remote_load(f, remote, line, error, 32);
+    fclose(f);
+    return ok;
+}
+
+static int keys_used(const ir_remote_t *remote) {
+    int n = 0;
+    for (int r = 0; r < IR_ROWS; r++)
+        for (int c = 0; c < IR_COLS; c++)
+            n += remote->keys[r][c].used;
+    return n;
+}
+
+static void test_ir_file_error(const char *text, int expected_line, const char *expected_error) {
+    static ir_remote_t remote;
+    int line = 0;
+    char error[32] = "";
+    bool ok = load_ir(text, &remote, &line, error);
+    CHECK(!ok && line == expected_line && strcmp(error, expected_error) == 0,
+          "expected line %d \"%s\", got %s line %d \"%s\"", expected_line, expected_error, ok ? "success" : "error",
+          line, error);
+}
+
+static void test_ir_file(void) {
+    /* A Flipper file, with buttons and a label added, a raw code on no key,
+     * and its long data line. */
+    static const char good[] =
+            "Filetype: IR signals file\n"
+            "Version: 1\n"
+            "#\n"
+            "name: TV On/Off\n"
+            "label: Power\n"
+            "button: R0C5\n"
+            "type: parsed\n"
+            "protocol: NECext\n"
+            "address: 02 7D 00 00\n"
+            "command: 9F 60 00 00\n"
+            "#\n"
+            "name: Learned\n"
+            "type: raw\n"
+            "frequency: 38000\n"
+            "duty_cycle: 0.330000\n"
+            "data: 9024 4512 579 552 579 552 579 1683 579 552 579 552 579 552 579 552 579 552 579 1683 579 1683\n"
+            "#\n"
+            "name: Vol+\r\n"
+            "button: r6c4\r\n"
+            "protocol: NEC\r\n"
+            "address: 07 00 00 00\r\n"
+            "command: 02 00 00 00\r\n"
+            "#\n"
+            "name: Input Source Select Long\n"
+            "button: R2C0\n"
+            "protocol: Samsung32\n"
+            "address: 07\n"
+            "command: 01 00";
+    static ir_remote_t remote;
+    int line = 0;
+    char error[32] = "";
+    CHECK(load_ir(good, &remote, &line, error), "good .ir file: line %d: %s", line, error);
+    CHECK(keys_used(&remote) == 3, "good .ir file: %d keys, expected 3", keys_used(&remote));
+    const ir_key_t *power = &remote.keys[0][5], *vol = &remote.keys[6][4], *input = &remote.keys[2][0];
+    CHECK(power->used && strcmp(power->name, "TV On/Off") == 0 && strcmp(power->label, "Power") == 0
+                  && power->code.protocol == IR_NECEXT && power->code.address == 0x7D02
+                  && power->code.command == 0x609F,
+          "R0C5 read as \"%s\" \"%s\" %d %X %X", power->name, power->label, power->code.protocol,
+          power->code.address, power->code.command);
+    CHECK(vol->used && strcmp(vol->label, "Vol+") == 0 && vol->code.protocol == IR_NEC && vol->code.address == 7
+                  && vol->code.command == 2,
+          "R6C4 (CR LF lines, no label) read wrong");
+    CHECK(input->used && strcmp(input->name, "Input Source Select Lon") == 0
+                  && strcmp(input->label, "Input Sour") == 0 && input->code.address == 7 && input->code.command == 1,
+          "R2C0 (long name, short bytes) read as \"%s\" \"%s\"", input->name, input->label);
+
+    CHECK(load_ir("", &remote, &line, error) && keys_used(&remote) == 0, "an empty file is an empty remote");
+
+    static const char entry[] = "name: A\nbutton: R1C1\nprotocol: NEC\naddress: 01 00 00 00\ncommand: 02 00 00 00\n";
+    test_ir_file_error("name: A\nbutton: R6C0\nprotocol: NEC\naddress: 01\ncommand: 02\n", 2,
+                       "R6C0 is ON: can't be used");
+    test_ir_file_error("name: A\nbutton: R2C5\nprotocol: NEC\naddress: 01\ncommand: 02\n", 2, "No such key");
+    test_ir_file_error("name: A\nbutton: X1\nprotocol: NEC\naddress: 01\ncommand: 02\n", 2,
+                       "Bad button (R0C0 to R6C4)");
+    test_ir_file_error("name: A\nbutton: R1C1x\nprotocol: NEC\naddress: 01\ncommand: 02\n", 2,
+                       "Bad button (R0C0 to R6C4)");
+    char twice[256];
+    snprintf(twice, sizeof(twice), "%s#\n%s", entry, entry);
+    test_ir_file_error(twice, 8, "Key used twice");
+    test_ir_file_error("name: A\nbutton: R1C1\nprotocol: Foo\naddress: 01\ncommand: 02\n", 3, "Unknown protocol");
+    test_ir_file_error("name: A\nbutton: R1C1\ntype: raw\ndata: 100 200\n", 4, "Raw codes aren't supported");
+    test_ir_file_error("name: A\nbutton: R1C1\nprotocol: NEC\naddress: 01 01\ncommand: 02\n", 4,
+                       "Too big for the protocol");
+    test_ir_file_error("name: A\nbutton: R1C1\nprotocol: NEC\naddress: 0G\ncommand: 02\n", 4, "Bad address");
+    test_ir_file_error("name: A\nbutton: R1C1\nprotocol: NEC\naddress: 01\ncommand: 02 00 00 00 00\n", 5,
+                       "Bad command");
+    test_ir_file_error("name: A\nbutton: R1C1\nprotocol: NEC\naddress: 01\n", 1, "No command");
+    /* A file cut off mid-entry is checked like any other. */
+    test_ir_file_error("name: A\nbutton: R1C1\nprotocol: NEC\naddr", 1, "No address");
+}
+
 int main(int argc, char **argv) {
     signal(SIGALRM, on_alarm);
     test_png("images/splash.png", true);
@@ -369,6 +566,14 @@ int main(int argc, char **argv) {
     test_png("fonts/font_12x8.png", false);
     test_font_sheet("fonts/font_12x8.png", &font_8x12, 0);
     test_font_sheet("fonts/font_10x16.png", &font_10x16, 1);
+    test_png_write(250, 122, getenv("PNG_WRITE_OUT"));
+    test_png_write(1, 1, NULL);
+    test_png_write(17, 5, NULL);
+    test_png_write(2040, 300, NULL);
+    uint8_t one = 0;
+    CHECK(!png_write_1bit(&one, 2041, 1, 256, sink_write, &(sink_t){&one, 0, 0}), "too wide accepted");
+    test_ir_encode();
+    test_ir_file();
     test_wav();
     for (int i = 1; i < argc; i++)
         test_wav_file(argv[i]);
