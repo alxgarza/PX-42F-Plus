@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -380,10 +380,6 @@ int docmd_delr(arg_struct *arg) {
     if (rows == 1 && m->type != TYPE_LIST)
         return ERR_DIMENSION_ERROR;
 
-    if (matedit_i >= rows)
-        matedit_i = rows - 1;
-    if (matedit_j >= columns)
-        matedit_j = columns - 1;
     n = (matedit_i + 1) * columns + matedit_j;
 
     if (matedit_i == rows - 1) {
@@ -639,7 +635,35 @@ int docmd_dim(arg_struct *arg) {
         y = -y;
     if (y >= 2147483648.0)
         return ERR_INSUFFICIENT_MEMORY;
-    return dimension_array(arg->val.text, arg->length, to_int(y), to_int(x), true);
+
+    vloc mi = lookup_var(arg->val.text, arg->length, false, true);
+    if (mi.not_found()) {
+        make_new:
+        vartype *m = new_realmatrix(to_int(y), to_int(x));
+        if (m == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+        err = store_var(arg->val.text, arg->length, m);
+        if (err != ERR_NONE)
+            free_vartype(m);
+        return err;
+    } else {
+        vartype *v = mi.value();
+        if (v->type != TYPE_REALMATRIX && v->type != TYPE_COMPLEXMATRIX)
+            goto make_new;
+        bool reset_ij = false;
+        if ((matedit_mode == 1 || matedit_mode == 3)
+                && matedit_dir == mi.dir
+                && string_equals(matedit_name, matedit_length, arg->val.text, arg->length)) {
+            if (matedit_mode == 1)
+                reset_ij = true;
+            else
+                return ERR_RESTRICTED_OPERATION;
+        }
+        err = dimension_array_ref(v, to_int(y), to_int(x));
+        if (reset_ij && err == ERR_NONE)
+            matedit_i = matedit_j = 0;
+        return err;
+    }
 }
 
 int docmd_dot(arg_struct *arg) {
@@ -805,28 +829,16 @@ int appmenu_exitcallback_1(int menuid, bool exitall) {
             err = ERR_NONE;
         else
             err = docmd_stoel(NULL);
-        if (err == ERR_INSUFFICIENT_MEMORY)
-            /* There's no graceful way to handle this, at least not without
-             * some code restructuring (TODO); this is the one error that
-             * should *not* prevent the user from getting out of the matrix
-             * editor! Unfortunately, setting the error to ERR_NONE means we
-             * aren't reporting the fact that changing the matrix element
-             * was unsuccessful.
-             */
-            err = ERR_NONE;
         if (err == ERR_NONEXISTENT)
-            /* This can happen when the user overwrites the indexed
-             * matrix with a scalar. The fact that that is even possible
-             * is a bug; attempting to do that, or to CLV it, should
-             * cause a Restricted Operation message.
-             * This code is a workaround to allow users to escape from
-             * the Matrix Editor once its state has become hosed in the
-             * above manner. We could remove this hack eventually. (TODO)
-             */
+            /* This can happen when editing an empty list; ignore. */
             err = ERR_NONE;
-        if (err != ERR_NONE) {
+        if (err != ERR_NONE && err != ERR_INSUFFICIENT_MEMORY) {
             /* Reinstate the callback so we'll get called again when
-             * the user tries to leave again. */
+             * the user tries to leave again.
+             * Note that we ignore the Insufficient Memory error. This
+             * is a condition the user can't do anything about, and it
+             * should not prevent the matrix editor from exiting.
+             * We do report it at the end. */
             set_appmenu_exitcallback(1);
             return err;
         }
@@ -854,7 +866,7 @@ int appmenu_exitcallback_1(int menuid, bool exitall) {
             set_menu(MENULEVEL_APP, matedit_prev_appmenu);
         else
             set_menu(MENULEVEL_APP, menuid);
-        return ERR_NONE;
+        return err;
     }
 }
 
@@ -943,10 +955,12 @@ int docmd_editn(arg_struct *arg) {
     if (arg->type != ARGTYPE_STR)
         return ERR_INVALID_TYPE;
 
-    int mi = lookup_var(arg->val.text, arg->length);
-    if (mi == -1)
+    vloc mi = lookup_var(arg->val.text, arg->length);
+    if (mi.not_found())
         return ERR_NONEXISTENT;
-    m = vars[mi].value;
+    if (!mi.writable())
+        return ERR_VARIABLE_NOT_WRITABLE;
+    m = mi.value();
     if (m->type != TYPE_REALMATRIX
             && m->type != TYPE_COMPLEXMATRIX
             && m->type != TYPE_LIST)
@@ -972,26 +986,21 @@ int docmd_editn(arg_struct *arg) {
         else
             v = dup_vartype(list->array->data[0]);
     }
-
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
 
     /* If the matrix we're about to edit is local, and another matrix
-     * is already indexed, and that other matrix is not a local at the same
+     * is already indexed, and that other matrix is not a local at our
      * level, then we push the IJ pointers, so the previous indexing is
      * restored when this function returns.
      */
-    if (matedit_mode == 1 && matedit_level < vars[mi].level)
+    if (mi.dir <= 0 && matedit_mode == 1 && matedit_dir != -get_rtn_level())
         push_indexed_matrix();
 
-    /* TODO: implement a mechanism that locks a matrix while it is
-     * under edit. While locked, operations such as CLV, DIM, or
-     * assignment should fail with ERR_RESTRICTED_OPERATION.
-     */
     matedit_mode = 3;
     flags.f.grow = 0;
     string_copy(matedit_name, &matedit_length, arg->val.text, arg->length);
-    matedit_level = vars[mi].level;
+    matedit_dir = mi.dir;
     if (sp == -1)
         sp = 0;
     else
@@ -1420,15 +1429,6 @@ int docmd_index(arg_struct *arg) {
     vartype *m;
 
     if (matedit_mode == 2 || matedit_mode == 3)
-        /* TODO: on the real HP-42S, you get this error message the
-         * moment you say INDEX, that is, before even having to
-         * complete the command. Doing that in free42 would require
-         * a check in start_incomplete_command() or do_interactive().
-         * I'm putting that off until I have a better idea of whether
-         * this is an isolated special case (in which case I'll go
-         * for the quick-and-dirty hack) or something more general
-         * (in which case I'll redesign stuff if necessary).
-         */
         return ERR_RESTRICTED_OPERATION;
 
     if (arg->type == ARGTYPE_IND_NUM
@@ -1441,33 +1441,25 @@ int docmd_index(arg_struct *arg) {
     if (arg->type != ARGTYPE_STR)
         return ERR_INVALID_TYPE;
 
-    int mi = lookup_var(arg->val.text, arg->length);
-    if (mi == -1)
+    vloc mi = lookup_var(arg->val.text, arg->length);
+    if (mi.not_found())
         return ERR_NONEXISTENT;
-    m = vars[mi].value;
+    if (!mi.writable())
+        return ERR_VARIABLE_NOT_WRITABLE;
+    m = mi.value();
     if (m->type != TYPE_REALMATRIX
             && m->type != TYPE_COMPLEXMATRIX
             && m->type != TYPE_LIST)
         return ERR_INVALID_TYPE;
 
     /* If the matrix we're about to index is local, and another matrix
-     * is already indexed, and that other matrix is not a local at the same
+     * is already indexed, and that other matrix is not a local at our
      * level, then we push the IJ pointers, so the previous indexing is
      * restored when this function returns.
      */
-    if (matedit_mode == 1 && matedit_level < vars[mi].level)
+    if (mi.dir <= 0 && matedit_mode == 1 && matedit_dir != -get_rtn_level())
         push_indexed_matrix();
 
-    /* TODO: keep a 'weak' lock on the matrix while it is indexed.
-     * If it is deleted or redimensioned, I and J should be reset to 1.
-     * Note that the current code uses a lazy, keep-it-safe approach
-     * (it does not assume I and J are necessarily in bounds when I+, J-,
-     * LEFT, RIGHT, etc., are called, but simply forces I and J within
-     * bounds just before using them), but this does not always yield the
-     * same result (try deleting the indexed matrix and then recreating it
-     * immediately; on the real HP-42S, I and J are now both 1; on Free42,
-     * I and J are unchanged).
-     */
     matedit_mode = 1;
     matedit_i = 0;
     matedit_j = 0;
@@ -1475,7 +1467,7 @@ int docmd_index(arg_struct *arg) {
     flags.f.matrix_edge_wrap = 0;
     flags.f.matrix_end_wrap = 0;
     string_copy(matedit_name, &matedit_length, arg->val.text, arg->length);
-    matedit_level = vars[mi].level;
+    matedit_dir = mi.dir;
     return ERR_NONE;
 }
 

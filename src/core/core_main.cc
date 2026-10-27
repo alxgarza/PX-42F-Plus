@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,8 +25,11 @@
 #include "core_commands2.h"
 #include "core_commands4.h"
 #include "core_commands7.h"
+#include "core_commands8.h"
+#include "core_commandsa.h"
 #include "core_display.h"
 #include "core_display.h"
+#include "core_equations.h"
 #include "core_helpers.h"
 #include "core_keydown.h"
 #include "core_math1.h"
@@ -54,7 +57,7 @@ int my_remove(const char *name);
 #endif
 
 
-static void set_shift(bool state) {
+void set_shift(bool state) {
     if (mode_shift != state) {
         mode_shift = state;
         set_annunciators(-1, state, -1, -1, -1, -1);
@@ -73,21 +76,72 @@ int repeating_shift;
 int repeating_key;
 
 static int4 oldpc;
+static char ann_hold = 0; // 0 = delay; 1 = flush; 2 = normal
+bool start_eqn_cursor = false;
+int skin_flags = -1;
+bool force_redisplay = false;
 
 core_settings_struct core_settings;
 
-void core_init(int read_saved_state, int4 version, const char *state_file_name, int offset) {
+struct pending_equation {
+    pgm_index idx;
+    int4 pc;
+    int4 length;
+    char *text;
+    pending_equation *next;
+    bool compatMode;
+    bool eval;
+};
 
-    /* Possible values for read_saved_state:
-     * 0: state file not present (Memory Clear)
-     * 1: state file present and looks OK so far
-     * 2: state file present but not OK (State File Corrupt)
-     */
+static pending_equation *eq_queue = NULL;
+
+static void delete_pending_equations() {
+    while (eq_queue != NULL) {
+        pending_equation *peq = eq_queue;
+        eq_queue = peq->next;
+        free(peq->text);
+        free(peq);
+    }
+}
+
+static void handle_pending_equations() {
+    while (eq_queue != NULL) {
+        pending_equation *peq = eq_queue;
+        int errpos;
+        equation_data *eqd = new_equation_data(peq->text, peq->length, peq->compatMode, &errpos, -1);
+        if (eqd == NULL && errpos == -1) {
+            /* TODO: Insufficient Memory message */
+            delete_pending_equations();
+            return;
+        }
+        pgm_index saved_prgm = current_prgm;
+        current_prgm = peq->idx;
+        arg_struct arg;
+        if (eqd != NULL) {
+            arg.type = peq->eval ? ARGTYPE_IND_NUM : ARGTYPE_NUM;
+            arg.val.num = eqd->eqn_index;
+            store_command_after(&peq->pc, CMD_EMBED, &arg, NULL);
+        } else {
+            arg.type = ARGTYPE_XSTR;
+            arg.length = peq->length;
+            arg.val.xstr = peq->text;
+            store_command_after(&peq->pc, CMD_XSTR, &arg, NULL);
+        }
+        current_prgm = saved_prgm;
+
+        eq_queue = peq->next;
+        free(peq->text);
+        free(peq);
+    }
+}
+
+void core_init(int *rows, int *cols, const char *state_file_name) {
 
     phloat_init();
+    bool read_saved_state = state_file_name != NULL;
 
     char *state_file_name_crash = NULL;
-    if (read_saved_state == 1) {
+    if (read_saved_state) {
         // Before loading state, rename the state file by appending .crash
         // to its name. We'll rename it back, right after loading is done.
         // This way, if we crash while loading state, we end up with a
@@ -104,17 +158,24 @@ void core_init(int read_saved_state, int4 version, const char *state_file_name, 
         my_rename(state_file_name, state_file_name_crash);
         gfile = my_fopen(state_file_name_crash, "rb");
         if (gfile == NULL)
-            read_saved_state = 0;
-        else if (offset > 0)
-            fseek(gfile, offset, SEEK_SET);
+            read_saved_state = false;
     } else
         gfile = NULL;
 
     bool clear, too_new = false;
     int reason = 0;
-    if (read_saved_state != 1 || !load_state(version, &clear, &too_new)) {
-        reason = too_new ? 2 : (read_saved_state != 0 && !clear) ? 1 : 0;
+    if (!read_saved_state || !load_state(&clear, &too_new)) {
+        reason = too_new ? 2 : (read_saved_state && !clear) ? 1 : 0;
+#ifdef PX42
+        requested_disp_r = 5; /* ALPHA, T, Z, Y, X in the large font (free42_app.cc) */
+#else
+        requested_disp_r = 8;
+#endif
+        requested_disp_c = 22;
+        if (!display_exists())
+            display_alloc(requested_disp_r, requested_disp_c);
         hard_reset(reason);
+        force_redisplay = true;
     }
     if (gfile != NULL)
         fclose(gfile);
@@ -135,16 +196,14 @@ void core_init(int read_saved_state, int4 version, const char *state_file_name, 
     initialized = true;
     quitting = false;
 
-    repaint_display();
+    *rows = requested_disp_r;
+    *cols = requested_disp_c;
+    shell_set_skin_mode(eqn_alt_keys() ? flags.f.decimal_point ? 1 : 2 : 0);
     #if defined(ANDROID) || defined(IPHONE)
     mode_popup_unknown = true;
     #endif
-    shell_annunciators(mode_updown,
-                       mode_shift,
-                       0 /*print*/,
-                       mode_running,
-                       !flags.f.rad && flags.f.grad,
-                       flags.f.rad || flags.f.grad);
+
+    ann_hold = 1;
 }
 
 void core_save_state(const char *state_file_name) {
@@ -161,8 +220,7 @@ void core_save_state(const char *state_file_name) {
 
     gfile = my_fopen(state_file_name_crash, "wb");
     if (gfile != NULL) {
-        bool success;
-        save_state(&success);
+        bool success = save_state();
         fclose(gfile);
         if (success) {
             my_remove(state_file_name);
@@ -176,40 +234,54 @@ void core_cleanup() {
         return;
 
     initialized = false;
-    for (int i = 0; i <= sp; i++)
-        free_vartype(stack[i]);
-    sp = -1;
-    free(stack);
-    stack = NULL;
-    stack_capacity = 0;
-    free_vartype(lastx);
-    lastx = NULL;
-    purge_all_vars();
-    clear_all_prgms();
-    if (vars != NULL) {
-        free(vars);
-        vars = NULL;
-        vars_capacity = 0;
-    }
-    clean_vartype_pools();
+    clean_state();
 }
 
 void set_annunciators(int updn, int shf, int prt, int run, int g, int rad) {
     if (!initialized || quitting)
         return;
 
-    shell_annunciators(updn, shf, prt, run, g, rad);
+    if (ann_hold == 2)
+        shell_annunciators(updn, shf, prt, run, g, rad);
 }
 
-void core_repaint_display() {
+void core_repaint_display(int rows, int cols, int sflags) {
     if (!initialized || quitting)
         return;
 
-    repaint_display();
+    if (ann_hold == 1) {
+        /* This used to be at the end of core_init(), but now that we're
+         * calling that function before loading the skin, the initial
+         * annunciator update has to be delayed.
+         */
+        shell_annunciators(mode_updown,
+                           mode_shift,
+                           0 /*print*/,
+                           mode_running,
+                           !flags.f.rad && flags.f.grad,
+                           flags.f.rad || flags.f.grad);
+        ann_hold = 2;
+    }
+
+    if (start_eqn_cursor) {
+        eqn_restart_cursor();
+        start_eqn_cursor = false;
+    }
+
+    if (sflags != -1 && sflags != skin_flags) {
+        skin_flags = sflags;
+        force_redisplay = true;
+    }
+
+    if (display_alloc(rows, cols) || (force_redisplay && !mode_plot_viewer))
+        redisplay();
+    else
+        repaint_display();
+    force_redisplay = false;
 }
 
 bool core_menu() {
-    return mode_clall || get_front_menu() != MENU_NONE;
+    return mode_clall || get_front_menu() != MENU_NONE || eqn_active();
 }
 
 bool alpha_active() {
@@ -217,15 +289,13 @@ bool alpha_active() {
     return menu >= MENU_ALPHA1 && menu <= MENU_ALPHA_MISC2;
 }
 
-bool core_alpha_menu() {
-    return !mode_getkey && alpha_active();
+int core_alpha_menu() {
+    return !mode_getkey && alpha_active() ? 1 : eqn_editing() ? 2 : 0;
 }
 
 bool core_hex_menu() {
     return get_front_menu() == MENU_BASE_A_THRU_F;
 }
-
-static int ascii2hp(char *dst, int dstlen, const char *src, int srclen = -1);
 
 int core_special_menu_key(int which) {
     return special_menu_key(which);
@@ -263,8 +333,9 @@ bool core_keydown(int key, bool *enqueued, int *repeat) {
         int len = ascii2hp(hpbuf, 1, ubuf);
         if (len == 0)
             goto fail;
-        if (hpbuf[0] == 30)
-            hpbuf[0] = 94;
+        if (hpbuf[0] == 31 && code != 0x2022 && code != 0xb7)
+            // Unsupported character
+            goto fail;
         key = 1024 + (hpbuf[0] & 255);
     }
     return core_keydown_2(key, enqueued, repeat);
@@ -320,6 +391,19 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
     if (key != 0)
         no_keystrokes_yet = false;
 
+    int eqr = eqn_keydown(key, repeat);
+    if (eqr != 0) {
+        if (eqr != 2)
+            // CALC not pressed; prevent key timeouts
+            *enqueued = 1;
+        return eqr == 3;
+    }
+
+    if (mode_plot_viewer) {
+        *enqueued = 1;
+        return plot_keydown(key, repeat);
+    }
+
     if (key == KEY_SHIFT) {
         set_shift(!mode_shift);
         if (!mode_menu_static) {
@@ -339,6 +423,7 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
         set_running(false);
         if (!mode_shift && (key == KEY_RUN || key == KEY_EXIT)) {
             redisplay();
+            flags.f.prev_progmenu = false;
             return false;
         }
     }
@@ -356,6 +441,7 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
             if (key == KEY_EXIT ||
                     (mode_stoppable && !mode_shift && key == KEY_RUN)) {
                 keybuf_tail = keybuf_head;
+                flags.f.prev_progmenu = false;
                 stop_interruptible();
                 return false;
             } else {
@@ -396,6 +482,7 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
         if (key != 0) {
             if (key == KEY_EXIT) {
                 keybuf_tail = keybuf_head;
+                flags.f.prev_progmenu = false;
                 set_shift(false);
                 set_running(false);
                 pending_command = CMD_CANCELLED;
@@ -405,6 +492,7 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
             *enqueued = 1;
             if (!mode_shift && key == KEY_RUN) {
                 keybuf_tail = keybuf_head;
+                flags.f.prev_progmenu = false;
                 set_running(false);
                 redisplay();
                 return false;
@@ -516,6 +604,14 @@ int core_repeat() {
     if (!initialized || quitting)
         return 0;
 
+    int r = eqn_repeat();
+    if (r != -1)
+        return r;
+    if (mode_plot_viewer) {
+        r = plot_repeat();
+        if (r != -1)
+            return r;
+    }
     keydown(repeating_shift, repeating_key);
     int rpt = repeating;
     repeating = 0;
@@ -533,7 +629,7 @@ void core_keytimeout1() {
         int saved_pending_command = pending_command;
         if (pc == -1)
             pc = 0;
-        prgm_highlight_row = 1;
+        move_prgm_highlight(1);
         flags.f.prgm_mode = 2; /* HACK - magic value to tell redisplay() */
                                /* not to suppress option menu highlights */
         pending_command = CMD_NONE;
@@ -542,16 +638,10 @@ void core_keytimeout1() {
         pending_command = saved_pending_command;
     } else if (pending_command != CMD_NONE && pending_command != CMD_CANCELLED
             && (cmd_array[pending_command].flags & FLAG_NO_SHOW) == 0) {
-        display_command(0);
-        /* If the program catalog was left up by GTO or XEQ,
-         * don't paint over it */
-        if (mode_transientmenu == MENU_NONE || pending_command == CMD_NULL) {
-            bool saved_prgm_mode = flags.f.prgm_mode;
-            flags.f.prgm_mode = 0;
-            display_x(1);
-            flags.f.prgm_mode = saved_prgm_mode;
-        }
-        flush_display();
+        bool saved_prgm_mode = flags.f.prgm_mode;
+        flags.f.prgm_mode = 0;
+        redisplay(2);
+        flags.f.prgm_mode = saved_prgm_mode;
     }
 }
 
@@ -564,13 +654,11 @@ void core_keytimeout2() {
     remove_program_catalog = 0;
     if (pending_command != CMD_NONE && pending_command != CMD_CANCELLED
             && (cmd_array[pending_command].flags & FLAG_NO_SHOW) == 0) {
-        clear_row(0);
-        draw_string(0, 0, "NULL", 4);
+        pending_command = CMD_NULL;
         bool saved_prgm_mode = flags.f.prgm_mode;
         flags.f.prgm_mode = 0;
-        display_x(1);
+        redisplay(2);
         flags.f.prgm_mode = saved_prgm_mode;
-        flush_display();
         pending_command = CMD_CANCELLED;
     }
 }
@@ -579,6 +667,8 @@ bool core_timeout3(bool repaint) {
     if (!initialized || quitting)
         return false;
 
+    if (eqn_timeout())
+        return false;
     if (mode_pause) {
         if (repaint) {
             /* The PSE ended normally */
@@ -592,8 +682,7 @@ bool core_timeout3(bool repaint) {
     if (pending_command == CMD_LINGER1)
         pending_command = CMD_CANCELLED;
     else if (pending_command == CMD_LINGER2) {
-        flags.f.message = 0;
-        flags.f.two_line_message = 0;
+        clear_message();
         pending_command = CMD_NONE;
         if (repaint)
             redisplay();
@@ -606,7 +695,7 @@ bool core_keyup() {
         return false;
 
     if (mode_pause) {
-        /* The only way this can happen is if they key in question was Shift */
+        /* The only way this can happen is if the key in question was Shift */
         return false;
     }
 
@@ -690,9 +779,39 @@ bool core_keyup() {
             input_length = 0;
     }
 
-    if (pending_command == CMD_VMEXEC || pending_command == CMD_PMEXEC) {
+    if (pending_command == CMD_VMEXEC) {
+        eqn_end();
         string_copy(reg_alpha, &reg_alpha_length,
                     pending_command_arg.val.text, pending_command_arg.length);
+        goto do_run;
+    }
+    if (pending_command == CMD_PMEXEC) {
+        eqn_end();
+        vartype *v;
+        if (pending_command_arg.type == ARGTYPE_EQN) {
+            equation_data *eqdata = eq_dir->prgms[pending_command_arg.val.num].eq_data;
+            int len = eqdata->length > 44 ? 44 : eqdata->length;
+            string_copy(reg_alpha, &reg_alpha_length, eqdata->text, len);
+            v = new_equation(eqdata);
+        } else {
+            string_copy(reg_alpha, &reg_alpha_length,
+                        pending_command_arg.val.text, pending_command_arg.length);
+            v = new_string(pending_command_arg.val.text, pending_command_arg.length);
+        }
+        // This is an incompatible change from the original PGMMENU, strictly speaking,
+        // since it only returned the label name in ALPHA. I have to do something in
+        // order to accommodate equations, though. So, if a program is selected, I
+        // return it in ALPHA, as before, but I *also* return it as a string in X.
+        // My hope is that no one will depend on the contents of the stack right after
+        // PGMMENU, since the user is in normal interactive mode while the menu is
+        // active.
+        // Of course the scenario of the user going into the equation editor, selecting
+        // an equation, and pressing CALC, is entirely new, so what we do in that case
+        // isn't really an issue from a compatibility point of view. So, I'm copying as
+        // much of the equation as I can into ALPHA, and placing the equation itself
+        // in X.
+        if (v != NULL)
+            recall_result(v);
         goto do_run;
     }
     if (pending_command == CMD_RUN || pending_command == CMD_SST_UP) {
@@ -717,7 +836,8 @@ bool core_keyup() {
             pc = 0;
         get_next_command(&pc, &cmd, &arg, 1, NULL);
         if (pending_command == CMD_SST_RT
-                && (cmd == CMD_XEQ || cmd == CMD_SOLVE || cmd == CMD_INTEG)) {
+                && (cmd == CMD_XEQ || cmd == CMD_XEQL || cmd == CMD_EVAL
+                    || cmd == CMD_EVALN || cmd == CMD_SOLVE || cmd == CMD_INTEG)) {
             pc = oldpc;
             step_over();
             goto do_run;
@@ -726,6 +846,7 @@ bool core_keyup() {
                 && flags.f.printer_exists) {
             if (cmd == CMD_LBL)
                 print_text(NULL, 0, true);
+            print_equation_segment(NULL, oldpc);
             print_program_line(current_prgm, oldpc);
         }
         mode_disable_stack_lift = false;
@@ -740,6 +861,12 @@ bool core_keyup() {
         mode_disable_stack_lift = false;
         error = handle(pending_command, &pending_command_arg);
         mode_pause = false;
+        if (pending_command >= CMD_ROW_PLUS && pending_command <= CMD_COL_MINUS || pending_command == CMD_SETDS) {
+            pending_command = CMD_LINGER2;
+            shell_request_timeout3(2000);
+            redisplay();
+            return false;
+        }
     }
 
     if (quitting)
@@ -797,12 +924,6 @@ bool core_powercycle() {
         mode_getkey = false;
     }
 
-    if (flags.f.big_stack && !core_settings.allow_big_stack) {
-        arg_struct dummy_arg;
-        docmd_4stk(&dummy_arg);
-        need_redisplay = true;
-    }
-
     if (flags.f.auto_exec) {
         if (mode_command_entry)
             finish_command_entry(false);
@@ -816,7 +937,7 @@ bool core_powercycle() {
                 arg.val_d = entered_number;
                 cmdline[cmdline_length] = 0;
                 store_command(pc, CMD_NUMBER, &arg, cmdline);
-                prgm_highlight_row = 1;
+                move_prgm_highlight(1);
             }
             flags.f.prgm_mode = false;
         }
@@ -844,18 +965,6 @@ bool core_powercycle() {
     return mode_running;
 }
 
-void core_update_allow_big_stack() {
-    if (prgms == NULL)
-        // Hack to deal with the Mac version calling this function
-        // after already having called core_quit()
-        return;
-    if (flags.f.big_stack && !core_settings.allow_big_stack) {
-        arg_struct dummy_arg;
-        docmd_4stk(&dummy_arg);
-    }
-    redisplay();
-}
-
 char *core_list_programs() {
     int bufsize = 1024;
     char *buf = (char *) malloc(bufsize);
@@ -865,32 +974,32 @@ char *core_list_programs() {
     int bufptr = 4;
     int label;
     int count = 0;
-    for (label = 0; label < labels_count; label++) {
-        int len = labels[label].length;
+    for (label = 0; label < cwd->labels_count; label++) {
+        int len = cwd->labels[label].length;
         char name[51];
         int namelen = 0;
         int end = 0;
         int i;
 
         if (len == 0) {
-            if (labels[label].prgm == lastidx)
+            if (cwd->labels[label].prgm == lastidx)
                 continue;
-            if (label == labels_count - 1) {
-                string2buf(name, 21, &namelen, ".END.", 5);
+            if (label == cwd->labels_count - 1) {
+                string2buf(name, 51, &namelen, ".END.", 5);
                 namelen = 5;
             } else {
-                string2buf(name, 21, &namelen, "END", 3);
+                string2buf(name, 51, &namelen, "END", 3);
                 namelen = 3;
             }
             end = 1;
         } else {
             name[namelen++] = '"';
-            namelen += hp2ascii(name + namelen, labels[label].name, len);
+            namelen += hp2ascii(name + namelen, cwd->labels[label].name, len);
             name[namelen++] = '"';
-            end = labels[label + 1].length == 0;
+            end = cwd->labels[label + 1].length == 0;
         }
 
-        lastidx = labels[label].prgm;
+        lastidx = cwd->labels[label].prgm;
 
         if (bufptr + namelen + 1 >= bufsize) {
             bufsize += 1024;
@@ -925,7 +1034,7 @@ static void export_hp42s(int index) {
     int4 pc = 0;
     int cmd;
     arg_struct arg;
-    int saved_prgm = current_prgm;
+    pgm_index saved_prgm = current_prgm;
     unsigned char code_flags, code_name, code_std_1, code_std_2;
     char cmdbuf[50];
     int cmdlen;
@@ -933,7 +1042,7 @@ static void export_hp42s(int index) {
     int buflen = 0;
     int i;
 
-    current_prgm = index;
+    current_prgm.set(cwd->id, index);
     do {
         const char *orig_num;
         get_next_command(&pc, &cmd, &arg, 0, &orig_num);
@@ -979,6 +1088,26 @@ static void export_hp42s(int index) {
                     cmdbuf[cmdlen++] = (char) 0xf7;
                     cmdbuf[cmdlen++] = arg.val.num >> 8;
                     cmdbuf[cmdlen++] = arg.val.num;
+                } else if (cmd == CMD_EMBED) {
+                    int4 id = saving_state ? arg.val.num
+                            : eq_dir->prgms[arg.val.num].eq_data->compatMode ? -2 : -1;
+                    cmdbuf[cmdlen++] = (char) 0xf6;
+                    cmdbuf[cmdlen++] = (char) 0xa7;
+                    cmdbuf[cmdlen++] = (char) (arg.type == ARGTYPE_NUM ? 0x76 : 0x7e);
+                    cmdbuf[cmdlen++] = id >> 24;
+                    cmdbuf[cmdlen++] = id >> 16;
+                    cmdbuf[cmdlen++] = id >> 8;
+                    cmdbuf[cmdlen++] = id;
+                    if (!saving_state) {
+                        /* Flush cmdbuf, because the XSTR logic bypasses it */
+                        for (i = 0; i < cmdlen; i++)
+                            buf[buflen++] = cmdbuf[i];
+                        cmdlen = 0;
+                        equation_data *eqd = eq_dir->prgms[arg.val.num].eq_data;
+                        arg.val.xstr = eqd->text;
+                        arg.length = eqd->length > 65535 ? 65535 : eqd->length;
+                        goto do_xstr;
+                    }
                 } else if (cmd == CMD_LBL) {
                     if (arg.type == ARGTYPE_NUM) {
                         if (arg.val.num <= 14)
@@ -1041,7 +1170,13 @@ static void export_hp42s(int index) {
                     cmdbuf[cmdlen++] = (char) 0xc0;
                     cmdbuf[cmdlen++] = 0x00;
                     cmdbuf[cmdlen++] = 0x0d;
+                } else if (cmd == CMD_N_PLUS_U) {
+                    cmdbuf[cmdlen++] = (char) 0xa6;
+                    cmdbuf[cmdlen++] = (char) 0xf7;
+                    if (arg.type != ARGTYPE_NONE)
+                        goto do_number;
                 } else if (cmd == CMD_NUMBER) {
+                    do_number:
                     const char *p;
                     if (orig_num != NULL)
                         p = orig_num;
@@ -1062,28 +1197,21 @@ static void export_hp42s(int index) {
                             continue;
                     }
                     cmdbuf[cmdlen++] = 0x00;
+                    if (cmd == CMD_N_PLUS_U) {
+                        for (i = 0; i < cmdlen; i++)
+                            buf[buflen++] = cmdbuf[i];
+                        cmdlen = 0;
+                        goto do_xstr;
+                    }
                 } else if (cmd == CMD_STRING) {
                     cmdbuf[cmdlen++] = 0xf0 + arg.length;
                     for (i = 0; i < arg.length; i++)
                         cmdbuf[cmdlen++] = arg.val.text[i];
                 } else if (cmd >= CMD_ASGN01 && cmd <= CMD_ASGN18) {
-                    if (arg.type == ARGTYPE_STR) {
-                        cmdbuf[cmdlen++] = 0xf2 + arg.length;
-                        cmdbuf[cmdlen++] = (char) 0xc0;
-                        for (i = 0; i < arg.length; i++)
-                            cmdbuf[cmdlen++] = arg.val.text[i];
-                    } else {
-                        /* arg.type == ARGTYPE_COMMAND; we don't use that
-                         * any more, but just to be safe (in case anyone ever
-                         * actually used this in a program), we handle it
-                         * anyway.
-                         */
-                        const command_spec *cs = &cmd_array[arg.val.cmd];
-                        cmdbuf[cmdlen++] = 0xf2 + cs->name_length;
-                        cmdbuf[cmdlen++] = (char) 0xc0;
-                        for (i = 0; i < cs->name_length; i++)
-                            cmdbuf[cmdlen++] = cs->name[i];
-                    }
+                    cmdbuf[cmdlen++] = 0xf2 + arg.length;
+                    cmdbuf[cmdlen++] = (char) 0xc0;
+                    for (i = 0; i < arg.length; i++)
+                        cmdbuf[cmdlen++] = arg.val.text[i];
                     cmdbuf[cmdlen++] = cmd - CMD_ASGN01;
                 } else if ((cmd >= CMD_KEY1G && cmd <= CMD_KEY9G)
                             || (cmd >= CMD_KEY1X && cmd <= CMD_KEY9X)) {
@@ -1113,6 +1241,7 @@ static void export_hp42s(int index) {
                             cmdbuf[cmdlen++] = arg.val.text[i];
                     }
                 } else if (cmd == CMD_XSTR) {
+                    do_xstr:
                     int len = arg.length;
                     if (len == 0) {
                         cmdbuf[cmdlen++] = (char) 0xf2;
@@ -1139,6 +1268,18 @@ static void export_hp42s(int index) {
                             len -= slen;
                         }
                     }
+                } else if (cmd == CMD_GTOL) {
+                    cmdbuf[cmdlen++] = (char) 0xf4;
+                    cmdbuf[cmdlen++] = (char) 0xa7;
+                    cmdbuf[cmdlen++] = (char) 0x32;
+                    cmdbuf[cmdlen++] = arg.val.num >> 8;
+                    cmdbuf[cmdlen++] = arg.val.num;
+                } else if (cmd == CMD_XEQL) {
+                    cmdbuf[cmdlen++] = (char) 0xf4;
+                    cmdbuf[cmdlen++] = (char) 0xa7;
+                    cmdbuf[cmdlen++] = (char) 0x33;
+                    cmdbuf[cmdlen++] = arg.val.num >> 8;
+                    cmdbuf[cmdlen++] = arg.val.num;
                 } else {
                     /* Shouldn't happen */
                     continue;
@@ -1210,8 +1351,7 @@ static void export_hp42s(int index) {
                              * which is converted to ARGTYPE_NUM by
                              * get_next_command(); ARGTYPE_DOUBLE, which only
                              * occurs with CMD_NUMBER, which is handled in the
-                             * special-case section, above; ARGTYPE_COMMAND,
-                             * which is handled in the special-case section;
+                             * special-case section, above;
                              * and ARGTYPE_LBLINDEX, which is converted to
                              * ARGTYPE_STR before being stored in a program.
                              */
@@ -1234,7 +1374,7 @@ static void export_hp42s(int index) {
         }
         for (i = 0; i < cmdlen; i++)
             buf[buflen++] = cmdbuf[i];
-    } while (cmd != CMD_END && pc < prgms[index].size);
+    } while (cmd != CMD_END && pc < cwd->prgms[index].size);
     if (buflen > 0)
         fwrite(buf, 1, buflen, gfile);
     done:
@@ -1245,17 +1385,16 @@ int4 core_program_size(int prgm_index) {
     int4 pc = 0;
     int cmd;
     arg_struct arg;
-    int saved_prgm = current_prgm;
-    unsigned char code_flags, code_std_1, code_std_2;
-    //unsigned char code_name;
+    pgm_index saved_prgm = current_prgm;
+    unsigned char code_flags, code_name, code_std_1, code_std_2;
     int4 size = 0;
 
-    current_prgm = prgm_index;
+    current_prgm.set(cwd->id, prgm_index);
     do {
         const char *orig_num;
         get_next_command(&pc, &cmd, &arg, 0, &orig_num);
         code_flags = (cmd_array[cmd].flags & (FLAG_SPECIAL | FLAG_ILLEGAL)) >> 5;
-        //code_name = cmd_array[cmd].scode;
+        code_name = cmd_array[cmd].scode;
         code_std_1 = cmd_array[cmd].code1;
         code_std_2 = cmd_array[cmd].code2;
         switch (code_flags) {
@@ -1314,25 +1453,32 @@ int4 core_program_size(int prgm_index) {
                         p = orig_num;
                     else
                         p = phloat2program(arg.val_d);
-                    size += (int4) strlen(p) + 1;
+                    size += (int) strlen(p) + 1;
                 } else if (cmd == CMD_STRING) {
                     size += arg.length + 1;
                 } else if (cmd >= CMD_ASGN01 && cmd <= CMD_ASGN18) {
-                    if (arg.type == ARGTYPE_STR)
-                        size += arg.length + 3;
-                    else
-                        /* arg.type == ARGTYPE_COMMAND; we don't use that
-                         * any more, but just to be safe (in case anyone ever
-                         * actually used this in a program), we handle it
-                         * anyway.
-                         */
-                        size += cmd_array[arg.val.cmd].name_length + 3;
+                    size += arg.length + 3;
                 } else if ((cmd >= CMD_KEY1G && cmd <= CMD_KEY9G)
                             || (cmd >= CMD_KEY1X && cmd <= CMD_KEY9X)) {
                     if (arg.type == ARGTYPE_STR || arg.type == ARGTYPE_IND_STR)
                         size += arg.length + 3;
                     else
                         size += 4;
+                } else if (cmd == CMD_N_PLUS_U) {
+                    size += 2;
+                    if (arg.type != ARGTYPE_NONE) {
+                        /* Add NUMBER and XSTR */
+                        const char *p;
+                        if (orig_num != NULL)
+                            p = orig_num;
+                        else
+                            p = phloat2program(arg.val_d);
+                        size += (int) strlen(p) + 1;
+                        int n = (arg.length + 12) / 13;
+                        if (n == 0)
+                            n = 1;
+                        size += arg.length + n * 3;
+                    }
                 } else if (cmd == CMD_XROM) {
                     if (arg.type == ARGTYPE_NUM)
                         size += 2;
@@ -1343,6 +1489,13 @@ int4 core_program_size(int prgm_index) {
                     if (n == 0)
                         n = 1;
                     size += arg.length + n * 3;
+                } else if (cmd == CMD_EMBED) {
+                    equation_data *eqd = eq_dir->prgms[arg.val.num].eq_data;
+                    int len = eqd->length > 65535 ? 65535 : eqd->length;
+                    int n = (len + 12) / 13;
+                    size += len + n * 3 + 7;
+                } else if (cmd == CMD_GTOL || cmd == CMD_XEQL) {
+                    size += 5;
                 } else {
                     /* Shouldn't happen */
                     continue;
@@ -1352,21 +1505,24 @@ int4 core_program_size(int prgm_index) {
             normal:
                 if (arg.type == ARGTYPE_STR || arg.type == ARGTYPE_IND_STR) {
                     size += arg.length + 2;
+                    if ((code_name & 0x80) == 0)
+                        /* Extra extension */
+                        size += 1;
                 } else {
                     size += code_std_1 == 0 ? 1 : 2;
                     if (arg.type != ARGTYPE_NONE)
                         size += 1;
+                    if (code_std_1 == 0xf2 && (code_std_2 & 0x80) == 0)
+                        /* Extra extension */
+                        size += 1;
                 }
-                if (code_std_1 == 0xf2 && (code_std_2 & 0x80) == 0)
-                    /* Extra extension */
-                    size += 1;
                 break;
             case 2:
             default:
                 /* Illegal command */
                 continue;
         }
-    } while (cmd != CMD_END && pc < prgms[prgm_index].size);
+    } while (cmd != CMD_END && pc < cwd->prgms[prgm_index].size);
     current_prgm = saved_prgm;
     return size;
 }
@@ -1405,7 +1561,7 @@ void core_export_programs(int count, const int *indexes, const char *raw_file_na
     }
 }
 
-static int hp42tofree42[] = {
+static const int hp42tofree42[] = {
     /* Flag values: 0 = simple 1-byte command; 1 = 1-byte command with
      * embedded argument; 2 = 2-byte command, argument follows;
      * 3 = everything else, special case handling required.
@@ -1710,7 +1866,7 @@ static int hp42tofree42[] = {
     CMD_NULL  | 0x3000
 };
 
-static int hp42ext[] = {
+static const int hp42ext[] = {
     /* Flag values: 0 = string, 1 = IND string, 2 = suffix, 3 = special,
      * 4 = illegal
      * Values 80-ff are the space used on the HP-42S, that is, strings whose
@@ -1731,7 +1887,7 @@ static int hp42ext[] = {
     CMD_X_NE_NN | 0x0000,
     CMD_X_LT_NN | 0x0000,
     CMD_X_GT_NN | 0x0000,
-    CMD_NULL    | 0x4000,
+    CMD_RENAME  | 0x2000,
     CMD_XASTO   | 0x1000,
     CMD_LXASTO  | 0x1000,
     CMD_HEAD    | 0x1000,
@@ -1741,7 +1897,7 @@ static int hp42ext[] = {
     CMD_X_GT_NN | 0x1000,
 
     /* 10-1F */
-    CMD_NULL    | 0x4000,
+    CMD_CHDIR   | 0x2000,
     CMD_XASTO   | 0x2000,
     CMD_LXASTO  | 0x2000,
     CMD_HEAD    | 0x2000,
@@ -1779,91 +1935,91 @@ static int hp42ext[] = {
     /* 30-3F */
     CMD_PGMVAR  | 0x2000,
     CMD_VARMNU1 | 0x2000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x3000, /* GTOL */
+    CMD_NULL    | 0x3000, /* XEQL */
+    CMD_GSTO    | 0x0000,
+    CMD_GRCL    | 0x0000,
+    CMD_EVALN   | 0x2000,
+    CMD_EQNSLV  | 0x2000,
+    CMD_EQNINT  | 0x2000,
+    CMD_EQNVAR  | 0x2000,
+    CMD_EQNMENU | 0x2000,
+    CMD_EQNMNU1 | 0x2000,
+    CMD_RAISE   | 0x1000,
+    CMD_RAISE   | 0x2000,
+    CMD_CRDIR   | 0x2000,
+    CMD_PGDIR   | 0x2000,
 
     /* 40-4F */
     CMD_PGMVAR  | 0x0000,
     CMD_XSTR    | 0x0000,
     CMD_VARMNU1 | 0x0000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
+    CMD_EVALN   | 0x0000,
+    CMD_EQNSLV  | 0x0000,
+    CMD_EQNINT  | 0x0000,
+    CMD_EQNVAR  | 0x0000,
+    CMD_EQNMENU | 0x0000,
     CMD_PGMVAR  | 0x1000,
     CMD_XSTR    | 0x1000,
     CMD_VARMNU1 | 0x1000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
+    CMD_EVALN   | 0x1000,
+    CMD_EQNSLV  | 0x1000,
+    CMD_EQNINT  | 0x1000,
+    CMD_EQNVAR  | 0x1000,
+    CMD_EQNMENU | 0x1000,
 
     /* 50-5F */
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
+    CMD_EQNMNU1 | 0x0000,
+    CMD_CRDIR   | 0x0000,
+    CMD_PGDIR   | 0x0000,
+    CMD_CHDIR   | 0x0000,
+    CMD_RENAME  | 0x0000,
+    CMD_PGMPLOT | 0x0000,
+    CMD_EQNPLOT | 0x0000,
+    CMD_XAXIS   | 0x0000,
+    CMD_EQNMNU1 | 0x1000,
+    CMD_CRDIR   | 0x1000,
+    CMD_PGDIR   | 0x1000,
+    CMD_CHDIR   | 0x1000,
+    CMD_RENAME  | 0x1000,
+    CMD_PGMPLOT | 0x1000,
+    CMD_EQNPLOT | 0x1000,
+    CMD_XAXIS   | 0x1000,
 
     /* 60-6F */
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_LCLV  | 0x2000,
-    CMD_GETMI | 0x2000,
-    CMD_PUTMI | 0x2000,
-    CMD_GETLI | 0x2000,
-    CMD_PUTLI | 0x2000,
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
+    CMD_PGMPLOT | 0x2000,
+    CMD_EQNPLOT | 0x2000,
+    CMD_XAXIS   | 0x2000,
+    CMD_YAXIS   | 0x2000,
+    CMD_LCLV    | 0x2000,
+    CMD_GETMI   | 0x2000,
+    CMD_PUTMI   | 0x2000,
+    CMD_GETLI   | 0x2000,
+    CMD_PUTLI   | 0x2000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
 
     /* 70-7F */
-    CMD_NULL  | 0x4000,
+    CMD_YAXIS | 0x0000,
     CMD_LCLV  | 0x0000,
     CMD_GETMI | 0x0000,
     CMD_PUTMI | 0x0000,
     CMD_GETLI | 0x0000,
     CMD_PUTLI | 0x0000,
+    CMD_EMBED | 0x3000,
     CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
+    CMD_YAXIS | 0x1000,
     CMD_LCLV  | 0x1000,
     CMD_GETMI | 0x1000,
     CMD_PUTMI | 0x1000,
     CMD_GETLI | 0x1000,
     CMD_PUTLI | 0x1000,
-    CMD_NULL  | 0x4000,
+    CMD_EMBED | 0x3000,
     CMD_NULL  | 0x4000,
 
     /* 80-8F */
@@ -2043,9 +2199,9 @@ static bool parse_number_line(char *buf, phloat *res) {
 
     /* This isn't very thorough, but the aim is simply to prevent things
      * that start with a valid number character but are clearly not valid
-     * numbers from being accepted as number lines. Things like the Plus42
-     * EQNSLV command, for instance, or numbers with attached text like
-     * 10_ft or 20five.
+     * numbers from being accepted as number lines. Things like
+     * EXACTAMUNDO, for instance, or numbers with attached text like
+     * 20five.
      */
     bool seen_e = false;
     for (char *cp = buf; *cp != 0; cp++) {
@@ -2135,14 +2291,14 @@ static void decode_suffix(int cmd, int suffix, arg_struct *arg) {
     }
 }
 
-static void decode_string(unsigned char *buf, int *cmd, arg_struct *arg, char **xstr_buf, int *xstr_len) {
+static void decode_string(unsigned char *buf, int *cmd, arg_struct *arg, char **xstr_buf, int *xstr_len, int *eq_mode, bool *after_end, bool force_new, bool sw_30_94) {
     int pos = 0;
     int byte1 = buf[pos++];
     int byte2 = buf[pos++];
     int str_len = 0;
     bool extra_extension = false;
     bool assign = false;
-    
+
     if ((byte2 & 0x80) == 0) {
         /* String */
         int i;
@@ -2185,8 +2341,10 @@ static void decode_string(unsigned char *buf, int *cmd, arg_struct *arg, char **
             // it may encode a string of up to 65535 characters, while
             // instructions are limited to 16 bytes, giving a payload
             // of up to 13 characters per instruction.
-            char *newbuf = (char *) realloc(*xstr_buf, *xstr_len + arg->length);
+            char *newbuf;
+            newbuf = (char *) realloc(*xstr_buf, *xstr_len + arg->length);
             if (newbuf == NULL && *xstr_len + arg->length != 0) {
+                no_mem:
                 *cmd = CMD_CANCELLED;
                 return;
             }
@@ -2197,9 +2355,39 @@ static void decode_string(unsigned char *buf, int *cmd, arg_struct *arg, char **
                 *cmd = CMD_NONE;
                 return;
             }
-            arg->type = ARGTYPE_XSTR;
-            arg->length = *xstr_len;
-            arg->val.xstr = *xstr_buf;
+            if (sw_30_94)
+                switch_30_and_94(*xstr_buf, *xstr_len);
+            
+            if (*eq_mode == 0) {
+                arg->type = ARGTYPE_XSTR;
+                arg->length = *xstr_len;
+                arg->val.xstr = *xstr_buf;
+            } else {
+                /* Imported equation */
+
+                /* Queue up equation, to be parsed later and inserted into the code */
+                pending_equation *peq = (pending_equation *) malloc(sizeof(pending_equation));
+                if (peq == NULL)
+                    goto no_mem;
+                
+                if (*after_end) {
+                    goto_dot_dot(force_new);
+                    *after_end = false;
+                }
+
+                peq->idx = current_prgm;
+                peq->pc = pc;
+                peq->length = *xstr_len;
+                peq->text = *xstr_buf;
+                peq->compatMode = *eq_mode == 2 || *eq_mode == 4;
+                peq->eval = *eq_mode == 3 || *eq_mode == 4;
+                peq->next = eq_queue;
+                eq_queue = peq;
+
+                *xstr_buf = NULL;
+                *xstr_len = 0;
+                *cmd = CMD_NONE;
+            }
         }
     } else {
         /* Parameterized HP-42S extension */
@@ -2267,6 +2455,8 @@ static void decode_string(unsigned char *buf, int *cmd, arg_struct *arg, char **
                     arg->val.text[1] = key;
                     for (i = 2; i < arg->length; i++)
                         arg->val.text[i] = buf[pos++];
+                    if (sw_30_94)
+                        switch_30_and_94(arg->val.text, arg->length);
                     return;
                 }
                 *cmd += key - 1;
@@ -2284,23 +2474,57 @@ static void decode_string(unsigned char *buf, int *cmd, arg_struct *arg, char **
                 *cmd += key - 1;
                 int suffix = buf[pos++];
                 decode_suffix(*cmd, suffix, arg);
-            } else /* byte2 == 0xf7 */ {
-                /* SIZE */
+            } else if (byte2 == 0x32 || byte2 == 0x33) {
+                /* GTOL/XEQL */
+                *cmd = byte2 == 0x32 ? CMD_GTOL : CMD_XEQL;
+                two_byte_num:
                 if (byte1 != 0xf3)
                     goto xrom_string;
                 int hi = buf[pos++];
                 int lo = buf[pos++];
                 int sz = (hi << 8) | lo;
-                *cmd = CMD_SIZE;
                 arg->type = ARGTYPE_NUM;
                 arg->val.num = sz;
+            } else if (byte2 == 0x76 || byte2 == 0x7e) {
+                /* EMBED */
+                if (byte1 != 0xf5)
+                    goto xrom_string;
+                int4 id = 0;
+                for (int i = 0; i < 4; i++)
+                    id = (id << 8) | buf[pos++];
+                if (id == -1) {
+                    *eq_mode = byte2 == 0x76 ? 1 : 3;
+                    *cmd = CMD_NONE;
+                } else if (id == -2) {
+                    *eq_mode = byte2 == 0x76 ? 2 : 4;
+                    *cmd = CMD_NONE;
+                } else if (id < 0 || !loading_state) {
+                    *cmd = CMD_XSTR;
+                    arg->type = ARGTYPE_XSTR;
+                    arg->length = 18;
+                    arg->val.xstr = "<Missing Equation>";
+                } else {
+                    *cmd = CMD_EMBED;
+                    arg->type = byte2 == 0x76 ? ARGTYPE_NUM : ARGTYPE_IND_NUM;
+                    arg->val.num = id;
+                }
+            } else /* byte2 == 0xf7 */ {
+                /* SIZE */
+                *cmd = CMD_SIZE;
+                goto two_byte_num;
             }
         } else /* flag == 4 */ {
             /* Unknown value; store as string XROM */
             goto xrom_string;
         }
     }
+
+    if (sw_30_94 && (arg->type == ARGTYPE_STR || arg->type == ARGTYPE_IND_STR))
+        switch_30_and_94(arg->val.text, arg->length);
 }
+
+// From core_globals.cc: version of state being imported
+extern int4 ver;
 
 void core_import_programs(int num_progs, const char *raw_file_name) {
     int byte1, byte2, suffix;
@@ -2308,6 +2532,7 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
     int done_flag = 0;
     arg_struct arg;
     bool pending_end;
+    int eq_mode = 0;
 
     if (raw_file_name != NULL) {
 #ifdef IPHONE
@@ -2333,6 +2558,8 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
     }
 
     set_running(false);
+    if (!loading_state)
+        clear_all_rtns();
 
     /* Set print mode to MAN during the import, to prevent store_command()
      * from printing programs as they load
@@ -2342,15 +2569,15 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
     flags.f.trace_print = 0;
     flags.f.normal_print = 0;
 
-    if (num_progs > 0) {
-        // Loading state file
+    if (loading_state) {
         goto_dot_dot(true);
         pending_end = false;
     } else {
-        current_prgm = prgms_count - 1;
-        pc = prgms[current_prgm].size - 2;
+        current_prgm.set(cwd->id, cwd->prgms_count - 1);
         // No initial END needed if last program is empty
-        pending_end = pc > 0;
+        pending_end = cwd->prgms[current_prgm.idx].size > 2;
+        if (!pending_end)
+            pc = -1;
     }
 
     char numbuf[50];
@@ -2423,6 +2650,8 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                     arg.val.text[i] = suffix;
                 }
                 arg.length = str_len;
+                if (raw_file_name == NULL && ver < 44)
+                    switch_30_and_94(arg.val.text, arg.length);
             } else if (byte1 == 0x1f) {
                 /* "W" function (see HP-41C instruction table */
                 goto skip;
@@ -2499,7 +2728,7 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                         goto done;
                     buf[i + 1] = c;
                 }
-                decode_string(buf, &cmd, &arg, &xstr_buf, &xstr_len);
+                decode_string(buf, &cmd, &arg, &xstr_buf, &xstr_len, &eq_mode, &pending_end, true, raw_file_name == NULL && ver < 44);
                 if (cmd == CMD_CANCELLED)
                     goto done;
                 if (cmd == CMD_NONE)
@@ -2510,6 +2739,7 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
             goto_dot_dot(true);
             pending_end = false;
         }
+        eq_mode = 0;
         if (cmd == CMD_END) {
             if (num_progs > 0 && --num_progs == 0)
                 break;
@@ -2523,9 +2753,10 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
     }
 
     done:
-    rebuild_label_table();
-    if (!loading_state)
+    if (!loading_state) {
+        rebuild_label_table();
         update_catalog();
+    }
 
     flags.f.trace_print = saved_trace;
     flags.f.normal_print = saved_normal;
@@ -2536,29 +2767,8 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
         fclose(gfile);
     }
     free(xstr_buf);
-}
 
-static int real2buf(char *buf, phloat x, const char *format = NULL, bool force_decimal = true) {
-    bool saved_binsep, saved_octsep, saved_decsep, saved_hexsep;
-    if (!force_decimal) {
-        saved_binsep = mode_bin_sep;
-        saved_octsep = mode_oct_sep;
-        saved_decsep = mode_dec_sep;
-        saved_hexsep = mode_hex_sep;
-        mode_bin_sep = mode_oct_sep = mode_dec_sep = mode_hex_sep = false;
-    }
-    int bufptr = phloat2string(x, buf, 49, force_decimal ? 0 : 1, 0, 3, 0, MAX_MANT_DIGITS, format);
-    if (!force_decimal) {
-        mode_bin_sep = saved_binsep;
-        mode_oct_sep = saved_octsep;
-        mode_dec_sep = saved_decsep;
-        mode_hex_sep = saved_hexsep;
-    }
-    /* Convert small-caps 'E' to regular 'e' */
-    for (int i = 0; i < bufptr; i++)
-        if (buf[i] == 24)
-            buf[i] = 'e';
-    return bufptr;
+    handle_pending_equations();
 }
 
 static int complex2buf(char *buf, phloat re, phloat im, bool always_rect, const char *format = NULL) {
@@ -2622,20 +2832,35 @@ static void serialize_list(textbuf *tb, vartype_list *list, int indent) {
                 tb_write(tb, "\n", 1);
                 break;
             }
-            case TYPE_STRING: {
-                vartype_string *s = (vartype_string *) elem;
+            case TYPE_STRING:
+            case TYPE_EQUATION: {
+                const char *text;
+                int length;
+                char d;
+                if (elem->type == TYPE_STRING) {
+                    vartype_string *s = (vartype_string *) elem;
+                    text = s->txt();
+                    length = s->length;
+                    d = '"';
+                } else {
+                    vartype_equation *eq = (vartype_equation *) elem;
+                    equation_data *eqd = eq->data;
+                    text = eqd->text;
+                    length = eqd->length;
+                    d = eqd->compatMode ? '`' : '\'';
+                }
                 tb_indent(tb, indent);
-                tb_write(tb, "\"", 1);
-                const char *txt = s->txt();
+                tb_write(tb, &d, 1);
                 char cbuf[5];
-                for (int j = 0; j < s->length; j++) {
-                    unsigned char c = txt[j];
+                for (int j = 0; j < length; j++) {
+                    unsigned char c = text[j];
                     if (c == 10)
                         c = 138;
                     else if (undefined_char(c))
                         c &= 127;
-                    if (c == '"') {
-                        tb_write(tb, "\\\"", 2);
+                    if (c == d) {
+                        tb_write(tb, "\\", 1);
+                        tb_write(tb, &d, 1);
                     } else if (c == '\\') {
                         tb_write(tb, "\\\\", 2);
                     } else {
@@ -2643,7 +2868,8 @@ static void serialize_list(textbuf *tb, vartype_list *list, int indent) {
                         tb_write(tb, cbuf, n);
                     }
                 }
-                tb_write(tb, "\"\n", 2);
+                tb_write(tb, &d, 1);
+                tb_write(tb, "\n", 1);
                 break;
             }
             case TYPE_REALMATRIX: {
@@ -2720,6 +2946,36 @@ static void serialize_list(textbuf *tb, vartype_list *list, int indent) {
                 serialize_list(tb, (vartype_list *) elem, indent);
                 break;
             }
+            case TYPE_UNIT: {
+                vartype_unit *u = (vartype_unit *) elem;
+                tb_indent(tb, indent);
+                n = real2buf(buf, u->x);
+                tb_write(tb, buf, n);
+                tb_write(tb, "_", 1);
+                char cbuf[5];
+                for (int k = 0; k < u->length; k++) {
+                    unsigned char c = u->text[k];
+                    n = hp2ascii(cbuf, (const char *) &c, 1);
+                    tb_write(tb, cbuf, n);
+                }
+                tb_write(tb, "\n", 1);
+                break;
+            }
+            case TYPE_DIR_REF: {
+                tb_indent(tb, indent);
+                tb_write(tb, "\"DIR_REF\"\n", 10);
+                break;
+            }
+            case TYPE_PGM_REF: {
+                tb_indent(tb, indent);
+                tb_write(tb, "\"PGM_REF\"\n", 10);
+                break;
+            }
+            case TYPE_VAR_REF: {
+                tb_indent(tb, indent);
+                tb_write(tb, "\"VAR_REF\"\n", 10);
+                break;
+            }
         }
     }
     indent -= 2;
@@ -2728,6 +2984,9 @@ static void serialize_list(textbuf *tb, vartype_list *list, int indent) {
 }
 
 char *core_copy() {
+    if (eqn_active())
+        return eqn_copy();
+
     if (mode_interruptible != NULL)
         stop_interruptible();
     set_running(false);
@@ -2831,6 +3090,37 @@ char *core_copy() {
     } else if (stack[sp]->type == TYPE_LIST) {
         serialize_list(&tb, (vartype_list *) stack[sp], 0);
         goto textbuf_finish;
+    } else if (stack[sp]->type == TYPE_EQUATION) {
+        vartype_equation *eq = (vartype_equation *) stack[sp];
+        equation_data *eqd = eq->data;
+        char *buf = (char *) malloc(5 * eqd->length + 1);
+        int bufptr = hp2ascii(buf, eqd->text, eqd->length);
+        buf[bufptr] = 0;
+        return buf;
+    } else if (stack[sp]->type == TYPE_UNIT) {
+        const char *format = core_settings.localized_copy_paste ? number_format() : NULL;
+        vartype_unit *u = (vartype_unit *) stack[sp];
+        char *buf = (char *) malloc(50 + u->length);
+        if (buf == NULL) {
+            display_error(ERR_INSUFFICIENT_MEMORY);
+            redisplay();
+            return NULL;
+        }
+        int bufptr = real2buf(buf, u->x, format);
+        buf[bufptr++] = ' ';
+        bufptr += hp2ascii(buf + bufptr, u->text, u->length);
+        buf[bufptr] = 0;
+        return buf;
+    } else if (stack[sp]->type == TYPE_DIR_REF || stack[sp]->type == TYPE_PGM_REF || stack[sp]->type == TYPE_VAR_REF) {
+        char *buf = (char *) malloc(8);
+        if (buf != NULL) {
+            switch (stack[sp]->type) {
+                case TYPE_DIR_REF: strcpy(buf, "DIR_REF"); break;
+                case TYPE_PGM_REF: strcpy(buf, "PGM_REF"); break;
+                case TYPE_VAR_REF: strcpy(buf, "VAR_REF"); break;
+            }
+        }
+        return buf;
     } else {
         // Shouldn't happen: unrecognized data type
         return NULL;
@@ -3039,7 +3329,7 @@ static bool parse_phloat(const char *p, int len, phloat *res, const char *format
 /* NOTE: The destination buffer should be able to store dstlen + 4
  * characters, because of how we parse [LF] and [ESC].
  */
-static int ascii2hp(char *dst, int dstlen, const char *src, int srclen /* = -1 */) {
+int ascii2hp(char *dst, int dstlen, const char *src, int srclen /* = -1 */) {
     int srcpos = 0, dstpos = 0;
     // state machine for detecting [LF] and [ESC]:
     // 0: ''
@@ -3318,7 +3608,7 @@ struct text_alias {
     char text[8];
 };
 
-static text_alias aliases[] = {
+static const text_alias aliases[] = {
     { 5,    2, "\\sqrt"   },
     { 4,    3, "\\int"    },
     { 6,    4, "\\gray1"  },
@@ -3408,6 +3698,32 @@ static vartype *parse_base(const char *buf, int len) {
         n = -n;
     base_range_check(&n, true);
     return new_real((phloat) n);
+}
+
+static vartype *parse_unit(const char *buf, int len, const char *format) {
+    int i, s1, e1, s2, e2;
+    i = 0;
+    while (i < len && buf[i] == ' ')
+        i++;
+    s1 = i;
+    i = scan_number(buf, len, i, format);
+    e1 = i;
+    if (e1 == s1)
+        return NULL;
+    while (i < len && (buf[i] == ' ' || buf[i] == '_'))
+        i++;
+    s2 = i;
+    while (i < len && buf[i] != ' ')
+        i++;
+    e2 = i;
+    if (e2 == s2)
+        return NULL;
+    phloat x;
+    if (!parse_phloat(buf + s1, e1 - s1, &x, format))
+        return NULL;
+    if (!is_unit(buf + s2, e2 - s2))
+        return NULL;
+    return new_unit(x, buf + s2, e2 - s2);
 }
 
 static int parse_scalar(const char *buf, int len, bool strict, phloat *re, phloat *im, int *slen, const char *format = NULL) {
@@ -3591,9 +3907,19 @@ static void paste_programs(const char *buf) {
     int cmd;
     arg_struct arg;
     char numbuf[50];
-
+    int eq_mode = 0;
+    
     char *xstr_buf = NULL;
     int xstr_len = 0;
+    
+    if (false) {
+        no_mem:
+        display_error(ERR_INSUFFICIENT_MEMORY);
+        redisplay();
+        free(xstr_buf);
+        delete_pending_equations();
+        return;
+    }
 
     while (!done) {
         int end = pos;
@@ -3610,11 +3936,8 @@ static void paste_programs(const char *buf) {
         alen = end - pos;
         if (alen > 255) {
             hpbuf = (char *) malloc(alen + 4);
-            if (hpbuf == NULL) {
-                display_error(ERR_INSUFFICIENT_MEMORY);
-                redisplay();
-                return;
-            }
+            if (hpbuf == NULL)
+                goto no_mem;
         } else {
             hpbuf = hpbuf_s;
         }
@@ -3633,13 +3956,15 @@ static void paste_programs(const char *buf) {
         // specifically, unnumbered number lines followed by comments.
         for (int i = 0; i < hpend; i++) {
             c = hpbuf[i];
-            if (c == '"')
+            if (c == '"' || c == '\'' || c == '`')
                 break;
             if (c == '@' || c == ';') {
                 hpend = i;
                 break;
             }
         }
+
+        cmd = CMD_NONE;
 
         // Skip leading whitespace and line number.
         int hppos;
@@ -3653,22 +3978,30 @@ static void paste_programs(const char *buf) {
             hppos++;
         if (prev_hppos != hppos) {
             // Number found. If this is immediately followed by a period,
-            // comma, or E, it's not a line number but an unnumbered number
-            // line.
+            // comma, E, or underscore, it's not a line number but an
+            // unnumbered number line.
             if (hppos < hpend && (c = hpbuf[hppos], c == '.' || c == ','
-                            || c == 'E' || c == 'e' || c == 24)) {
+                        || c == 'E' || c == 'e' || c == 24 || c == '_')) {
                 int len = hpend - prev_hppos;
                 if (len > 50)
                     len = 50;
                 int i;
+                int unit_offset = -1;
                 for (i = 0; i < len; i++) {
                     c = hpbuf[prev_hppos + i];
                     if (c == ' ')
                         break;
-                    if (c == 'e' || c == 24)
-                        c = 'E';
-                    else if (c == ',')
-                        c = '.';
+                    if (unit_offset != -1) {
+                        if (c == '_')
+                            break;
+                    } else {
+                        if (c == '_')
+                            unit_offset = i;
+                        else if (c == 'e' || c == 24)
+                            c = 'E';
+                        else if (c == ',')
+                            c = '.';
+                    }
                     numbuf[i] = c;
                 }
                 if (i == 50)
@@ -3676,12 +4009,16 @@ static void paste_programs(const char *buf) {
                     goto line_done;
                 numbuf[i] = 0;
                 cmd = CMD_NUMBER;
+                if (unit_offset != -1)
+                    numbuf[unit_offset] = 0;
                 if (!parse_number_line(numbuf, &arg.val_d))
                     goto line_done;
+                if (unit_offset != -1)
+                    numbuf[unit_offset] = '_';
                 arg.type = ARGTYPE_DOUBLE;
                 goto store;
             } else {
-                // Check for 1/X, 10^X, 4STK, and generalized comparisons with 0
+                // Check for 1/X, 10^X, 1LINE, 4STK, and generalized comparisons with 0
                 int len = hpend - prev_hppos;
                 if ((len == 3 || len > 3 && hpbuf[prev_hppos + 3] == ' ')
                         && strncmp(hpbuf + prev_hppos, "1/X", 3) == 0) {
@@ -3692,6 +4029,11 @@ static void paste_programs(const char *buf) {
                         && (strncmp(hpbuf + prev_hppos, "10^X", 4) == 0
                          || strncmp(hpbuf + prev_hppos, "10\36X", 4) == 0)) {
                     cmd = CMD_10_POW_X;
+                    arg.type = ARGTYPE_NONE;
+                    goto store;
+                } else if ((len == 5 || len > 5 && hpbuf[prev_hppos + 5] == ' ')
+                        && strncmp(hpbuf + prev_hppos, "1LINE", 5) == 0) {
+                    cmd = CMD_1LINE;
                     arg.type = ARGTYPE_NONE;
                     goto store;
                 } else if ((len == 4 || len > 4 && hpbuf[prev_hppos + 4] == ' ')
@@ -3728,6 +4070,8 @@ static void paste_programs(const char *buf) {
         // be spaces
         bool goose;
         goose = false;
+        int gtpos;
+        gtpos = -1;
         prev_hppos = hppos;
         while (hppos < hpend) {
             c = hpbuf[hppos];
@@ -3736,9 +4080,17 @@ static void paste_programs(const char *buf) {
                     break;
                 else
                     goose = 1;
+                if (c == '>')
+                    gtpos = hppos;
             } else if (c != ' ')
                 break;
             hppos++;
+        }
+        // If there was a '>' after the line number, and the command
+        // is not LBL, then we should consider the '>' to be a token.
+        if (gtpos == 0 || gtpos > 0 && hpbuf[gtpos - 1] == ' ') {
+            if (hpend - hppos < 4 || strncmp(hpbuf + hppos, "LBL ", 4) != 0)
+                hppos = gtpos;
         }
         // Now hppos should be pointing at the first character of the
         // command.
@@ -3802,6 +4154,42 @@ static void paste_programs(const char *buf) {
                 if (arg.length > 0)
                     arg.val.text[0] &= 127;
             }
+        } else if (hppos < hpend && (hpbuf[hppos] == '\'' || hpbuf[hppos] == '`')) {
+            do_embed:
+            char quot = hpbuf[hppos];
+            int lastquote = -1;
+            for (int i = hppos + 1; i < hpend; i++)
+                if (hpbuf[i] == quot)
+                    lastquote = i;
+            if (lastquote == -1)
+                goto line_done;
+            
+            /* Queue up equation, to be parsed later and inserted into the code */
+            pending_equation *peq = (pending_equation *) malloc(sizeof(pending_equation));
+            if (peq == NULL)
+                goto no_mem;
+            int len = lastquote - hppos - 1;
+            char *txt = (char *) malloc(len);
+            if (txt == NULL) {
+                free(peq);
+                goto no_mem;
+            }
+            memcpy(txt, hpbuf + hppos + 1, len);
+            
+            if (after_end) {
+                goto_dot_dot(false);
+                after_end = false;
+            }
+
+            peq->idx = current_prgm;
+            peq->pc = pc;
+            peq->length = len;
+            peq->text = txt;
+            peq->compatMode = quot == '`';
+            peq->eval = cmd == CMD_EVAL;
+            peq->next = eq_queue;
+            eq_queue = peq;
+            goto line_done;
         } else {
             // Not a string; try to find command
             int cmd_end = hppos;
@@ -3831,7 +4219,7 @@ static void paste_programs(const char *buf) {
             int argtype;
             bool stk_allowed = true;
             bool string_required = false;
-            if (cmd == CMD_SIZE) {
+            if (cmd == CMD_SIZE || cmd == CMD_GTOL || cmd == CMD_XEQL) {
                 if (!nexttoken(hpbuf, cmd_end, hpend, &tok_start, &tok_end))
                     goto line_done;
                 if (tok_end - tok_start > 4)
@@ -3923,11 +4311,57 @@ static void paste_programs(const char *buf) {
                 }
                 if (q2 == -1)
                     goto line_done;
-                arg.type = ARGTYPE_XSTR;
-                arg.length = q2 - q1 - 1;
-                arg.val.xstr = hpbuf + q1 + 1;
-                goto store;
+                if (eq_mode == 0) {
+                    arg.type = ARGTYPE_XSTR;
+                    arg.length = q2 - q1 - 1;
+                    arg.val.xstr = hpbuf + q1 + 1;
+                    goto store;
+                } else {
+                    /* Imported equation */
+            
+                    /* Queue up equation, to be parsed later and inserted into the code */
+                    pending_equation *peq = (pending_equation *) malloc(sizeof(pending_equation));
+                    if (peq == NULL)
+                        goto no_mem;
+                    int len = q2 - q1 - 1;
+                    peq->text = (char *) malloc(len);
+                    if (peq->text == NULL) {
+                        free(peq);
+                        goto no_mem;
+                    }
+                    
+                    if (current_prgm.dir != cwd->id)
+                        current_prgm.set(cwd->id, 0);
+                    if (after_end) {
+                        goto_dot_dot(false);
+                        after_end = false;
+                    }
+                
+                    peq->idx = current_prgm;
+                    peq->pc = pc;
+                    peq->length = len;
+                    memcpy(peq->text, hpbuf + q1 + 1, len);
+                    peq->compatMode = eq_mode == 2 || eq_mode == 4;
+                    peq->eval = eq_mode == 3 || eq_mode == 4;
+                    peq->next = eq_queue;
+                    eq_queue = peq;
+                    
+                    cmd = CMD_NONE;
+                    eq_mode = 0;
+                    goto line_done;
+                }
+            } else if (cmd == CMD_EVAL) {
+                for (int i = cmd_end; i < hpend; i++) {
+                    char c = hpbuf[i];
+                    if (c == '\'' || c == '`') {
+                        hppos = i;
+                        goto do_embed;
+                    } else if (c != ' ')
+                        break;
+                }
+                goto do_other;
             } else if (cmd != CMD_NONE) {
+                do_other:
                 int flags;
                 flags = cmd_array[cmd].flags;
                 arg.type = ARGTYPE_NONE;
@@ -3957,7 +4391,7 @@ static void paste_programs(const char *buf) {
                                 goto line_done;
                         }
                         num_or_string:
-                        if ((argtype == ARG_VAR || argtype == ARG_REAL || ind)
+                        if ((argtype == ARG_VAR || argtype == ARG_REAL || argtype == ARG_EQN || ind)
                                 && string_equals(hpbuf + tok_start, tok_end - tok_start, "ST", 2)) {
                             if (!ind && (!stk_allowed || string_required))
                                 goto line_done;
@@ -3973,7 +4407,7 @@ static void paste_programs(const char *buf) {
                             arg.val.stk = c;
                             goto store;
                         }
-                        if ((argtype == ARG_VAR || argtype == ARG_REAL || ind)
+                        if ((argtype == ARG_VAR || argtype == ARG_REAL || argtype == ARG_EQN || ind)
                                 && tok_end - tok_start == 1) {
                             // Accept RCL Z etc., instead of RCL ST Z, for
                             // HP-41 compatibilitry.
@@ -3991,32 +4425,34 @@ static void paste_programs(const char *buf) {
                             if (tok_end - tok_start == 1 && isdigit(hpbuf[tok_start])) {
                                 arg.type = ARGTYPE_NUM;
                                 arg.val.num = hpbuf[tok_start] - '0';
-                                if (cmd == CMD_RTNERR && arg.val.num > 8)
-                                    goto line_done;
                                 goto store;
                             }
                             goto line_done;
                         }
-                        if (!ind && argtype == ARG_NUM11 && tok_end - tok_start == 1
-                                && isdigit(hpbuf[tok_start])) {
-                            // Special case for FIX/SCI/ENG with 1-digit
-                            // non-indirect argument; needed for parsing
-                            // HP-41 code.
+                        if (!ind && (argtype == ARG_NUM11 || cmd == CMD_RTNERR || cmd == CMD_RAISE)
+                                && tok_end - tok_start == 1 && isdigit(hpbuf[tok_start])) {
+                            // Special case for FIX/SCI/ENG with 1-digit non-indirect argument;
+                            // needed for parsing HP-41 code; Special case for RTNERR or RAISE
+                            // with 1-digit non-indirect argument, needed for parsing older
+                            // Free42/Plus42 code.
                             arg.type = ARGTYPE_NUM;
                             arg.val.num = hpbuf[tok_start] - '0';
                             goto store;
                         }
                         if (tok_end - tok_start == 2 && isdigit(hpbuf[tok_start])
                                                      && isdigit(hpbuf[tok_start + 1])) {
-                            if (!ind && (string_required || cmd == CMD_GETMI || cmd == CMD_PUTMI || cmd == CMD_GETLI || cmd == CMD_PUTLI))
+                            if (!ind && (string_required || argtype == ARG_EQN || cmd == CMD_GETMI
+                                        || cmd == CMD_PUTMI || cmd == CMD_GETLI || cmd == CMD_PUTLI))
                                 goto line_done;
                             arg.type = ind ? ARGTYPE_IND_NUM : ARGTYPE_NUM;
                             sscanf(hpbuf + tok_start, "%02d", &arg.val.num);
                             if (!ind && argtype == ARG_NUM11 && arg.val.num > 11)
                                 goto line_done;
+                            if (!ind && (cmd == CMD_RTNERR || cmd == CMD_RAISE) && arg.val.num > RTNERR_MAX)
+                                goto line_done;
                             goto store;
                         }
-                        if ((argtype == ARG_VAR || argtype == ARG_REAL || ind)
+                        if ((argtype == ARG_VAR || argtype == ARG_REAL || argtype == ARG_EQN || argtype == ARG_DIR || ind)
                                 && hpbuf[tok_start] == '"') {
                             arg.type = ind ? ARGTYPE_IND_STR : ARGTYPE_STR;
                             handle_string_arg:
@@ -4052,6 +4488,16 @@ static void paste_programs(const char *buf) {
                         string_required = true;
                         stk_allowed = false;
                         argtype = ARG_VAR;
+                        goto string_only;
+                    }
+                    case ARG_DIR: {
+                        string_required = true;
+                        stk_allowed = false;
+                        goto string_only;
+                    }
+                    case ARG_EQN: {
+                        string_required = false;
+                        stk_allowed = true;
                         goto string_only;
                     }
                     case ARG_M_STK:
@@ -4152,13 +4598,9 @@ static void paste_programs(const char *buf) {
                         }
                     }
                     buf[0] = 0xf0 + length;
-                    decode_string(buf, &cmd, &arg, &xstr_buf, &xstr_len);
-                    if (cmd == CMD_CANCELLED) {
-                        display_error(ERR_INSUFFICIENT_MEMORY);
-                        redisplay();
-                        free(xstr_buf);
-                        return;
-                    }
+                    decode_string(buf, &cmd, &arg, &xstr_buf, &xstr_len, &eq_mode, &after_end, false, false);
+                    if (cmd == CMD_CANCELLED)
+                        goto no_mem;
                     if (cmd == CMD_NONE)
                         goto line_done;
                     goto store;
@@ -4189,18 +4631,26 @@ static void paste_programs(const char *buf) {
                         int len = tok_end - tok_start;
                         if (len > 49)
                             len = 49;
+                        int unit_offset = -1;
                         for (int i = 0; i < len; i++) {
                             c = hpbuf[tok_start + i];
-                            if (c == 'e' || c == 24)
-                                c = 'E';
-                            else if (c == ',')
-                                c = '.';
-                            if (c == 'E')
-                                have_exp = true;
+                            if (unit_offset != -1) {
+                                if (c == '_')
+                                    break;
+                            } else {
+                                if (c == '_')
+                                    unit_offset = i;
+                                else if (c == 'e' || c == 24)
+                                    c = 'E';
+                                else if (c == ',')
+                                    c = '.';
+                                if (c == 'E')
+                                    have_exp = true;
+                            }
                             numbuf[i] = c;
                         }
                         numbuf[len] = 0;
-                        if (!have_exp) {
+                        if (unit_offset == -1 && !have_exp) {
                             // In HP-41 program listings, there may be a space
                             // before the 'E' character, e.g. "1 E3". So, if we
                             // haven't seen an exponent yet, check if the next
@@ -4230,8 +4680,12 @@ static void paste_programs(const char *buf) {
                             }
                         }
                         cmd = CMD_NUMBER;
+                        if (unit_offset != -1)
+                            numbuf[unit_offset] = 0;
                         if (!parse_number_line(numbuf, &arg.val_d))
                             goto line_done;
+                        if (unit_offset != -1)
+                            numbuf[unit_offset] = '_';
                         arg.type = ARGTYPE_DOUBLE;
                         goto store;
                     }
@@ -4241,9 +4695,12 @@ static void paste_programs(const char *buf) {
         }
 
         store:
+        if (current_prgm.dir != cwd->id)
+            current_prgm.set(cwd->id, 0);
         if (after_end)
             goto_dot_dot(false);
         after_end = cmd == CMD_END;
+        eq_mode = 0;
         if (!after_end) {
             store_command_after(&pc, cmd, &arg, numbuf);
             free(xstr_buf);
@@ -4252,6 +4709,12 @@ static void paste_programs(const char *buf) {
         }
 
         line_done:
+        if (cmd == CMD_RTNERR && arg.type == ARGTYPE_NONE) {
+            // Hack to handle RTNERR with no argument as RTNERR IND ST X
+            arg.type = ARGTYPE_IND_STK;
+            arg.val.stk = 'X';
+            goto store;
+        }
         pos = end + 1;
         if (hpbuf != hpbuf_s) {
             free(hpbuf);
@@ -4260,6 +4723,7 @@ static void paste_programs(const char *buf) {
     }
     
     free(xstr_buf);
+    handle_pending_equations();
 }
 
 static int get_token(const char *buf, int *pos, int *start) {
@@ -4273,13 +4737,14 @@ static int get_token(const char *buf, int *pos, int *start) {
         (*pos)++;
     }
     *start = *pos;
-    if (c == '"') {
+    if (c == '"' || c == '\'') {
+        char d = c;
         (*pos)++;
         while (true) {
             c = buf[*pos];
             if (c == 0)
                 return *pos - *start;
-            if (c == '"') {
+            if (c == d) {
                 (*pos)++;
                 return *pos - *start;
             }
@@ -4327,8 +4792,11 @@ static char *parse_string(const char *buf, int len, int *slen) {
     if (s == NULL)
         return NULL;
     int sl = 0;
+    char d = buf[0];
     for (int i = 1; i < len - 1; i++) {
         char c = buf[i];
+        if (c == d)
+            break;
         if (c == '\\')
             c = buf[++i];
         s[sl++] = c;
@@ -4450,30 +4918,59 @@ static vartype *deserialize_list(const char *buf, int *pos) {
             tlen = get_token(buf, pos, &tstart);
             if (tlen != 1 || buf[tstart] != ']')
                 goto failure;
-        } else if (buf[tstart] == '"') {
+        } else if (buf[tstart] == '"' || buf[tstart] == '\'' || buf[tstart] == '`') {
             int slen;
             char *s = parse_string(buf + tstart, tlen, &slen);
             if (s == NULL)
                 return NULL;
-            vartype *str = new_string(s, slen);
-            free(s);
-            if (str == NULL)
-                goto failure;
-            list->array->data[i] = str;
-        } else {
-            phloat re, im;
-            int slen;
-            int type = parse_scalar(buf + tstart, tlen, true, &re, &im, &slen);
             vartype *v;
-            if (type == TYPE_REAL)
-                v = new_real(re);
-            else if (type == TYPE_COMPLEX)
-                v = new_complex(re, im);
-            else
-                goto failure;
+            if (buf[tstart] == '"') {
+                v = new_string(s, slen);
+            } else {
+                int errpos;
+                v = new_equation(s, slen, buf[tstart] == '`', &errpos);
+            }
+            free(s);
             if (v == NULL)
                 goto failure;
             list->array->data[i] = v;
+        } else {
+            int us = -1;
+            for (int j = 0; j < tlen; j++) {
+                if (buf[tstart + j] == '_') {
+                    us = j;
+                    break;
+                }
+            }
+            if (us == -1) {
+                phloat re, im;
+                int slen;
+                int type = parse_scalar(buf + tstart, tlen, true, &re, &im, &slen);
+                vartype *v;
+                if (type == TYPE_REAL)
+                    v = new_real(re);
+                else if (type == TYPE_COMPLEX)
+                    v = new_complex(re, im);
+                else
+                    goto failure;
+                if (v == NULL)
+                    goto failure;
+                list->array->data[i] = v;
+            } else {
+                phloat x;
+                if (!parse_phloat(buf + tstart, us, &x, NULL))
+                    goto failure;
+                int ulen = tlen - us - 1;
+                char *ubuf = (char *) malloc(ulen + 4);
+                if (ubuf == NULL)
+                    goto failure;
+                ulen = ascii2hp(ubuf, ulen, buf + tstart + us + 1, ulen);
+                vartype *v = new_unit(x, ubuf, ulen);
+                free(ubuf);
+                if (v == NULL)
+                    goto failure;
+                list->array->data[i] = v;
+            }
         }
     }
     tlen = get_token(buf, pos, &tstart);
@@ -4486,15 +4983,20 @@ static vartype *deserialize_list(const char *buf, int *pos) {
 }
 
 void core_paste(const char *buf) {
+    if (eqn_active()) {
+        eqn_paste(buf);
+        return;
+    }
+
     if (mode_interruptible != NULL)
         stop_interruptible();
     set_running(false);
 
     if (mode_command_entry) {
         if (incomplete_alpha) {
-            char hpbuf[26];
-            int len = ascii2hp(hpbuf, 22, buf);
-            int maxlen = incomplete_argtype == ARG_XSTR ? 22 : 7;
+            char hpbuf[54];
+            int len = ascii2hp(hpbuf, 50, buf);
+            int maxlen = incomplete_argtype == ARG_XSTR ? 50 : 7;
             maxlen -= incomplete_length;
             if (len > maxlen)
                 len = maxlen;
@@ -4593,10 +5095,12 @@ void core_paste(const char *buf) {
             }
             len = ascii2hp(hpbuf, len, buf, len);
             v = parse_base(hpbuf, len);
+            const char *format = core_settings.localized_copy_paste ? number_format() : NULL;
+            if (v == NULL)
+                v = parse_unit(hpbuf, len, format);
             if (v == NULL) {
                 phloat re, im;
                 int slen;
-                const char *format = core_settings.localized_copy_paste ? number_format() : NULL;
                 int type = parse_scalar(hpbuf, len, false, &re, &im, &slen, format);
                 switch (type) {
                     case TYPE_REAL:
@@ -4825,8 +5329,7 @@ void core_paste(const char *buf) {
         if (v->type == TYPE_REAL || v->type == TYPE_COMPLEX)
             flags.f.numeric_data_input = 1;
     }
-    flags.f.message = 0;
-    flags.f.two_line_message = 0;
+    clear_message();
     redisplay();
 }
 
@@ -4857,7 +5360,7 @@ void set_running(bool state) {
         /* Cancel any pending INPUT command */
         input_length = 0;
         mode_goose = -2;
-        prgm_highlight_row = 1;
+        move_prgm_highlight(1);
     }
 }
 
@@ -4895,7 +5398,7 @@ void do_interactive(int command) {
         redisplay();
         return;
     } else if (command == CMD_CLV || command == CMD_PRV || command == CMD_LCLV) {
-        if (!flags.f.prgm_mode && vars_count == 0) {
+        if (!flags.f.prgm_mode && cwd->vars_count == 0) {
             display_error(ERR_NO_VARIABLES);
             redisplay();
             return;
@@ -4929,19 +5432,28 @@ void do_interactive(int command) {
         if (cmd_array[command].argtype == ARG_NONE) {
             arg_struct arg;
             arg.type = ARGTYPE_NONE;
+            if (command == CMD_EVAL) {
+                int err = eqn_flip(pc);
+                if (err != ERR_NONE) {
+                    if (err != ERR_YES)
+                        display_error(err);
+                    redisplay();
+                    return;
+                }
+            }
             store_command_after(&pc, command, &arg, NULL);
             if (command == CMD_END)
                 pc = 0;
-            prgm_highlight_row = 1;
+            move_prgm_highlight(1);
             redisplay();
         } else {
             incomplete_saved_pc = pc;
             incomplete_saved_highlight_row = prgm_highlight_row;
             if (pc == -1)
                 pc = 0;
-            else if (!prgms[current_prgm].is_end(pc))
+            else if (!dir_list[current_prgm.dir]->prgms[current_prgm.idx].is_end(pc))
                 pc += get_command_length(current_prgm, pc);
-            prgm_highlight_row = 1;
+            move_prgm_highlight(1);
             start_incomplete_command(command);
         }
     } else {
@@ -4965,7 +5477,7 @@ static void continue_running() {
         oldpc = pc;
         if (pc == -1)
             pc = 0;
-        else if (pc >= prgms[current_prgm].size) {
+        else if (pc >= dir_list[current_prgm.dir]->prgms[current_prgm.idx].size) {
             pc = -1;
             set_running(false);
             return;
@@ -4974,6 +5486,7 @@ static void continue_running() {
         if (flags.f.trace_print && flags.f.printer_exists) {
             if (cmd == CMD_LBL)
                 print_text(NULL, 0, true);
+            print_equation_segment(NULL, oldpc);
             print_program_line(current_prgm, oldpc);
         }
         mode_disable_stack_lift = false;
@@ -5000,7 +5513,7 @@ struct synonym_spec {
     int cmd_id;
 };
 
-static synonym_spec hp41_synonyms[] =
+static const synonym_spec hp41_synonyms[] =
 {
     { "*",      true,  1, CMD_MUL     },
     { "x",      false, 1, CMD_MUL     },
@@ -5009,6 +5522,7 @@ static synonym_spec hp41_synonyms[] =
     { "DEC",    true,  3, CMD_TO_DEC  },
     { "D-R",    true,  3, CMD_TO_RAD  },
     { "ENTER^", true,  6, CMD_ENTER   },
+    { "ENTER\36",true, 6, CMD_ENTER   },
     { "FACT",   true,  4, CMD_FACT    },
     { "FRC",    true,  3, CMD_FP      },
     { "HMS",    true,  3, CMD_TO_HMS  },
@@ -5048,6 +5562,12 @@ static synonym_spec hp41_synonyms[] =
     { "0#?",    false, 3, CMD_0_NE_NN },
     { "0<=?",   false, 4, CMD_0_LE_NN },
     { "0>=?",   false, 4, CMD_0_GE_NN },
+    { "MKDIR",  false, 5, CMD_CRDIR   },
+    { "RMDIR",  false, 5, CMD_PGDIR   },
+    { "<>",     false, 2, CMD_GEN_NE  },
+    { "#",      false, 1, CMD_GEN_NE  },
+    { "<=",     false, 2, CMD_GEN_LE  },
+    { ">=",     false, 2, CMD_GEN_GE  },
     { "",       true,  0, CMD_NONE    }
 };
 
@@ -5098,7 +5618,7 @@ int find_builtin(const char *name, int namelen) {
 }
 
 void sst() {
-    if (pc >= prgms[current_prgm].size - 2) {
+    if (pc >= dir_list[current_prgm.dir]->prgms[current_prgm.idx].size - 2) {
         pc = -1;
         prgm_highlight_row = 0;
     } else {
@@ -5106,18 +5626,18 @@ void sst() {
             pc = 0;
         else
             pc += get_command_length(current_prgm, pc);
-        prgm_highlight_row = 1;
+        move_prgm_highlight(1);
     }
 }
 
 void bst() {
     int4 line = pc2line(pc);
     if (line == 0) {
-        pc = prgms[current_prgm].size - 2;
-        prgm_highlight_row = 1;
+        pc = dir_list[current_prgm.dir]->prgms[current_prgm.idx].size - 2;
+        prgm_highlight_row = disp_r - HEADER_ROWS - (get_front_menu() != MENU_NONE) - 1;
     } else {
         pc = line2pc(line - 1);
-        prgm_highlight_row = 0;
+        move_prgm_highlight(-1);
     }
 }
 
@@ -5134,6 +5654,11 @@ int find_menu_key(int key) {
 }
 
 void start_incomplete_command(int cmd_id) {
+    if (!flags.f.prgm_mode && cmd_id == CMD_INDEX && (matedit_mode == 2 || matedit_mode == 3)) {
+        display_error(ERR_RESTRICTED_OPERATION);
+        redisplay();
+        return;
+    }
     int argtype = cmd_array[cmd_id].argtype;
     if (!flags.f.prgm_mode && (cmd_array[cmd_id].flags & FLAG_PRGM_ONLY) != 0) {
         display_error(ERR_RESTRICTED_OPERATION);
@@ -5145,7 +5670,8 @@ void start_incomplete_command(int cmd_id) {
     if (argtype == ARG_NAMED || argtype == ARG_PRGM
             || argtype == ARG_RVAR || argtype == ARG_MAT
             || argtype == ARG_M_STK || argtype == ARG_L_STK
-            || argtype == ARG_XSTR)
+            || argtype == ARG_EQN || argtype == ARG_XSTR
+            || argtype == ARG_DIR)
         incomplete_alpha = true;
     else
         incomplete_alpha = false;
@@ -5173,7 +5699,10 @@ void start_incomplete_command(int cmd_id) {
             mode_commandmenu = MENU_VARMENU;
         else if (mode_appmenu == MENU_INTEG_PARAMS)
             mode_commandmenu = MENU_INTEG_PARAMS;
-        else
+        else if (mode_appmenu >= MENU_TVM_APP1 && mode_appmenu <= MENU_TVM_TABLE) {
+            mode_commandmenu = MENU_TVM_PARAMS;
+            set_annunciators(0, -1, -1, -1, -1, -1);
+        } else
             set_catalog_menu(CATSECT_VARS_ONLY);
     } else if (argtype == ARG_NAMED)
         set_catalog_menu(CATSECT_VARS_ONLY);
@@ -5184,10 +5713,13 @@ void start_incomplete_command(int cmd_id) {
             mode_commandmenu = MENU_VARMENU;
         else if (mode_appmenu == MENU_INTEG_PARAMS)
             mode_commandmenu = MENU_INTEG_PARAMS;
-        else
+        else if (mode_appmenu >= MENU_TVM_APP1 && mode_appmenu <= MENU_TVM_TABLE) {
+            mode_commandmenu = MENU_TVM_PARAMS;
+            set_annunciators(0, -1, -1, -1, -1, -1);
+        } else
             set_catalog_menu(CATSECT_REAL_ONLY);
     } else if (argtype == ARG_RVAR) {
-        if (vars_exist(CATSECT_REAL))
+        if (vars_exist(CATSECT_REAL_ONLY))
             set_catalog_menu(CATSECT_REAL_ONLY);
         else if (flags.f.prgm_mode) {
             if (incomplete_command == CMD_MVAR)
@@ -5197,7 +5729,7 @@ void start_incomplete_command(int cmd_id) {
             display_error(ERR_NO_REAL_VARIABLES);
         }
     } else if (argtype == ARG_MAT) {
-        if (flags.f.prgm_mode || vars_exist(CATSECT_MAT_LIST))
+        if (flags.f.prgm_mode || vars_exist(CATSECT_MAT_LIST_ONLY))
             set_catalog_menu(CATSECT_MAT_LIST_ONLY);
         else if (cmd_id != CMD_DIM) {
             mode_command_entry = false;
@@ -5209,6 +5741,16 @@ void start_incomplete_command(int cmd_id) {
     } else if (argtype == ARG_L_STK) {
         if (flags.f.prgm_mode || vars_exist(CATSECT_LIST))
             set_catalog_menu(CATSECT_LIST_ONLY);
+    } else if (argtype == ARG_DIR) {
+        if (cmd_id != CMD_CRDIR && cwd->children_count != 0)
+            set_catalog_menu(CATSECT_DIRS_ONLY);
+        else
+            set_menu(MENULEVEL_COMMAND, MENU_ALPHA1);
+    } else if (argtype == ARG_EQN) {
+        if (flags.f.prgm_mode || vars_exist(CATSECT_EQN_ONLY))
+            set_catalog_menu(CATSECT_EQN_ONLY);
+        else
+            set_menu(MENULEVEL_COMMAND, MENU_ALPHA1);
     } else if (argtype == ARG_LBL || argtype == ARG_PRGM)
         set_catalog_menu(CATSECT_PGM_ONLY);
     else if (cmd_id == CMD_LBL || cmd_id == CMD_XSTR)
@@ -5248,18 +5790,33 @@ void finish_command_entry(bool refresh) {
                 prgm_highlight_row = incomplete_saved_highlight_row;
                 goto do_it_now;
             }
-            store_command(pc, pending_command, &pending_command_arg, NULL);
+            if (pending_command == CMD_EVAL) {
+                int err = eqn_flip(incomplete_saved_pc);
+                if (err != ERR_NONE) {
+                    if (err != ERR_YES)
+                        display_error(err);
+                    goto fail;
+                }
+            }
+            if (!store_command(pc, pending_command, &pending_command_arg, NULL)) {
+                fail:
+                pending_command = CMD_NONE;
+                pc = incomplete_saved_pc;
+                prgm_highlight_row = incomplete_saved_highlight_row;
+                redisplay();
+                return;
+            }
             if (inserting_an_end)
                 /* current_prgm was already incremented by store_command() */
                 pc = 0;
-            prgm_highlight_row = 1;
+            move_prgm_highlight(1);
             pending_command = CMD_NONE;
             redisplay();
         }
     } else {
         do_it_now:
         if (refresh)
-            redisplay();
+            redisplay(1);
         if (mode_commandmenu == MENU_CATALOG
                 && (pending_command == CMD_GTO
                     || pending_command == CMD_XEQ)) {
@@ -5297,7 +5854,7 @@ void finish_command_entry(bool refresh) {
 }
 
 void finish_xeq() {
-    int prgm;
+    pgm_index prgm;
     int4 pc;
     int cmd;
 
@@ -5327,7 +5884,7 @@ void finish_xeq() {
          * explicit delay, below).
          */
         mode_command_entry = false;
-        redisplay();
+        redisplay(1);
         if (cmd_array[cmd].argtype == ARG_NONE) {
             pending_command = cmd;
             pending_command_arg.type = ARGTYPE_NONE;
@@ -5338,7 +5895,7 @@ void finish_xeq() {
             pending_command = CMD_NONE;
             set_menu(MENULEVEL_COMMAND, MENU_NONE);
             if ((cmd == CMD_CLV || cmd == CMD_PRV || cmd == CMD_LCLV)
-                    && !flags.f.prgm_mode && vars_count == 0) {
+                    && !flags.f.prgm_mode && cwd->vars_count == 0) {
                 display_error(ERR_NO_VARIABLES);
                 pending_command = CMD_NONE;
                 redisplay();
@@ -5350,17 +5907,18 @@ void finish_xeq() {
 }
 
 bool start_alpha_prgm_line() {
-    if (flags.f.prgm_mode && prgms[current_prgm].locked)
+    if (flags.f.prgm_mode && (current_prgm.is_locked() || !current_prgm.is_editable()))
         return false;
     incomplete_saved_pc = pc;
     incomplete_saved_highlight_row = prgm_highlight_row;
     if (pc == -1)
         pc = 0;
-    else if (!prgms[current_prgm].is_end(pc))
+    else if (!dir_list[current_prgm.dir]->prgms[current_prgm.idx].is_end(pc))
         pc += get_command_length(current_prgm, pc);
-    prgm_highlight_row = 1;
-    if (cmdline_row == 1)
-        display_prgm_line(0, -1);
+    move_prgm_highlight(1);
+//    if (get_front_menu() == MENU_NONE)
+//        display_prgm_line(0, -1);
+    redisplay();
     entered_string_length = 0;
     mode_alpha_entry = true;
     return true;
@@ -5378,7 +5936,7 @@ void finish_alpha_prgm_line() {
         for (i = 0; i < entered_string_length; i++)
             arg.val.text[i] = entered_string[i];
         store_command(pc, CMD_STRING, &arg, NULL);
-        prgm_highlight_row = 1;
+        move_prgm_highlight(1);
     }
     mode_alpha_entry = false;
 }
@@ -5399,7 +5957,7 @@ void set_old_pc(int4 pc) {
     oldpc = pc;
 }
 
-static void set_last_err(int error) {
+void set_last_err(int error) {
     if (error <= RTNERR_MAX) {
         lasterr = error;
     } else {
@@ -5416,40 +5974,83 @@ static bool handle_error(int error) {
                 || error == ERR_STOP)
             flags.f.stack_lift_disable = mode_disable_stack_lift;
         if (error == ERR_NO) {
-            if (!prgms[current_prgm].is_end(pc))
+            if (!dir_list[current_prgm.dir]->prgms[current_prgm.idx].is_end(pc))
                 pc += get_command_length(current_prgm, pc);
         } else if (error == ERR_STOP) {
-            if (pc >= prgms[current_prgm].size)
+            if (pc >= dir_list[current_prgm.dir]->prgms[current_prgm.idx].size)
                 pc = -1;
             set_running(false);
             return false;
         } else if (error == ERR_NUMBER_TOO_LARGE
                 || error == ERR_NUMBER_TOO_SMALL) {
             // Handling these separately because they shouldn't be
-            // suppressed by flag 25, nor trapped by SOLVE
-            goto handle_it;
+            // suppressed by flag 25, nor trapped by SOLVE or TRY
+            handle_it:
+            pc = oldpc;
+            display_error(error);
+            if (current_prgm.dir == eq_dir->id) {
+                equation_data *eqd = eq_dir->prgms[current_prgm.idx].eq_data;
+                if (eqd->map != NULL) {
+                    int4 pos = eqd->map->lookup(pc2line(pc));
+                    if (pos != -1) {
+                        eqn_save_error_pos(current_prgm.idx, pos);
+                        eqn_display_error(false);
+                        // The only way NOT to get here is to have an uncaught
+                        // error in code generated by the direct solver.
+                        // TODO: Shouldn't the direct solver just catch
+                        // everything? That way we'd never leave the user in
+                        // generated code.
+                        if (unwind_after_eqn_error()) {
+                            clear_message();
+                            return_to_eqn_edit(error);
+                        }
+                    }
+                }
+            }
+            flush_display();
+            set_running(false);
+            return false;
         } else if (error != ERR_NONE && error != ERR_YES) {
             if (flags.f.error_ignore && error != ERR_SUSPICIOUS_OFF) {
                 flags.f.error_ignore = 0;
                 set_last_err(error);
                 return true;
             }
-            if (solve_active() && (error == ERR_OUT_OF_RANGE
-                                        || error == ERR_DIVIDE_BY_0
-                                        || error == ERR_INVALID_DATA
-                                        || error == ERR_STAT_MATH_ERROR)) {
-                bool stop = unwind_stack_until_solve();
-                error = return_to_solve(1, stop);
+            bool solve_or_plot_err = solve_or_plot_active()
+                        && (error == ERR_OUT_OF_RANGE
+                         || error == ERR_DIVIDE_BY_0
+                         || error == ERR_INVALID_DATA
+                         || error == ERR_STAT_MATH_ERROR
+                         || error == ERR_INVALID_FORECAST_MODEL);
+            bool trap = should_trap(error);
+            int trap_level;
+            if (solve_or_plot_err) {
+                if (trap) {
+                    trap_level = get_trap_rtn_level(error);
+                    if (trap_level > solve_or_plot_level())
+                        goto do_trap;
+                }
+                int which;
+                bool stop = unwind_stack_until_solve_or_plot(&which);
+                if (which == -2)
+                    error = return_to_solve(true, stop);
+                else
+                    error = return_to_plot(true, stop);
                 if (error == ERR_STOP)
                     set_running(false);
                 if (error == ERR_NONE || error == ERR_RUN || error == ERR_STOP)
                     return false;
+            } else if (trap) {
+                trap_level = get_trap_rtn_level(error);
+                do_trap:
+                set_last_err(error);
+                bool stop = unwind_stack_until_level(trap_level, true);
+                set_caught(true);
+                if (stop)
+                    set_running(false);
+                return false;
             }
-            handle_it:
-            pc = oldpc;
-            display_error(error);
-            set_running(false);
-            return false;
+            goto handle_it;
         }
         return true;
     } else if (pending_command == CMD_SST || pending_command == CMD_SST_RT) {
@@ -5459,37 +6060,59 @@ static bool handle_error(int error) {
                 || error == ERR_STOP)
             flags.f.stack_lift_disable = mode_disable_stack_lift;
         if (error == ERR_NO) {
-            if (!prgms[current_prgm].is_end(pc))
+            if (!dir_list[current_prgm.dir]->prgms[current_prgm.idx].is_end(pc))
                 pc += get_command_length(current_prgm, pc);
             goto noerr;
         } else if (error == ERR_NONE || error == ERR_YES || error == ERR_STOP) {
             noerr:
             error = ERR_NONE;
-            if (pc > prgms[current_prgm].size)
+            if (pc > dir_list[current_prgm.dir]->prgms[current_prgm.idx].size)
                 pc = -1;
         } else if (error == ERR_NUMBER_TOO_LARGE
                 || error == ERR_NUMBER_TOO_SMALL) {
             // Handling these separately because they shouldn't be
-            // suppressed by flag 25, nor trapped by SOLVE
-            goto handle_it_2;
+            // suppressed by flag 25, nor trapped by SOLVE or TRY
+            handle_it_2:
+            pc = oldpc;
+            display_error(error);
         } else {
             if (flags.f.error_ignore) {
                 flags.f.error_ignore = 0;
                 set_last_err(error);
                 goto noerr;
             }
-            if (solve_active() && (error == ERR_OUT_OF_RANGE
-                                      || error == ERR_DIVIDE_BY_0
-                                      || error == ERR_INVALID_DATA
-                                      || error == ERR_STAT_MATH_ERROR)) {
-                bool stop = unwind_stack_until_solve();
-                error = return_to_solve(1, stop);
+            bool solve_or_plot_err = solve_or_plot_active()
+                        && (error == ERR_OUT_OF_RANGE
+                         || error == ERR_DIVIDE_BY_0
+                         || error == ERR_INVALID_DATA
+                         || error == ERR_STAT_MATH_ERROR
+                         || error == ERR_INVALID_FORECAST_MODEL);
+            bool trap = should_trap(error);
+            int trap_level;
+            if (solve_or_plot_err) {
+                if (trap) {
+                    trap_level = get_trap_rtn_level(error);
+                    if (trap_level > solve_or_plot_level())
+                        goto do_trap_2;
+                }
+                int which;
+                bool stop = unwind_stack_until_solve_or_plot(&which);
+                if (which == -2)
+                    error = return_to_solve(true, stop);
+                else
+                    error = return_to_plot(true, stop);
                 if (error == ERR_NONE || error == ERR_RUN || error == ERR_STOP)
                     goto noerr;
+            } else if (trap) {
+                trap_level = get_trap_rtn_level(error);
+                do_trap_2:
+                set_last_err(error);
+                bool stop = unwind_stack_until_level(trap_level, true);
+                set_caught(true);
+                error = stop ? ERR_STOP : ERR_NONE;
+                goto noerr;
             }
-            handle_it_2:
-            pc = oldpc;
-            display_error(error);
+            goto handle_it_2;
         }
         return false;
     } else {

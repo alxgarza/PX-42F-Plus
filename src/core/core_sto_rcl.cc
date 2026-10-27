@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include "core_commands2.h"
+#include "core_commands8.h"
 #include "core_helpers.h"
 #include "core_linalg1.h"
 #include "core_sto_rcl.h"
@@ -62,7 +63,8 @@ static int apply_sto_operation(char operation, vartype *oldval, bool trace_stk) 
 
 int assert_numeric(const vartype *v) {
     if (v->type == TYPE_REAL || v->type == TYPE_COMPLEX
-            || v->type == TYPE_REALMATRIX || v->type == TYPE_COMPLEXMATRIX)
+            || v->type == TYPE_REALMATRIX || v->type == TYPE_COMPLEXMATRIX
+            || v->type == TYPE_UNIT)
         return ERR_NONE;
     else if (v->type == TYPE_STRING)
         return ERR_ALPHA_DATA_IS_INVALID;
@@ -70,7 +72,7 @@ int assert_numeric(const vartype *v) {
         return ERR_INVALID_TYPE;
 }
 
-int generic_rcl(arg_struct *arg, vartype **dst) {
+int generic_rcl(arg_struct *arg, vartype **dst, bool must_be_writable) {
     int err;
     if (arg->type == ARGTYPE_IND_NUM
             || arg->type == ARGTYPE_IND_STK
@@ -140,9 +142,12 @@ int generic_rcl(arg_struct *arg, vartype **dst) {
             return ERR_NONE;
         }
         case ARGTYPE_STR: {
-            *dst = recall_var(arg->val.text, arg->length);
+            bool writable;
+            *dst = recall_var(arg->val.text, arg->length, &writable);
             if (*dst == NULL)
                 return ERR_NONEXISTENT;
+            if (must_be_writable && !writable)
+                return ERR_VARIABLE_NOT_WRITABLE;
             *dst = dup_vartype(*dst);
             if (*dst == NULL)
                 return ERR_INSUFFICIENT_MEMORY;
@@ -205,6 +210,8 @@ int generic_sto(arg_struct *arg, char operation) {
 
     if (operation != 0 && stack[sp]->type == TYPE_STRING)
         return ERR_ALPHA_DATA_IS_INVALID;
+    if (arg->type == ARGTYPE_NUM && stack[sp]->type == TYPE_UNIT)
+        return ERR_INVALID_TYPE;
 
     switch (arg->type) {
         case ARGTYPE_NUM: {
@@ -426,11 +433,6 @@ int generic_sto(arg_struct *arg, char operation) {
                         && stack[sp]->type != TYPE_REALMATRIX
                         && stack[sp]->type != TYPE_COMPLEXMATRIX)
                     return ERR_RESTRICTED_OPERATION;
-                /* When EDITN is active, don't allow the matrix being
-                 * edited to be overwritten. */
-                if (matedit_mode == 3 && string_equals(arg->val.text,
-                            arg->length, matedit_name, matedit_length))
-                        return ERR_RESTRICTED_OPERATION;
                 newval = dup_vartype(stack[sp]);
                 if (newval == NULL)
                     return ERR_INSUFFICIENT_MEMORY;
@@ -439,24 +441,26 @@ int generic_sto(arg_struct *arg, char operation) {
                     free_vartype(newval);
                 return err;
             } else {
+                vloc loc = lookup_var(arg->val.text, arg->length);
+                if (loc.not_found())
+                    return ERR_NONEXISTENT;
+                if (!loc.writable())
+                    return ERR_VARIABLE_NOT_WRITABLE;
                 /* When EDITN is active, don't allow the matrix being edited to
                  * be multiplied by another matrix, since this could cause the
                  * target's dimensions to change. Note that this restriction is
                  * applied even if the target's dimensions would not, in fact,
                  * change. */
-                int idx = lookup_var(arg->val.text, arg->length);
-                if (idx == -1)
-                    return ERR_NONEXISTENT;
                 if (operation == '*'
                         && (stack[sp]->type == TYPE_REALMATRIX
                             || stack[sp]->type == TYPE_COMPLEXMATRIX)
                         && matedit_mode == 3
-                        && matedit_level == vars[idx].level
+                        && matedit_dir == loc.dir
                         && string_equals(arg->val.text,
                                 arg->length, matedit_name, matedit_length))
                     return ERR_RESTRICTED_OPERATION;
                 temp_arg = *arg;
-                return apply_sto_operation(operation, vars[idx].value, false);
+                return apply_sto_operation(operation, loc.value(), false);
             }
         }
         default:
@@ -464,7 +468,7 @@ int generic_sto(arg_struct *arg, char operation) {
     }
 }
 
-int map_unary(const vartype *src, vartype **dst, mappable_r mr, mappable_c mc) {
+int map_unary(const vartype *src, vartype **dst, mappable_r mr, mappable_c mc, bool do_units) {
     int error;
     switch (src->type) {
         case TYPE_REAL: {
@@ -528,6 +532,19 @@ int map_unary(const vartype *src, vartype **dst, mappable_r mr, mappable_c mc) {
             }
             *dst = (vartype *) dm;
             return ERR_NONE;
+        }
+        case TYPE_UNIT: {
+            if (!do_units)
+                return ERR_INTERNAL_ERROR;
+            vartype_unit *u = (vartype_unit *) src;
+            phloat r;
+            error = mr(u->x, &r);
+            if (error == ERR_NONE) {
+                *dst = new_unit(r, u->text, u->length);
+                if (*dst == NULL)
+                    return ERR_INSUFFICIENT_MEMORY;
+            }
+            return error;
         }
         default:
             return ERR_INTERNAL_ERROR;
@@ -1287,7 +1304,22 @@ static int add_cc(phloat xre, phloat xim, phloat yre, phloat yim,
 }
 
 int generic_div(const vartype *px, const vartype *py, int (*completion)(int, vartype *)) {
-    if ((px->type == TYPE_REALMATRIX || px->type == TYPE_COMPLEXMATRIX)
+    if (px->type == TYPE_UNIT) {
+        if (py->type == TYPE_UNIT || py->type == TYPE_REAL) {
+            unit_ok:
+            vartype *dst;
+            int error = unit_div(px, py, &dst);
+            return completion(error, dst);
+        } else {
+            unit_fail:
+            return completion(ERR_INVALID_TYPE, NULL);
+        }
+    } else if (py->type == TYPE_UNIT) {
+        if (px->type == TYPE_REAL)
+            goto unit_ok;
+        else
+            goto unit_fail;
+    } else if ((px->type == TYPE_REALMATRIX || px->type == TYPE_COMPLEXMATRIX)
             && (py->type == TYPE_REALMATRIX || py->type == TYPE_COMPLEXMATRIX)) {
         return linalg_div(py, px, completion);
     } else {
@@ -1298,7 +1330,22 @@ int generic_div(const vartype *px, const vartype *py, int (*completion)(int, var
 }
 
 int generic_mul(const vartype *px, const vartype *py, int (*completion)(int, vartype *)) {
-    if ((px->type == TYPE_REALMATRIX || px->type == TYPE_COMPLEXMATRIX)
+    if (px->type == TYPE_UNIT) {
+        if (py->type == TYPE_UNIT || py->type == TYPE_REAL) {
+            unit_ok:
+            vartype *dst;
+            int error = unit_mul(px, py, &dst);
+            return completion(error, dst);
+        } else {
+            unit_fail:
+            return completion(ERR_INVALID_TYPE, NULL);
+        }
+    } else if (py->type == TYPE_UNIT) {
+        if (px->type == TYPE_REAL)
+            goto unit_ok;
+        else
+            goto unit_fail;
+    } else if ((px->type == TYPE_REALMATRIX || px->type == TYPE_COMPLEXMATRIX)
             && (py->type == TYPE_REALMATRIX || py->type == TYPE_COMPLEXMATRIX)) {
         return linalg_mul(py, px, completion);
     } else {
@@ -1309,9 +1356,31 @@ int generic_mul(const vartype *px, const vartype *py, int (*completion)(int, var
 }
 
 int generic_sub(const vartype *px, const vartype *py, vartype **dst) {
-    return map_binary(px, py, dst, sub_rr, sub_rc, sub_cr, sub_cc);
+    if (px->type == TYPE_UNIT) {
+        if (py->type == TYPE_UNIT || py->type == TYPE_REAL)
+            return unit_sub(px, py, dst);
+        else
+            return ERR_INVALID_TYPE;
+    } else if (py->type == TYPE_UNIT) {
+        if (px->type == TYPE_REAL)
+            return unit_sub(px, py, dst);
+        else
+            return ERR_INVALID_TYPE;
+    } else
+        return map_binary(px, py, dst, sub_rr, sub_rc, sub_cr, sub_cc);
 }
 
 int generic_add(const vartype *px, const vartype *py, vartype **dst) {
-    return map_binary(px, py, dst, add_rr, add_rc, add_cr, add_cc);
+    if (px->type == TYPE_UNIT) {
+        if (py->type == TYPE_UNIT || py->type == TYPE_REAL)
+            return unit_add(px, py, dst);
+        else
+            return ERR_INVALID_TYPE;
+    } else if (py->type == TYPE_UNIT) {
+        if (px->type == TYPE_REAL)
+            return unit_add(px, py, dst);
+        else
+            return ERR_INVALID_TYPE;
+    } else
+        return map_binary(px, py, dst, add_rr, add_rc, add_cr, add_cc);
 }

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -18,12 +18,12 @@
 #include <stdlib.h>
 
 #include "core_commands6.h"
+#include "core_commands8.h"
 #include "core_helpers.h"
 #include "core_main.h"
 #include "core_math2.h"
 #include "core_sto_rcl.h"
 #include "core_variables.h"
-#include "shell.h"
 
 /********************************************************/
 /* Implementations of HP-42S built-in functions, part 6 */
@@ -75,7 +75,19 @@ static int mappable_sin_c(phloat xre, phloat xim, phloat *yre, phloat *yim) {
 
 int docmd_sin(arg_struct *arg) {
     vartype *v;
-    int err = map_unary(stack[sp], &v, mappable_sin_r, mappable_sin_c);
+    int err;
+    if (stack[sp]->type == TYPE_UNIT) {
+        phloat a, f;
+        err = unit_to_angle(stack[sp], &a);
+        if (err != ERR_NONE)
+            return err;
+        mappable_sin_r(a, &f);
+        v = new_real(f);
+        if (v == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+    } else {
+        err = map_unary(stack[sp], &v, mappable_sin_r, mappable_sin_c);
+    }
     if (err == ERR_NONE)
         unary_result(v);
     return err;
@@ -134,7 +146,19 @@ static int mappable_cos_c(phloat xre, phloat xim, phloat *yre, phloat *yim) {
 
 int docmd_cos(arg_struct *arg) {
     vartype *v;
-    int err = map_unary(stack[sp], &v, mappable_cos_r, mappable_cos_c);
+    int err;
+    if (stack[sp]->type == TYPE_UNIT) {
+        phloat a, f;
+        err = unit_to_angle(stack[sp], &a);
+        if (err != ERR_NONE)
+            return err;
+        mappable_cos_r(a, &f);
+        v = new_real(f);
+        if (v == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+    } else {
+        err = map_unary(stack[sp], &v, mappable_cos_r, mappable_cos_c);
+    }
     if (err == ERR_NONE)
         unary_result(v);
     return err;
@@ -186,7 +210,21 @@ static int mappable_tan_c(phloat xre, phloat xim, phloat *yre, phloat *yim) {
 
 int docmd_tan(arg_struct *arg) {
     vartype *v;
-    int err = map_unary(stack[sp], &v, mappable_tan_r, mappable_tan_c);
+    int err;
+    if (stack[sp]->type == TYPE_UNIT) {
+        phloat a, f;
+        err = unit_to_angle(stack[sp], &a);
+        if (err != ERR_NONE)
+            return err;
+        err = math_tan(a, &f, false);
+        if (err != ERR_NONE)
+            return err;
+        v = new_real(f);
+        if (v == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+    } else {
+        err = map_unary(stack[sp], &v, mappable_tan_r, mappable_tan_c);
+    }
     if (err == ERR_NONE)
         unary_result(v);
     return err;
@@ -572,6 +610,13 @@ int docmd_sqrt(arg_struct *arg) {
             return ERR_INSUFFICIENT_MEMORY;
         unary_result(v);
         return ERR_NONE;
+    } else if (stack[sp]->type == TYPE_UNIT) {
+        vartype *v;
+        int err = unit_pow(stack[sp], 0.5, &v);
+        if (err != ERR_NONE)
+            return err;
+        unary_result(v);
+        return ERR_NONE;
     } else {
         vartype *v;
         int err = map_unary(stack[sp], &v, mappable_sqrt_r, math_sqrt);
@@ -617,8 +662,13 @@ static int mappable_square_c(phloat xre, phloat xim, phloat *yre, phloat *yim) {
 }
 
 int docmd_square(arg_struct *arg) {
+    vartype *x = stack[sp];
     vartype *v;
-    int err = map_unary(stack[sp], &v, mappable_square_r, mappable_square_c);
+    int err;
+    if (x->type == TYPE_UNIT)
+        err = unit_mul(x, x, &v);
+    else
+        err = map_unary(x, &v, mappable_square_r, mappable_square_c);
     if (err == ERR_NONE)
         unary_result(v);
     return err;
@@ -638,8 +688,17 @@ static int mappable_inv_r(phloat x, phloat *y) {
 }
 
 int docmd_inv(arg_struct *arg) {
+    vartype *x = stack[sp];
     vartype *v;
-    int err = map_unary(stack[sp], &v, mappable_inv_r, math_inv);
+    int err;
+    if (x->type == TYPE_UNIT) {
+        vartype *one = new_real(1);
+        if (one == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+        err = unit_div(x, one, &v);
+        free_vartype(one);
+    } else
+        err = map_unary(stack[sp], &v, mappable_inv_r, math_inv);
     if (err == ERR_NONE)
         unary_result(v);
     return err;
@@ -660,6 +719,13 @@ int docmd_y_pow_x(arg_struct *arg) {
 
     if (stack[sp]->type == TYPE_STRING || stack[sp - 1]->type == TYPE_STRING) {
         return ERR_ALPHA_DATA_IS_INVALID;
+    } else if (stack[sp - 1]->type == TYPE_UNIT
+            && stack[sp]->type == TYPE_REAL) {
+        vartype *v;
+        int err = unit_pow(stack[sp - 1], ((vartype_real *) stack[sp])->x, &v);
+        if (err != ERR_NONE)
+            return err;
+        return binary_result(v);
     } else if (stack[sp]->type != TYPE_REAL
             && stack[sp]->type != TYPE_COMPLEX
             || stack[sp - 1]->type != TYPE_REAL

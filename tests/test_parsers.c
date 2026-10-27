@@ -21,6 +21,7 @@
 #include "ir_vectors.h"
 #include "fonts/font_8x12.h"
 #include "fonts/font_10x16.h"
+#include "fonts/font_6x8.h"
 
 static int failures;
 
@@ -566,6 +567,7 @@ int main(int argc, char **argv) {
     test_png("fonts/font_12x8.png", false);
     test_font_sheet("fonts/font_12x8.png", &font_8x12, 0);
     test_font_sheet("fonts/font_10x16.png", &font_10x16, 1);
+    test_font_sheet("fonts/font_6x8.png", &font_6x8, 0);
     test_png_write(250, 122, getenv("PNG_WRITE_OUT"));
     test_png_write(1, 1, NULL);
     test_png_write(17, 5, NULL);

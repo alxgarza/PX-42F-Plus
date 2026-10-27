@@ -1,6 +1,7 @@
 #include "sounds.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
@@ -231,63 +232,107 @@ void sounds_play_tone(int tone) {
     play(path);
 }
 
-/* ===================== the key sound, in RAM ===================== */
+/* ===================== the key sounds, in RAM ===================== */
 
-static uint16_t key_duty[KEY_MAX_OUT + LOOKAHEAD + TAIL_MAX];
-static uint32_t key_len; /* 0 = Off */
+/* The Key Sound is a set (sounds.h): KEY/<name>/ENTRY.wav, OP.wav and
+ * ENTER.wav, each at most KEY_SET_MAX_OUT -- or one sound for every key,
+ * KEY/<name>.wav, at most KEY_MAX_OUT. A set's missing OP sounds like its
+ * ENTRY, a missing ENTER like its OP. They share key_duty, one after the
+ * other; each comes with its level's fall after it (KEY_TAIL). */
+#define KEY_SET_MAX_OUT (SPEAKER_SAMPLE_HZ / 10) /* 100ms */
+#define KEY_TAIL        (LOOKAHEAD + TAIL_MAX)
+
+static uint16_t key_duty[KEY_SOUND_KINDS * (KEY_SET_MAX_OUT + KEY_TAIL)];
+_Static_assert(KEY_MAX_OUT + KEY_TAIL <= KEY_SOUND_KINDS * (KEY_SET_MAX_OUT + KEY_TAIL),
+               "a single key sound fits the buffer");
+static uint32_t key_start[KEY_SOUND_KINDS], key_len[KEY_SOUND_KINDS]; /* key_len 0 = Off */
 
 typedef struct {
-    uint32_t pos;
+    uint32_t pos, end;
 } key_play_t;
 
 static uint32_t key_fill(void *ctx, uint16_t *buf, uint32_t max) {
     key_play_t *k = (key_play_t *) ctx;
-    uint32_t n = key_len - k->pos < max ? key_len - k->pos : max;
+    uint32_t n = k->end - k->pos < max ? k->end - k->pos : max;
     memcpy(buf, key_duty + k->pos, n * sizeof(uint16_t));
     k->pos += n;
     return n;
 }
 
-void sounds_key_play(void) {
-    if (key_len == 0)
+void sounds_key_play(key_sound_t kind) {
+    if (key_len[kind] == 0)
         return;
-    key_play_t k = {0};
+    key_play_t k = {key_start[kind], key_start[kind] + key_len[kind]};
     speaker_play(key_fill, &k);
 }
 
-bool sounds_key_select(const char *name, char *error, size_t error_size) {
-    key_len = 0;
-    if (name[0] == 0)
-        return true; /* Off */
-    char path[16 + SOUND_NAME_MAX];
-    snprintf(path, sizeof(path), "KEY/%s.wav", name);
-    const char *why;
-    if (!open_sound(&play_stream, path, KEY_MAX_OUT, &why)) {
-        snprintf(error, error_size, "%s", why);
+/* Converts sound path (at most max_out) into key_duty, from *used on, as
+ * kind. */
+static bool load_key(const char *path, uint32_t max_out, uint32_t *used, key_sound_t kind, const char **why) {
+    if (!open_sound(&play_stream, path, max_out, why))
         return false;
-    }
-    uint32_t n = 0, got;
-    while ((got = stream_fill(&play_stream, key_duty + n, 1024 < (uint32_t) count_of(key_duty) - n
-                                                                  ? 1024 : (uint32_t) count_of(key_duty) - n)) != 0) {
+    uint32_t n = *used, got;
+    while (n < count_of(key_duty)
+           && (got = stream_fill(&play_stream, key_duty + n,
+                                 1024 < count_of(key_duty) - n ? 1024 : count_of(key_duty) - n)) != 0) {
         n += got;
         watchdog_update(); /* converting 250ms of sound takes a while */
-        if (n == count_of(key_duty))
-            break;
     }
     wav_close(&play_stream.src);
-    key_len = n;
+    key_start[kind] = *used;
+    key_len[kind] = n - *used;
+    *used = n;
     return true;
 }
 
+/* The same sound as kind `from`. */
+static void key_alias(key_sound_t kind, key_sound_t from) {
+    key_start[kind] = key_start[from];
+    key_len[kind] = key_len[from];
+}
+
+bool sounds_key_select(const char *name, char *error, size_t error_size) {
+    memset(key_len, 0, sizeof(key_len));
+    if (name[0] == 0)
+        return true; /* Off */
+    char path[24 + SOUND_NAME_MAX];
+    uint32_t used = 0;
+    const char *set_why, *why;
+    snprintf(path, sizeof(path), "KEY/%s/ENTRY.wav", name);
+    if (load_key(path, KEY_SET_MAX_OUT, &used, KEY_SOUND_ENTRY, &set_why)) {
+        snprintf(path, sizeof(path), "KEY/%s/OP.wav", name);
+        if (!load_key(path, KEY_SET_MAX_OUT, &used, KEY_SOUND_OP, &why))
+            key_alias(KEY_SOUND_OP, KEY_SOUND_ENTRY);
+        snprintf(path, sizeof(path), "KEY/%s/ENTER.wav", name);
+        if (!load_key(path, KEY_SET_MAX_OUT, &used, KEY_SOUND_ENTER, &why))
+            key_alias(KEY_SOUND_ENTER, KEY_SOUND_OP);
+        return true;
+    }
+    snprintf(path, sizeof(path), "KEY/%s.wav", name);
+    if (!load_key(path, KEY_MAX_OUT, &used, KEY_SOUND_ENTRY, &why)) {
+        /* A set whose ENTRY.wav is there but unusable says why. */
+        snprintf(error, error_size, "%s", strcmp(set_why, "not found") != 0 ? set_why : why);
+        return false;
+    }
+    key_alias(KEY_SOUND_OP, KEY_SOUND_ENTRY);
+    key_alias(KEY_SOUND_ENTER, KEY_SOUND_ENTRY);
+    return true;
+}
+
+/* A built-in's Key Sound name: "KEY/<name>.wav", or "KEY/<name>/ENTRY.wav"
+ * for a set (its other sounds aren't choices of their own). */
 static int key_name_of(const char *path, char *name) {
-    /* "KEY/<name>.wav" -> name */
     if (strncasecmp(path, "KEY/", 4) != 0)
         return 0;
-    size_t len = strlen(path + 4);
-    if (len <= 4 || len - 4 > SOUND_NAME_MAX)
+    path += 4;
+    const char *slash = strchr(path, '/');
+    size_t len = slash != NULL ? (size_t) (slash - path) : strlen(path) - 4;
+    if (slash != NULL ? strcasecmp(slash, "/ENTRY.wav") != 0 : strlen(path) <= 4)
         return 0;
-    memcpy(name, path + 4, len - 4);
-    name[len - 4] = 0;
+    if (len == 0 || len > SOUND_NAME_MAX)
+        return 0;
+    memcpy(name, path, len);
+    name[len] = 0;
     return 1;
 }
 
@@ -295,41 +340,147 @@ int sounds_key_list(char names[][SOUND_NAME_MAX + 1], int max) {
     int count = 0;
     for (unsigned i = 0; i < builtin_sound_count && count < max; i++)
         count += key_name_of(builtin_sounds[i].path, names[count]);
-    int builtins = count;
 
-    static char files[32][SOUND_NAME_MAX + 1];
-    int found = use_files_ok ? statefs_list_files(KEY_DIR, ".wav", (char *) files, SOUND_NAME_MAX + 1, 32) : 0;
-    for (int f = 0; f < found && count < max; f++) {
+    /* Then the files in /SOUNDS/KEY, and its folders with an ENTRY.wav. */
+    static char found[2 * 32][SOUND_NAME_MAX + 1];
+    int files = 0, dirs = 0;
+    if (use_files_ok) {
+        files = statefs_list_files(KEY_DIR, ".wav", (char *) found, SOUND_NAME_MAX + 1, 32);
+        dirs = statefs_list_dirs(KEY_DIR, (char *) found[files], SOUND_NAME_MAX + 1, 32);
+    }
+    for (int f = 0; f < files + dirs && count < max; f++) {
+        if (f >= files) {
+            char entry[64];
+            snprintf(entry, sizeof(entry), "%s/%s/ENTRY.wav", KEY_DIR, found[f]);
+            if (!statefs_file_exists(entry))
+                continue;
+        }
         bool dup = false;
-        for (int b = 0; b < builtins; b++)
-            dup |= strcasecmp(files[f], names[b]) == 0;
+        for (int b = 0; b < count; b++)
+            dup |= strcasecmp(found[f], names[b]) == 0;
         if (!dup)
-            strcpy(names[count++], files[f]);
+            strcpy(names[count++], found[f]);
     }
     return count;
 }
 
 /* ===================== the folder ===================== */
 
-/* Makes the folders, and writes each built-in whose file is missing --
- * every one on the first boot. */
+/* /SOUNDS/BUILTIN.TXT records, for each built-in written to the drive, a
+ * checksum of what was written: "<8 hex digits> <path>" lines. A file that
+ * still matches it was never replaced, so when the built-in itself changes
+ * (a new firmware) the file is brought up to date; one that doesn't is the
+ * user's own and stays. A file from before the record counts as written
+ * only if it matches today's built-in. */
+#define RECORD_PATH SOUNDS_DIR "/BUILTIN.TXT"
+#define MAX_RECORDS 40
+
+static uint32_t recorded[MAX_RECORDS];
+static bool has_record[MAX_RECORDS];
+
+static uint32_t fnv1a(uint32_t h, const uint8_t *p, size_t n) {
+    while (n--)
+        h = (h ^ *p++) * 16777619u;
+    return h;
+}
+#define FNV_START 0x811C9DC5u
+
+static int builtin_index(const char *path) {
+    for (unsigned i = 0; i < builtin_sound_count && i < MAX_RECORDS; i++)
+        if (strcasecmp(builtin_sounds[i].path, path) == 0)
+            return (int) i;
+    return -1;
+}
+
+static void read_record(void) {
+    memset(has_record, 0, sizeof(has_record));
+    FILE *f = statefs_fopen(RECORD_PATH, "rb");
+    if (f == NULL)
+        return;
+    char line[80];
+    while (fgets(line, sizeof(line), f) != NULL) {
+        char *end;
+        uint32_t h = (uint32_t) strtoul(line, &end, 16);
+        if (end != line + 8 || *end != ' ')
+            continue;
+        end[1 + strcspn(end + 1, "\r\n")] = 0;
+        int i = builtin_index(end + 1);
+        if (i >= 0) {
+            recorded[i] = h;
+            has_record[i] = true;
+        }
+    }
+    fclose(f);
+}
+
+static void write_record(void) {
+    FILE *f = statefs_fopen(RECORD_PATH, "wb");
+    if (f == NULL)
+        return;
+    for (unsigned i = 0; i < builtin_sound_count && i < MAX_RECORDS; i++)
+        if (has_record[i])
+            fprintf(f, "%08lx %s\n", (unsigned long) recorded[i], builtin_sounds[i].path);
+    fclose(f);
+}
+
+/* The checksum of a file on the drive; false if it can't be read. */
+static bool file_checksum(const char *path, uint32_t *h) {
+    FILE *f = statefs_fopen(path, "rb");
+    if (f == NULL)
+        return false;
+    static uint8_t buf[512];
+    size_t n;
+    *h = FNV_START;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+        *h = fnv1a(*h, buf, n);
+        watchdog_update();
+    }
+    fclose(f);
+    return true;
+}
+
+static bool write_builtin(unsigned i, char *full) {
+    char *slash = strrchr(full, '/'); /* a set's folder, KEY/<name> */
+    *slash = 0;
+    statefs_mkdir(full);
+    *slash = '/';
+    FILE *f = statefs_fopen(full, "wb");
+    if (f == NULL)
+        return false;
+    bool ok = fwrite(builtin_sounds[i].wav, 1, builtin_sounds[i].size, f) == builtin_sounds[i].size;
+    fclose(f);
+    return ok;
+}
+
+/* Makes the folders, writes each built-in whose file is missing -- every
+ * one on the first boot -- and updates the ones still as written. */
 static void write_missing(void) {
     statefs_mkdir(SOUNDS_DIR);
     statefs_mkdir(KEY_DIR);
     statefs_mkdir(SOUNDS_DIR "/TONES");
-    for (unsigned i = 0; i < builtin_sound_count; i++) {
+    read_record();
+    bool changed = false;
+    for (unsigned i = 0; i < builtin_sound_count && i < MAX_RECORDS; i++) {
         char full[64];
         snprintf(full, sizeof(full), "%s/%s", SOUNDS_DIR, builtin_sounds[i].path);
         watchdog_update();
-        if (statefs_file_exists(full))
+        uint32_t h = fnv1a(FNV_START, builtin_sounds[i].wav, builtin_sounds[i].size);
+        if (has_record[i] && recorded[i] == h && statefs_file_exists(full))
+            continue; /* the usual case: nothing new */
+        uint32_t on_drive;
+        bool exists = statefs_file_exists(full) && file_checksum(full, &on_drive);
+        bool ours = !exists || on_drive == h || (has_record[i] && on_drive == recorded[i]);
+        if (!ours)
+            continue; /* the user's own */
+        if ((!exists || on_drive != h) && !write_builtin(i, full))
             continue;
-        FILE *f = statefs_fopen(full, "wb");
-        if (f == NULL)
-            continue;
-        fwrite(builtin_sounds[i].wav, 1, builtin_sounds[i].size, f);
-        fclose(f);
+        recorded[i] = h;
+        has_record[i] = true;
+        changed = true;
         watchdog_update();
     }
+    if (changed)
+        write_record();
     statefs_sync();
 }
 

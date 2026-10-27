@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -27,16 +27,19 @@
 
 /* core_init()
  *
- * This function initializes the emulator core. If the read_state parameter is
- * 1, the core should read saved state from the file named by the
- * state_file_name parameter, reading from the offset indicated by the offset
- * parameter; if read_state is 0, or if there is a problem reading the saved
- * state, it should perform a hard reset.
- * If the read_state parameter is 1, the 'version' parameter should contain the
- * state file version number; otherwise its value is not used.
- * This is guaranteed to be the first function called on the emulator core.
+ * This function initializes the emulator core.
+ * The display size is communicated by 'rows' and 'cols', which are two-way
+ * parameters. The shell will set these to whatever it prefers, given the
+ * previous state or the requirements of the skin or whatever; the core will
+ * accept these preferences if it performs a cold start, or it will replace
+ * them with what it read from the state. If the shell can't accept the new
+ * size, it will respond by calling core_repaint_display() with whatever is the
+ * closest size it can manage.
+ * The state_file_name parameter is the name of the state file the core should
+ * initialize itself from; if this is NULL, the core should perform a hard
+ * reset.
  */
-void core_init(int read_state, int4 version, const char *state_file_name, int offset);
+void core_init(int *rows, int *cols, const char *state_file_name);
 
 /* core_save_state()
  *
@@ -49,9 +52,9 @@ void core_save_state(const char *state_file_name);
 
 /* core_cleanup()
  *
- * This function deletes down the emulator core state from memory. It may be
- * called during app shutdown, although that's not really necessary unless you
- * are checking for memory leaks. It should be called between saving state and
+ * This function deletes the emulator core state from memory. It may be called
+ * during app shutdown, although that's not really necessary unless you are
+ * checking for memory leaks. It should be called between saving state and
  * loading a new state, that is, when switching states.
  */
 void core_cleanup();
@@ -62,9 +65,14 @@ void core_cleanup();
  * respond by immediately calling shell_blitter() to repaint the entire
  * display.
  * The shell uses this function to re-generate the display after switching
- * skins.
+ * skins. It passes the number of character rows and columns to use for the
+ * display, just like core_init(); the core should resize the display
+ * accordingly, if needed.
+ * The flags parameter is the value from the layout's Flags: line; it is
+ * a combination of: 1 = don't swap FCN and DIRS; 2 = don't swap MEM and UNITS;
+ * and 4 = do replace TOP.FCN with TVM.
  */
-void core_repaint_display();
+void core_repaint_display(int rows, int cols, int flags);
 
 /* core_menu()
  *
@@ -82,8 +90,10 @@ bool core_menu();
  * Free42) are handled: in alpha mode, printable ASCII characters are sent
  * straight to the core; outside alpha mode, all key events are translated
  * sequences of HP-42S key events according to the keymap file.
+ * Returns: 0: ALPHA menu not active; 1: ALPHA menu active; 2: equation editor
+ * active.
  */
-bool core_alpha_menu();
+int core_alpha_menu();
 
 /* core_hex_menu()
  *
@@ -138,7 +148,9 @@ int core_special_menu_key(int which);
  * ask the shell to auto-repeat the current key. If this is set to 1 or 2, the
  * shell will not call timeout1() and timeout2(), but will repeatedly call
  * core_repeat() until the key is released. (1 requests a slow repeat rate, for
- * SST/BST; 2 requests a fast repeat rate, for number/alpha entry.)
+ * SST/BST; 2 requests a fast repeat rate, for number/alpha entry, and 3
+ * requests an extra-slow repeat rate, for up/down in the equation editor's
+ * list view.)
  */
 bool core_keydown(int key, bool *enqueued, int *repeat);
 
@@ -168,7 +180,8 @@ bool core_keydown_command(const char *name, int type, bool *enqueued, int *repea
  * It is the core's responsibility to keep track of *which* key is repeating.
  * The function can return 0, to request repeating to stop; 1, which requests
  * a slow repeat rate, for SST/BST; or 2, which requests a fast repeat rate,
- * for number/alpha entry.
+ * for number/alpha entry; or 3, for an extra-slow repeat rate, for the
+ * equation editor's list view.
  */
 int core_repeat();
 
@@ -325,13 +338,6 @@ void core_get_char_pixels(const char *ch, char *pixels);
 
 #endif
 
-/* core_update_allow_big_stack()
- *
- * Updates the big stack state and the UI to reflect a change in the
- * global Allow Big Stack setting.
- */
-void core_update_allow_big_stack();
-
 /* core_settings
  *
  * This is a struct that stores user-configurable core settings. The shell
@@ -342,7 +348,6 @@ struct core_settings_struct {
     bool matrix_singularmatrix;
     bool matrix_outofrange;
     bool auto_repeat;
-    bool allow_big_stack;
     bool localized_copy_paste;
 };
 
@@ -362,8 +367,13 @@ extern int repeating_key;
 /* Other functions */
 /*******************/
 
+extern bool force_redisplay;
+extern int skin_flags;
+extern bool start_eqn_cursor;
 extern bool quitting;
 
+int ascii2hp(char *dst, int dstlen, const char *src, int srclen = -1);
+void set_shift(bool shift);
 void set_alpha_entry(bool state);
 void set_running(bool state);
 bool program_running();
@@ -385,6 +395,7 @@ bool start_alpha_prgm_line();
 void finish_alpha_prgm_line();
 int shiftcharacter(char c);
 void set_old_pc(int4 pc);
+void set_last_err(int error);
 const char *number_format();
 
 

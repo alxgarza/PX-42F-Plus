@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "pico/types.h"
+#include "sounds.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -62,8 +63,8 @@ void free42_key_timeout2(void);
 void free42_key_cancel(void);
 void free42_key_up(void);
 
-/* Redraws the whole screen from the current state -- e.g. to advance the
- * header clock when nothing else has changed. */
+/* Redraws the whole screen from the current state -- after the settings
+ * menu, or for the battery gauge when nothing else has changed. */
 void free42_redisplay(void);
 
 /* Call on every pass of the main loop: runs the next time slice of a
@@ -90,6 +91,10 @@ bool free42_printer_on(void);
  * screens outside the calculator, like the settings menu. */
 int free42_key_code(uint8_t row, uint8_t col);
 
+/* Which of the Key Sound set's sounds the key at a keyboard-matrix
+ * position plays, as things stand -- call before free42_key_down(). */
+key_sound_t free42_key_sound(uint8_t row, uint8_t col);
+
 /* The free42_key_code()s used outside the calculator -- the same values as
  * KEY_* in src/core/core_globals.h, which is C++ only. */
 #define FREE42_KEY_ENTER 13
@@ -114,7 +119,7 @@ char free42_alpha_char(uint8_t row, uint8_t col);
  * rtc_date_format_t, 24-hour or not -- e.g. from the settings menu. */
 void free42_set_formats(uint8_t date_format, bool clock_24h);
 
-/* Save the calculator's whole memory to a .f42 state file, or replace it
+/* Save the calculator's whole memory to a .p42 state file, or replace it
  * with one (statefs.h has the paths). Loading a file Free42 can't read
  * leaves the calculator in Memory Clear, as on the desktop versions. */
 void free42_save_state(const char *path);

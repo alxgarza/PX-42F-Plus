@@ -36,8 +36,11 @@
 #define PICO_PROGRAM_VERSION_STRING "?"
 #endif
 
-/* The Free42 release src/core was taken from (free42-upstream/HISTORY). */
-#define FREE42_VERSION "3.3.12"
+/* The Plus42 release src/core was taken from (plus42-upstream/HISTORY),
+ * and the Intel Decimal Floating-Point Math Library it computes with
+ * (third_party/IntelRDFPMathLib20U1). */
+#define PLUS42_VERSION  "1.4a"
+#define INTEL_LIB_VERSION "2.0 Update 1"
 
 /* HP-42S key codes, as free42_key_code() returns them. */
 #define K_ENTER FREE42_KEY_ENTER
@@ -118,7 +121,7 @@ static int wait_key_timeout(uint32_t timeout_ms) {
         if (keyboard_scan(&row, &col)) {
             cpuclock_set_fast(true); /* work: full speed until it's idle again */
             key_hold_begin(row, col);
-            sounds_key_play();
+            sounds_key_play(free42_key_code(row, col) == FREE42_KEY_ENTER ? KEY_SOUND_ENTER : KEY_SOUND_ENTRY);
             for (int i = 0; i < KEY_STUCK_MS / 10 && keyboard_is_held(row, col); i++) {
                 watchdog_update();
                 /* Keys held down (keyhold.h). After a screenshot the keys
@@ -489,7 +492,7 @@ static edit_result_t enter_time(const char *title, const char *hint_end, bool se
 /* To the minute: the seconds start at 0 on ENTER. */
 static edit_result_t do_set_time(void) {
     int h, m, s;
-    edit_result_t r = enter_time("Set Time", "Enter on the minute", false, &h, &m, &s);
+    edit_result_t r = enter_time("Set Time", "Enter at :00", false, &h, &m, &s);
     if (r == EDIT_OK)
         rtc_set_hms(h, m, s);
     return r;
@@ -775,15 +778,15 @@ static edit_result_t do_info(void) {
 
         char buf[40];
         int y = 18;
-        display_draw_string(&font_10x16, "PX-42F", 2, (uint8_t) y, 0x00);
-        y += 20;
-        snprintf(buf, sizeof(buf), "Firmware  %s", PICO_PROGRAM_VERSION_STRING);
+        snprintf(buf, sizeof(buf), "Plus42    %s, Thomas Okken", PLUS42_VERSION);
         display_draw_string(&font_8x12, buf, 2, (uint8_t) y, 0x00);
         y += 13;
-        snprintf(buf, sizeof(buf), "Built     %s", __DATE__);
+        display_draw_string(&font_8x12, "Port      Alex Garza", 2, (uint8_t) y, 0x00);
+        y += 13;
+        snprintf(buf, sizeof(buf), "Decimal   Intel %s", INTEL_LIB_VERSION);
         display_draw_string(&font_8x12, buf, 2, (uint8_t) y, 0x00);
         y += 13;
-        snprintf(buf, sizeof(buf), "Free42    %s", FREE42_VERSION);
+        snprintf(buf, sizeof(buf), "Firmware  %s, %s", PICO_PROGRAM_VERSION_STRING, __DATE__);
         display_draw_string(&font_8x12, buf, 2, (uint8_t) y, 0x00);
         y += 13;
         int mv = battery_read_mv();
@@ -955,7 +958,15 @@ static edit_result_t do_key_sound(void) {
             continue;
         }
         snprintf(px_settings.key_sound, sizeof(px_settings.key_sound), "%s", name);
-        sounds_key_play();
+        /* The whole set: typing, an operation, ENTER. */
+        for (int kind = 0; kind < KEY_SOUND_KINDS; kind++) {
+            if (kind > 0)
+                for (int i = 0; i < 15; i++) { /* 150ms apart */
+                    sleep_ms(10);
+                    watchdog_update();
+                }
+            sounds_key_play((key_sound_t) kind);
+        }
     }
 }
 
@@ -1090,7 +1101,7 @@ static edit_result_t pick_state(const char *title, const char *hint, char *name)
     static char names[MAX_STATES][STATEFS_NAME_MAX + 1];
     int count = statefs_list_states(names, MAX_STATES);
     if (count == 0) {
-        static const char *const lines[] = {"No saved states.", "", "Save one first, or copy .f42",
+        static const char *const lines[] = {"No saved states.", "", "Save one first, or copy .p42",
                                             "files into the STATE folder", "with USB Drive."};
         edit_result_t r = show_message(title, lines, 5, "Exit:Back");
         return r == EDIT_POWER_OFF ? r : EDIT_CANCEL;
@@ -1204,7 +1215,7 @@ static edit_result_t do_usb_disk(void) {
             display_clear();
             draw_title("USB Drive");
             draw_line(0, host ? "Connected: drive \"PX-42F\"" : "Waiting for a computer...");
-            draw_line(2, "States: STATE/<name>.f42");
+            draw_line(2, "States: STATE/<name>.p42");
             draw_line(3, "Splash images: SPLASH/*.png");
             draw_line(5, "Eject the drive when done.");
             draw_hint("Exit:Back (Eject First!)");
@@ -1321,12 +1332,18 @@ static edit_result_t do_splash(void) {
 
 #define MAX_FONTS 32
 
-enum { FONT_ITEM_LARGE, FONT_ITEM_SMALL, FONT_ITEM_COUNT };
-static const char *const font_items[FONT_ITEM_COUNT] = {"Large Font (10x16)", "Small Font (8x12)"};
-static const font_kind_t font_item_kind[FONT_ITEM_COUNT] = {FONT_LARGE, FONT_SMALL};
+enum { FONT_ITEM_LARGE, FONT_ITEM_SMALL, FONT_ITEM_MINI, FONT_ITEM_COUNT };
+static const char *const font_items[FONT_ITEM_COUNT] = {"Large Font (10x16)", "Small Font (8x12)",
+                                                        "Mini Font (6x8)"};
+static const font_kind_t font_item_kind[FONT_ITEM_COUNT] = {FONT_LARGE, FONT_SMALL, FONT_MINI};
 
 static char *font_setting(font_kind_t kind) {
-    return kind == FONT_SMALL ? px_settings.small_font : px_settings.large_font;
+    return kind == FONT_SMALL ? px_settings.small_font : kind == FONT_LARGE ? px_settings.large_font
+                                                                             : px_settings.mini_font;
+}
+
+static display_font_t *font_of(font_kind_t kind) {
+    return kind == FONT_SMALL ? &font_small : kind == FONT_LARGE ? &font_large : &font_mini;
 }
 
 static void font_value(int item, char *buf, size_t size) {
@@ -1347,7 +1364,7 @@ static edit_result_t preview_font(const display_font_t *font) {
     while (true) {
         display_clear();
         for (int code = 0; code < 128; code += per_row) {
-            char row[32];
+            char row[64]; /* the mini font: 41 a row */
             int n = 0;
             while (n < per_row && n < (int) sizeof(row) && code + n < 128) {
                 row[n] = (char) (code + n);
@@ -1369,11 +1386,12 @@ static edit_result_t preview_font(const display_font_t *font) {
     }
 }
 
-/* "Built-In", then the sheets in /FONTS/SMALL or /FONTS/LARGE. ENTER loads
+/* "Built-In", then the sheets in /FONTS/LARGE, SMALL or MINI. ENTER loads
  * one and shows it; it's only kept if accepted there. */
 static edit_result_t do_font(font_kind_t kind) {
     static char names[MAX_FONTS][FONT_NAME_MAX + 1];
-    const char *title = font_items[kind == FONT_LARGE ? FONT_ITEM_LARGE : FONT_ITEM_SMALL];
+    const char *title = font_items[kind == FONT_LARGE ? FONT_ITEM_LARGE : kind == FONT_SMALL ? FONT_ITEM_SMALL
+                                                                                             : FONT_ITEM_MINI];
     char *setting = font_setting(kind);
     int count = fonts_list(kind, names, MAX_FONTS);
 
@@ -1404,12 +1422,15 @@ static edit_result_t do_font(font_kind_t kind) {
                                          "128 x 96 pixels: 16 x 8", "glyphs of 8 x 12, no gaps."};
             const char *const large[] = {line, error, "", "A large font is a PNG of",
                                          "175 x 135 pixels: 16 x 8", "glyphs of 10 x 16, 1 apart."};
-            if (show_message(title, kind == FONT_SMALL ? small : large, 6, "Exit:Back") == EDIT_POWER_OFF)
+            const char *const mini[] = {line, error, "", "A mini font is a PNG of",
+                                        "96 x 64 pixels: 16 x 8", "glyphs of 6 x 8, no gaps."};
+            const char *const *help = kind == FONT_SMALL ? small : kind == FONT_LARGE ? large : mini;
+            if (show_message(title, help, 6, "Exit:Back") == EDIT_POWER_OFF)
                 return EDIT_POWER_OFF;
             continue;
         }
 
-        edit_result_t r = preview_font(kind == FONT_SMALL ? &font_small : &font_large);
+        edit_result_t r = preview_font(font_of(kind));
         if (r == EDIT_OK) {
             snprintf(setting, FONT_SETTING_MAX + 1, "%s", name);
             settings_save();

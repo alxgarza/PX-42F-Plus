@@ -34,6 +34,9 @@ include(pico_sdk_import.cmake)
 project(PX-Free42 C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
+# Plus42's core catches std::bad_alloc (equations, directories, units).
+set(PICO_CXX_ENABLE_EXCEPTIONS 1)
+
 pico_sdk_init()
 
 # Intel Decimal Floating-Point Math Library (BID), providing authentic
@@ -67,8 +70,10 @@ file(GLOB FREE42_CORE_SOURCES ${CMAKE_CURRENT_LIST_DIR}/src/core/*.cc)
 add_executable(PX-Free42
         main.c
         display.c
+        display_draw.c
         keyboard.c
         rtc.c
+        rtc_format.c
         battery.c
         speaker.c
         sounds.c
@@ -95,6 +100,7 @@ add_executable(PX-Free42
         fonts/font_10x16_data.c
         fonts/font_24x10_data.c
         fonts/font_8x12_data.c
+        fonts/font_6x8_data.c
         fonts.c
         fontsheet.c
         pngwrite.c
@@ -116,7 +122,7 @@ add_dependencies(PX-Free42 inteldecimal_lib)
 pico_set_linker_script_var(PX-Free42 HEAP_LIMIT 0x2005F000)
 
 pico_set_program_name(PX-Free42 "PX-Free42")
-pico_set_program_version(PX-Free42 "0.1")
+pico_set_program_version(PX-Free42 "0.50b")
 
 # Modify the below lines to enable/disable output over UART/USB
 pico_enable_stdio_uart(PX-Free42 0)
@@ -158,6 +164,11 @@ target_compile_definitions(PX-Free42 PRIVATE
         PICO_STACK_SIZE=0x1000
         # PX-42 port hooks in src/core (my_fopen etc. -> statefs.c)
         PX42
+        # Plus42 handles running out of memory itself -- malloc() returning
+        # NULL, and std::bad_alloc from new (PICO_CXX_ENABLE_EXCEPTIONS) --
+        # with "Insufficient Memory". The SDK's default panics instead,
+        # which reboots the calculator.
+        PICO_MALLOC_PANIC=0
         # The core voltage survives every reboot but a power-up -- and the
         # idle clock (cpuclock.c) leaves it at 1.00V. Have the SDK's startup
         # code put it back to 1.10V before it switches to 150MHz, or a wake

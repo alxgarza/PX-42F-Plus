@@ -87,6 +87,12 @@ uint8_t display_draw_string(const display_font_t *font, const char *s, uint8_t x
  * character (the divide sign), not a terminator. */
 uint8_t display_draw_chars(const display_font_t *font, const char *s, int len, uint8_t x, uint8_t y, uint8_t color);
 
+/* Where a string's ink starts and ends across, counted from where it's
+ * drawn -- for centring by what shows, not by the glyphs' cells (an
+ * exclamation mark's ink is in the middle of its cell). False if there's
+ * none. */
+bool display_text_ink(const display_font_t *font, const char *s, int *left, int *right);
+
 /* Copies the framebuffer out -- what's on the screen, for a screenshot:
  * DISPLAY_HEIGHT rows of DISPLAY_STRIDE bytes, MSB-first, 1 = black. */
 void display_copy(uint8_t *bits);

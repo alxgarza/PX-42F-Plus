@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -39,10 +39,14 @@ int docmd_yint(arg_struct *arg);
 
 int docmd_integ(arg_struct *arg);
 int docmd_linsigma(arg_struct *arg);
-int docmd_pgmint(arg_struct *arg);
 int docmd_pgmslv(arg_struct *arg);
-int docmd_pgminti(arg_struct *arg);
+int docmd_eqnslv(arg_struct *arg);
+int docmd_pgmint(arg_struct *arg);
+int docmd_eqnint(arg_struct *arg);
 int docmd_pgmslvi(arg_struct *arg);
+int docmd_eqnslvi(arg_struct *arg);
+int docmd_pgminti(arg_struct *arg);
+int docmd_eqninti(arg_struct *arg);
 
 int docmd_a_thru_f(arg_struct *arg);
 int docmd_binm(arg_struct *arg);

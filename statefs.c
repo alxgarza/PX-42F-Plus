@@ -17,7 +17,7 @@
 /* The volume label -- the drive's name on a computer. FAT labels are
  * upper case, up to 11 characters. */
 #define VOLUME_LABEL "PX-42F"
-#define STATE_EXT ".f42"
+#define STATE_EXT ".p42"
 
 /* In USB Disk mode, write back once the computer has paused this long. */
 #define USB_IDLE_FLUSH_US 20000
@@ -137,7 +137,8 @@ static int compare_names(const void *a, const void *b) {
     return strcmp((const char *) a, (const char *) b);
 }
 
-int statefs_list_files(const char *dir_path, const char *ext, char *names, size_t name_size, int max) {
+/* The files (dirs false) or folders (true) in dir_path ending in ext. */
+static int list_entries(const char *dir_path, bool dirs, const char *ext, char *names, size_t name_size, int max) {
     if (!mounted)
         return 0;
     DIR dir;
@@ -150,7 +151,7 @@ int statefs_list_files(const char *dir_path, const char *ext, char *names, size_
     while (count < max && f_readdir(&dir, &info) == FR_OK && info.fname[0] != 0) {
         /* Hidden/system files include the "._name" AppleDouble files macOS
          * writes next to everything it copies -- skip those by name too. */
-        if ((info.fattrib & (AM_DIR | AM_HID | AM_SYS)) || info.fname[0] == '.')
+        if ((info.fattrib & (AM_HID | AM_SYS)) || ((info.fattrib & AM_DIR) != 0) != dirs || info.fname[0] == '.')
             continue;
         size_t len = strlen(info.fname);
         if (len <= ext_len || len - ext_len > name_size - 1 || strcasecmp(info.fname + len - ext_len, ext) != 0)
@@ -163,6 +164,14 @@ int statefs_list_files(const char *dir_path, const char *ext, char *names, size_
     f_closedir(&dir);
     qsort(names, (size_t) count, name_size, compare_names);
     return count;
+}
+
+int statefs_list_files(const char *dir_path, const char *ext, char *names, size_t name_size, int max) {
+    return list_entries(dir_path, false, ext, names, name_size, max);
+}
+
+int statefs_list_dirs(const char *dir_path, char *names, size_t name_size, int max) {
+    return list_entries(dir_path, true, "", names, name_size, max);
 }
 
 int statefs_list_states(char names[][STATEFS_NAME_MAX + 1], int max) {

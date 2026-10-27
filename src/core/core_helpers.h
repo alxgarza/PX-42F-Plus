@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,6 +19,8 @@
 #define CORE_HELPERS_H 1
 
 
+#include <stdlib.h>
+
 #include "free42.h"
 #include "core_phloat.h"
 #include "core_globals.h"
@@ -30,6 +32,7 @@
 
 int resolve_ind_arg(arg_struct *arg, char *buf = NULL, int *len = NULL);
 int arg_to_num(arg_struct *arg, int4 *num);
+int get_arg_equation(arg_struct *arg, vartype_equation **eq);
 bool dim_to_int4(vartype *dim, int4 *res);
 int recall_result_silently(vartype *v);
 int recall_result(vartype *v);
@@ -48,10 +51,13 @@ phloat deg_to_rad(phloat x);
 void append_alpha_char(char c);
 void append_alpha_string(const char *buf, int buflen, int reverse);
 
+void string_copy(char *dst, unsigned char *dstlen, const char *src, int srclen);
+void string_copy(char *dst, unsigned short *dstlen, const char *src, int srclen);
 void string_copy(char *dst, int *dstlen, const char *src, int srclen);
 bool string_equals(const char *s1, int s1len, const char *s2, int s2len);
 int string_pos(const char *ntext, int nlen, const vartype *hs, int startpos);
 bool vartype_equals(const vartype *v1, const vartype *v2);
+int generic_comparison(const vartype *x, const vartype *y, char which);
 int anum(const char *text, int len, phloat *res);
 void fix_thousands_separators(char *buf, int *bufptr);
 void fix_base_separators(char *buf, int *bufptr);
@@ -82,10 +88,14 @@ void print_right(const char *left, int leftlen,
 void print_wide(const char *left, int leftlen,
                 const char *right, int rightlen);
 void print_command(int cmd, const arg_struct *arg);
+struct textbuf;
+void print_equation_segment(textbuf *tb, int4 pc);
 void print_menu_trace(const char *name, int len);
-void print_menu_trace_always(const char *name, int len);
 void print_trace();
 void print_stack_trace();
+void print_one_var(const char *name, int length);
+int alpha_print_helper(const char *text, int length);
+void alpha_view_helper(const char *text, int length);
 
 void generic_r2p(phloat re, phloat im, phloat *r, phloat *phi);
 void generic_p2r(phloat r, phloat phi, phloat *re, phloat *im);
@@ -99,7 +109,14 @@ phloat cos_grad(phloat x);
 /* Miscellaneous stuff */
 /***********************/
 
-int dimension_array(const char *name, int namelen, int4 rows, int4 columns, bool check_matedit);
+class freer {
+    private:
+    void *p;
+    public:
+    freer(void *p) : p(p) {}
+    ~freer() { free(p); }
+};
+
 int dimension_array_ref(vartype *matrix, int4 rows, int4 columns);
 
 phloat fix_hms(phloat x);
@@ -112,10 +129,15 @@ int ulong2string(uint8 n, char *buf, int buflen);
 int vartype2string(const vartype *v, char *buf, int buflen, int max_mant_digits = 12);
 const char *phloat2program(phloat d);
 int easy_phloat2string(phloat d, char *buf, int buflen, int base_mode);
+int real2buf(char *buf, phloat x, const char *format = NULL, bool force_decimal = true);
 int ip2revstring(phloat d, char *buf, int buflen);
 
+vartype_list *get_path();
+vartype *get_dir_path(directory *dir);
 int matedit_get(vartype **res);
 void leave_matrix_editor();
+
+void switch_30_and_94(char *text, int length);
 
 
 #endif

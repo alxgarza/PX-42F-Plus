@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -16,7 +16,6 @@
  *****************************************************************************/
 
 #include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
 
@@ -28,7 +27,6 @@
 #include "core_helpers.h"
 #include "core_main.h"
 #include "core_sto_rcl.h"
-#include "core_variables.h"
 #include "shell.h"
 
 /////////////////////////////////////////////////////////////////
@@ -247,12 +245,22 @@ static phloat comps2date(int4 y, int4 m, int4 d) {
  * Algorithm due to Henry F. Fliegel and Thomas C. Van Flandern,
  * Communications of the ACM, Vol. 11, No. 10 (October, 1968).
  */
-static int greg2jd(int4 y, int4 m, int4 d, int4 *jd) {
-    *jd = ( 1461 * ( y + 4800 + ( m - 14 ) / 12 ) ) / 4 +
-          ( 367 * ( m - 2 - 12 * ( ( m - 14 ) / 12 ) ) ) / 12 -
-          ( 3 * ( ( y + 4900 + ( m - 14 ) / 12 ) / 100 ) ) / 4 +
-          d - 32075;
-    return ERR_NONE;
+static int4 greg2jd(int4 y, int4 m, int4 d) {
+    return ( 1461 * ( y + 4800 + ( m - 14 ) / 12 ) ) / 4 +
+           ( 367 * ( m - 2 - 12 * ( ( m - 14 ) / 12 ) ) ) / 12 -
+           ( 3 * ( ( y + 4900 + ( m - 14 ) / 12 ) / 100 ) ) / 4 +
+           d - 32075;
+}
+
+/* Calendar without leap years */
+static const int4 MOFF[] = { 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
+static int4 noleap(int4 y, int4 m, int4 d) {
+    return 365 * y + MOFF[m - 1] + d - 1;
+}
+
+/* 30-day-month calendar */
+static int4 thirtyday(int4 y, int4 m, int4 d) {
+    return 360 * y + 30 * (m - 1) + d - 1;
 }
 
 static int jd2greg(int4 jd, int4 *y, int4 *m, int4 *d) {
@@ -461,7 +469,7 @@ int docmd_clk24(arg_struct *arg) {
     return ERR_NONE;
 }
 
-static char weekdaynames[] = "SUNMONTUEWEDTHUFRISAT";
+static const char weekdaynames[] = "SUNMONTUEWEDTHUFRISAT";
 
 int docmd_date(arg_struct *arg) {
     uint4 date;
@@ -489,38 +497,35 @@ int docmd_date(arg_struct *arg) {
          * display. (Note that the periods in the DMY format and the colon in
          * the MDY format don't take up a character position on the HP-41.)
          */
-        char buf[22];
+        char *buf = (char *) malloc(disp_c);
+        freer f(buf);
         int bufptr = 0;
         if (flags.f.ymd) {
-            bufptr += int2string(y, buf + bufptr, 22 - bufptr);
-            char2buf(buf, 22, &bufptr, '-');
+            bufptr += int2string(y, buf + bufptr, disp_c - bufptr);
+            char2buf(buf, disp_c, &bufptr, '-');
             if (m < 10)
-                char2buf(buf, 22, &bufptr, '0');
-            bufptr += int2string(m, buf + bufptr, 22 - bufptr);
-            char2buf(buf, 22, &bufptr, '-');
+                char2buf(buf, disp_c, &bufptr, '0');
+            bufptr += int2string(m, buf + bufptr, disp_c - bufptr);
+            char2buf(buf, disp_c, &bufptr, '-');
             if (d < 10)
-                char2buf(buf, 22, &bufptr, '0');
-            bufptr += int2string(d, buf + bufptr, 22 - bufptr);
+                char2buf(buf, disp_c, &bufptr, '0');
+            bufptr += int2string(d, buf + bufptr, disp_c - bufptr);
         } else {
             int n = flags.f.dmy ? d : m;
             if (n < 10)
-                char2buf(buf, 22, &bufptr, '0');
-            bufptr += int2string(n, buf + bufptr, 22 - bufptr);
-            char2buf(buf, 22, &bufptr, flags.f.dmy ? '.' : '/');
+                char2buf(buf, disp_c, &bufptr, '0');
+            bufptr += int2string(n, buf + bufptr, disp_c - bufptr);
+            char2buf(buf, disp_c, &bufptr, flags.f.dmy ? '.' : '/');
             n = flags.f.dmy ? m : d;
             if (n < 10)
-                char2buf(buf, 22, &bufptr, '0');
-            bufptr += int2string(n, buf + bufptr, 22 - bufptr);
-            char2buf(buf, 22, &bufptr, flags.f.dmy ? '.' : '/');
-            bufptr += int2string(y, buf + bufptr, 22 - bufptr);
+                char2buf(buf, disp_c, &bufptr, '0');
+            bufptr += int2string(n, buf + bufptr, disp_c - bufptr);
+            char2buf(buf, disp_c, &bufptr, flags.f.dmy ? '.' : '/');
+            bufptr += int2string(y, buf + bufptr, disp_c - bufptr);
         }
-        char2buf(buf, 22, &bufptr, ' ');
-        string2buf(buf, 22, &bufptr, weekdaynames + weekday * 3, 3);
-        clear_row(0);
-        draw_string(0, 0, buf, bufptr);
-        flush_display();
-        flags.f.message = 1;
-        flags.f.two_line_message = 0;
+        char2buf(buf, disp_c, &bufptr, ' ');
+        string2buf(buf, disp_c, &bufptr, weekdaynames + weekday * 3, 3);
+        draw_message(0, buf, bufptr);
         if (flags.f.trace_print && flags.f.printer_exists)
             print_text(buf, bufptr, true);
     }
@@ -539,9 +544,7 @@ int docmd_date_plus(arg_struct *arg) {
     int err = date2comps(date, &y, &m, &d);
     if (err != ERR_NONE)
         return err;
-    err = greg2jd(y, m, d, &jd);
-    if (err != ERR_NONE)
-        return err;
+    jd = greg2jd(y, m, d);
     jd += to_int4(days < 0 ? -floor(-days) : floor(days));
     err = jd2greg(jd, &y, &m, &d);
     if (err != ERR_NONE)
@@ -554,31 +557,50 @@ int docmd_date_plus(arg_struct *arg) {
     return binary_result(new_x);
 }
 
-int docmd_ddays(arg_struct *arg) {
-    phloat date1 = ((vartype_real *) stack[sp - 1])->x;
+static int ddays_helper(int offset, int4 (*daynum)(int4 y, int4 m, int4 d)) {
+    phloat date1 = ((vartype_real *) stack[sp - offset - 1])->x;
     if (date1 < 0 || date1 > (flags.f.ymd ? 10000 : 100))
         return ERR_INVALID_DATA;
-    phloat date2 = ((vartype_real *) stack[sp])->x;
+    phloat date2 = ((vartype_real *) stack[sp - offset])->x;
     if (date2 < 0 || date2 > (flags.f.ymd ? 10000 : 100))
         return ERR_INVALID_DATA;
     int4 y, m, d, jd1, jd2;
     int err = date2comps(date1, &y, &m, &d);
     if (err != ERR_NONE)
         return err;
-    err = greg2jd(y, m, d, &jd1);
-    if (err != ERR_NONE)
-        return err;
+    jd1 = daynum(y, m, d);
     err = date2comps(date2, &y, &m, &d);
     if (err != ERR_NONE)
         return err;
-    err = greg2jd(y, m, d, &jd2);
-    if (err != ERR_NONE)
-        return err;
-
+    jd2 = daynum(y, m, d);
     vartype *new_x = new_real(jd2 - jd1);
     if (new_x == NULL)
         return ERR_INSUFFICIENT_MEMORY;
-    return binary_result(new_x);
+    if (offset == 0)
+        return binary_result(new_x);
+    else
+        return ternary_result(new_x);
+}
+
+int docmd_ddays(arg_struct *arg) {
+    return ddays_helper(0, greg2jd);
+}
+
+int docmd_ddaysc(arg_struct *arg) {
+    phloat c = ((vartype_real *) stack[sp])->x;
+    if (c < 1 || c > 3)
+        return ERR_INVALID_DATA;
+    int cal = to_int(c);
+    if (c != cal)
+        return ERR_INVALID_DATA;
+    int4 (*daynum)(int4 y, int4 m, int4 d);
+    if (cal == 1)
+        daynum = greg2jd;
+    else if (cal == 2)
+        daynum = noleap;
+    else
+        daynum = thirtyday;
+    return ddays_helper(1, daynum);
 }
 
 int docmd_dmy(arg_struct *arg) {
@@ -596,9 +618,7 @@ int docmd_dow(arg_struct *arg) {
     int err = date2comps(x, &y, &m, &d);
     if (err != ERR_NONE)
         return err;
-    err = greg2jd(y, m, d, &jd);
-    if (err != ERR_NONE)
-        return err;
+    jd = greg2jd(y, m, d);
     jd = (jd + 1) % 7;
 
     vartype *new_x = new_real(jd);
@@ -606,11 +626,7 @@ int docmd_dow(arg_struct *arg) {
         return ERR_INSUFFICIENT_MEMORY;
 
     if (!program_running()) {
-        clear_row(0);
-        draw_string(0, 0, weekdaynames + jd * 3, 3);
-        flush_display();
-        flags.f.message = 1;
-        flags.f.two_line_message = 0;
+        draw_message(0, weekdaynames + jd * 3, 3);
         if (flags.f.trace_print && flags.f.printer_exists)
             print_text(weekdaynames + jd * 3, 3, true);
     }
@@ -643,29 +659,26 @@ int docmd_time(arg_struct *arg) {
         }
         int m = time / 10000 % 100;
         int s = time / 100 % 100;
-        char buf[22];
+        char *buf = (char *) malloc(disp_c);
+        freer f(buf);
         int bufptr = 0;
         if (h < 10)
-            char2buf(buf, 22, &bufptr, ' ');
-        bufptr += int2string(h, buf + bufptr, 22 - bufptr);
-        char2buf(buf, 22, &bufptr, ':');
+            char2buf(buf, disp_c, &bufptr, ' ');
+        bufptr += int2string(h, buf + bufptr, disp_c - bufptr);
+        char2buf(buf, disp_c, &bufptr, ':');
         if (m < 10)
-            char2buf(buf, 22, &bufptr, '0');
-        bufptr += int2string(m, buf + bufptr, 22 - bufptr);
-        char2buf(buf, 22, &bufptr, ':');
+            char2buf(buf, disp_c, &bufptr, '0');
+        bufptr += int2string(m, buf + bufptr, disp_c - bufptr);
+        char2buf(buf, disp_c, &bufptr, ':');
         if (s < 10)
-            char2buf(buf, 22, &bufptr, '0');
-        bufptr += int2string(s, buf + bufptr, 22 - bufptr);
+            char2buf(buf, disp_c, &bufptr, '0');
+        bufptr += int2string(s, buf + bufptr, disp_c - bufptr);
         if (!mode_time_clk24) {
-            char2buf(buf, 22, &bufptr, ' ');
-            char2buf(buf, 22, &bufptr, am ? 'A' : 'P');
-            char2buf(buf, 22, &bufptr, 'M');
+            char2buf(buf, disp_c, &bufptr, ' ');
+            char2buf(buf, disp_c, &bufptr, am ? 'A' : 'P');
+            char2buf(buf, disp_c, &bufptr, 'M');
         }
-        clear_row(0);
-        draw_string(0, 0, buf, bufptr);
-        flush_display();
-        flags.f.message = 1;
-        flags.f.two_line_message = 0;
+        draw_message(0, buf, bufptr);
         if (flags.f.trace_print && flags.f.printer_exists)
             print_text(buf, bufptr, true);
     }
@@ -715,6 +728,7 @@ int docmd_setime(arg_struct *arg) {
     shell_set_time(h, m, s);
     return ERR_NONE;
 }
+
 
 // The YMD function is not an original Time Module function, and in Free42,
 // it is grouped with the "Programming" extension, but logically, of course,
@@ -964,7 +978,7 @@ int docmd_rtnerr(arg_struct *arg) {
     } else {
         return ERR_INTERNAL_ERROR;
     }
-    int err2 = pop_func_state(true);
+    int err2 = pop_func_state(err != ERR_NONE);
     if (err2 != ERR_NONE)
         return err2;
     if (err != ERR_NONE && flags.f.error_ignore) {
@@ -978,6 +992,30 @@ int docmd_rtnerr(arg_struct *arg) {
         return rtn(ERR_NONE);
 }
 
+int docmd_raise(arg_struct *arg) {
+    int err;
+    int len;
+    if (arg->type == ARGTYPE_IND_NUM
+            || arg->type == ARGTYPE_IND_STK
+            || arg->type == ARGTYPE_IND_STR) {
+        len = 22;
+        err = resolve_ind_arg(arg, lasterr_text, &len);
+        if (err != ERR_NONE)
+            return err;
+    }
+    if (arg->type == ARGTYPE_STR) {
+        lasterr_length = len;
+        err = -1;
+    } else if (arg->type == ARGTYPE_NUM) {
+        err = arg->val.num;
+        if (err > RTNERR_MAX)
+            return ERR_INVALID_DATA;
+    } else {
+        return ERR_INTERNAL_ERROR;
+    }
+    return err;
+}
+
 int docmd_strace(arg_struct *arg) {
     flags.f.trace_print = 1;
     flags.f.normal_print = 1;
@@ -986,6 +1024,15 @@ int docmd_strace(arg_struct *arg) {
 
 int docmd_varmnu1(arg_struct *arg) {
     int err = docmd_varmenu(arg);
+    if (err == ERR_NONE) {
+        mode_varmenu = true;
+        varmenu_role = program_running() ? 3 : 0;
+    }
+    return err;
+}
+
+int docmd_eqnmnu1(arg_struct *arg) {
+    int err = docmd_eqnmenu(arg);
     if (err == ERR_NONE) {
         mode_varmenu = true;
         varmenu_role = program_running() ? 3 : 0;
@@ -1029,7 +1076,7 @@ int docmd_ident(arg_struct *arg) {
         vcomp[3] = c - 'a' + 1;
     int ver = ((vcomp[0] * 100 + vcomp[1]) * 100 + vcomp[2]) * 100 + vcomp[3];
 
-    vartype *v = new_real(ver);
+    vartype *v = new_real(-ver);
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
     return recall_result(v);
@@ -1299,6 +1346,25 @@ int docmd_putli(arg_struct *arg) {
     return ERR_NONE;
 }
 
+int docmd_try(arg_struct *arg) {
+    return set_trap(-1);
+}
+
+int docmd_tryx(arg_struct *arg) {
+    phloat x = ((vartype_real *) stack[sp])->x;
+    if (x < 0 || x >= (1 << (RTNERR_MAX + 1)))
+        return ERR_INVALID_DATA;
+    return set_trap(to_int4(x));
+}
+
+int docmd_catch_t(arg_struct *arg) {
+    return get_caught() ? ERR_YES : ERR_NO;
+}
+
+int docmd_prtrace(arg_struct *arg) {
+    return print_backtrace();
+}
+
 /////////////////////
 ///// Big Stack /////
 /////////////////////
@@ -1339,15 +1405,11 @@ int docmd_l4stk(arg_struct *arg) {
 }
 
 int docmd_nstk(arg_struct *arg) {
-    if (!core_settings.allow_big_stack)
-        return ERR_BIG_STACK_DISABLED;
     flags.f.big_stack = 1;
     return ERR_NONE;
 }
 
 int docmd_lnstk(arg_struct *arg) {
-    if (!core_settings.allow_big_stack)
-        return ERR_BIG_STACK_DISABLED;
     if (!program_running())
         return ERR_RESTRICTED_OPERATION;
     return push_stack_state(true);
@@ -1545,8 +1607,6 @@ int docmd_rupn(arg_struct *arg) {
 ////////////////////
 
 int docmd_pgmmenu(arg_struct *arg) {
-    if (!mvar_prgms_exist())
-        return ERR_NO_MENU_VARIABLES;
     int err = set_menu_return_err(MENULEVEL_APP, MENU_CATALOG, false);
     if (err == ERR_NONE) {
         set_cat_section(CATSECT_PGM_MENU);
@@ -1561,23 +1621,22 @@ int docmd_pgmvar(arg_struct *arg) {
     if (!flags.f.printer_exists)
         return ERR_PRINTING_IS_DISABLED;
 
-    int err;
     if (arg->type == ARGTYPE_IND_NUM
             || arg->type == ARGTYPE_IND_STK
             || arg->type == ARGTYPE_IND_STR) {
-        err = resolve_ind_arg(arg);
+        int err = resolve_ind_arg(arg);
         if (err != ERR_NONE)
             return err;
     }
     if (arg->type != ARGTYPE_STR)
         return ERR_INVALID_TYPE;
 
-    int prgm;
+    pgm_index prgm;
     int4 pc;
     if (!find_global_label(arg, &prgm, &pc))
         return ERR_LABEL_NOT_FOUND;
     pc += get_command_length(prgm, pc);
-    int saved_prgm = current_prgm;
+    pgm_index saved_prgm = current_prgm;
     current_prgm = prgm;
     bool found = false;
 
@@ -1592,37 +1651,37 @@ int docmd_pgmvar(arg_struct *arg) {
             print_text(NULL, 0, true);
             found = true;
         }
-
-        vartype *v = recall_var(arg2.val.text, arg2.length);
-        char lbuf[32], rbuf[100];
-        int llen = 0, rlen = 0;
-        string2buf(lbuf, 8, &llen, arg2.val.text, arg2.length);
-        char2buf(lbuf, 8, &llen, '=');
-
-        if (v == NULL) {
-            print_wide(lbuf, llen, "<Unset>", 7);
-        } else if (v->type == TYPE_STRING) {
-            vartype_string *s = (vartype_string *) v;
-            char *sbuf = (char *) malloc(s->length + 2);
-            if (sbuf == NULL) {
-                print_wide(lbuf, llen, "<Low Mem>", 9);
-            } else {
-                sbuf[0] = '"';
-                memcpy(sbuf + 1, s->txt(), s->length);
-                sbuf[s->length + 1] = '"';
-                print_wide(lbuf, llen, sbuf, s->length + 2);
-                free(sbuf);
-            }
-        } else {
-            rlen = vartype2string(v, rbuf, 100);
-            print_wide(lbuf, llen, rbuf, rlen);
-        }
+        print_one_var(arg2.val.text, arg2.length);
     }
     current_prgm = saved_prgm;
     if (found)
         set_annunciators(-1, -1, 0, -1, -1, -1);
     else
         return ERR_NO_MENU_VARIABLES;
+    return ERR_NONE;
+}
+
+int docmd_eqnvar(arg_struct *arg) {
+    if (!flags.f.printer_enable && program_running())
+        return ERR_NONE;
+    if (!flags.f.printer_exists)
+        return ERR_PRINTING_IS_DISABLED;
+
+    vartype_equation *eq;
+    int err = get_arg_equation(arg, &eq);
+    if (err != ERR_NONE)
+        return err;
+
+    std::vector<std::string> params = get_parameters(eq->data);
+    if (params.size() == 0)
+        return ERR_NO_MENU_VARIABLES;
+    set_annunciators(-1, -1, 1, -1, -1, -1);
+    print_text(NULL, 0, true);
+    for (int i = 0; i < params.size(); i++) {
+        std::string s = params[i];
+        print_one_var(s.c_str(), (int) s.length());
+    }
+    set_annunciators(-1, -1, 0, -1, -1, -1);
     return ERR_NONE;
 }
 
@@ -1639,7 +1698,7 @@ struct temp_vartype {
         if (err == ERR_NONE && require_real) {
             if (v->type == TYPE_STRING)
                 err = ERR_ALPHA_DATA_IS_INVALID;
-            else if (v->type != TYPE_REAL)
+            else if (v->type != TYPE_REAL && v->type != TYPE_UNIT)
                 err = ERR_INVALID_TYPE;
         }
     }
@@ -1666,29 +1725,35 @@ int docmd_x_lt_nn(arg_struct *arg) {
     temp_vartype tv(arg, true);
     if (tv.err != ERR_NONE)
         return tv.err;
-    return ((vartype_real *) stack[sp])->x < ((vartype_real *) tv.v)->x ? ERR_YES : ERR_NO;
+    return generic_comparison(stack[sp], tv.v, 'L');
 }
 
 int docmd_x_gt_nn(arg_struct *arg) {
     temp_vartype tv(arg, true);
     if (tv.err != ERR_NONE)
         return tv.err;
-    return ((vartype_real *) stack[sp])->x > ((vartype_real *) tv.v)->x ? ERR_YES : ERR_NO;
+    return generic_comparison(stack[sp], tv.v, 'G');
 }
 
 int docmd_x_le_nn(arg_struct *arg) {
     temp_vartype tv(arg, true);
     if (tv.err != ERR_NONE)
         return tv.err;
-    return ((vartype_real *) stack[sp])->x <= ((vartype_real *) tv.v)->x ? ERR_YES : ERR_NO;
+    return generic_comparison(stack[sp], tv.v, 'l');
 }
 
 int docmd_x_ge_nn(arg_struct *arg) {
     temp_vartype tv(arg, true);
     if (tv.err != ERR_NONE)
         return tv.err;
-    return ((vartype_real *) stack[sp])->x >= ((vartype_real *) tv.v)->x ? ERR_YES : ERR_NO;
+    return generic_comparison(stack[sp], tv.v, 'g');
 }
+
+/*
+ * Note: Cheerfully casting to vartype_real * here, even though the parameter
+ * can also be a unit object. This is OK because the unit object has its
+ * numerical component at the same offset as the real object.
+ */
 
 int docmd_0_eq_nn(arg_struct *arg) {
     temp_vartype tv(arg, true);
@@ -1732,85 +1797,6 @@ int docmd_0_ge_nn(arg_struct *arg) {
     return ((vartype_real *) tv.v)->x <= 0 ? ERR_YES : ERR_NO;
 }
 
-///////////////////////////
-///// Statistics Sums /////
-///////////////////////////
-
-static int get_sum(int n) {
-    vartype *v = recall_var("REGS", 4);
-    if (v == NULL)
-        return ERR_SIZE_ERROR;
-    else if (v->type != TYPE_REALMATRIX)
-        return ERR_INVALID_TYPE;
-    vartype_realmatrix *rm = (vartype_realmatrix *) v;
-    n += mode_sigma_reg;
-    if (n >= rm->rows * rm->columns)
-        return ERR_SIZE_ERROR;
-    if (rm->array->is_string[n]) {
-        char *text;
-        int length;
-        get_matrix_string(rm, n, &text, &length);
-        v = new_string(text, length);
-    } else {
-        v = new_real(rm->array->data[n]);
-    }
-    if (v == NULL)
-        return ERR_INSUFFICIENT_MEMORY;
-    return recall_result(v);
-}
-
-int docmd_sn(arg_struct *arg) {
-    return get_sum(5);
-}
-
-int docmd_sx(arg_struct *arg) {
-    return get_sum(0);
-}
-
-int docmd_sx2(arg_struct *arg) {
-    return get_sum(1);
-}
-
-int docmd_sy(arg_struct *arg) {
-    return get_sum(2);
-}
-
-int docmd_sy2(arg_struct *arg) {
-    return get_sum(3);
-}
-
-int docmd_sxy(arg_struct *arg) {
-    return get_sum(4);
-}
-
-int docmd_slnx(arg_struct *arg) {
-    return get_sum(6);
-}
-
-int docmd_slnx2(arg_struct *arg) {
-    return get_sum(7);
-}
-
-int docmd_slny(arg_struct *arg) {
-    return get_sum(8);
-}
-
-int docmd_slny2(arg_struct *arg) {
-    return get_sum(9);
-}
-
-int docmd_slnxlny(arg_struct *arg) {
-    return get_sum(10);
-}
-
-int docmd_sxlny(arg_struct *arg) {
-    return get_sum(11);
-}
-
-int docmd_sylnx(arg_struct *arg) {
-    return get_sum(12);
-}
-
 ///////////////////////////////////
 ///// String & List Functions /////
 ///////////////////////////////////
@@ -1822,6 +1808,17 @@ int docmd_xstr(arg_struct *arg) {
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
     return recall_result(v);
+}
+
+int docmd_xview(arg_struct *arg) {
+    vartype_string *s = (vartype_string *) stack[sp];
+    alpha_view_helper(s->txt(), s->length);
+    if (!flags.f.printer_enable && program_running())
+        return ERR_NONE;
+    else if (flags.f.printer_exists)
+        return alpha_print_helper(s->txt(), s->length);
+    else
+        return ERR_STOP;
 }
 
 static int concat(bool extend) {
@@ -1922,6 +1919,7 @@ static int concat(bool extend) {
         if (new_data == NULL)
             goto nomem;
         list->array->data = new_data;
+        list->array->data[list->size++] = v;
         // Call binary_result() before doing the actual data transfer.
         // The reason is that binary_result() can fail, because of the
         // T duplication, and we don't want to have to roll back all this.
@@ -1931,10 +1929,10 @@ static int concat(bool extend) {
             // Unlike the 'extend' case, we don't try to shrink the data array
             // back down here. We're only wasting the space of one pointer,
             // so, *shrug*.
+            list->array->data[--list->size] = NULL;
             stack[sp - 1] = (vartype *) list;
             goto nomem;
         }
-        list->array->data[list->size++] = v;
         // Not freeing v because it is now owned by the target list.
         return ERR_NONE;
     } else {
@@ -2139,9 +2137,12 @@ int docmd_head(arg_struct *arg) {
             }
         }
         case ARGTYPE_STR: {
-            s = recall_var(arg->val.text, arg->length);
+            bool writable;
+            s = recall_var(arg->val.text, arg->length, &writable);
             if (s == NULL)
                 return ERR_NONEXISTENT;
+            else if (!writable)
+                return ERR_VARIABLE_NOT_WRITABLE;
             goto doit;
         }
         default:
@@ -2283,6 +2284,21 @@ int docmd_nn_to_s(arg_struct *args) {
     return err;
 }
 
+int docmd_ip_to_s(arg_struct *arg) {
+    char buf[44];
+    int size = ip2revstring(((vartype_real *) stack[sp])->x, buf, 44);
+    for (int i = 0; i < size / 2; i++) {
+        char t = buf[i];
+        buf[i] = buf[size - 1 - i];
+        buf[size - 1 - i] = t;
+    }
+    vartype *s = new_string(buf, size);
+    if (s == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    unary_result(s);
+    return ERR_NONE;
+}
+
 int docmd_c_to_n(arg_struct *arg) {
     // C->N: convert character to number, like ATOX
     vartype_string *s = (vartype_string *) stack[sp];
@@ -2415,18 +2431,4 @@ int docmd_from_list(arg_struct *arg) {
     free(list);
     print_trace();
     return ERR_NONE;
-}
-
-int docmd_width(arg_struct *arg) {
-    vartype *v = new_real(131);
-    if (v == NULL)
-        return ERR_INSUFFICIENT_MEMORY;
-    return recall_result(v);
-}
-
-int docmd_height(arg_struct *arg) {
-    vartype *v = new_real(16);
-    if (v == NULL)
-        return ERR_INSUFFICIENT_MEMORY;
-    return recall_result(v);
 }

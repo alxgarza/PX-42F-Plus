@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -20,13 +20,13 @@
 
 #include "core_commands1.h"
 #include "core_commands2.h"
+#include "core_commands8.h"
 #include "core_display.h"
 #include "core_helpers.h"
 #include "core_main.h"
 #include "core_math1.h"
 #include "core_sto_rcl.h"
 #include "core_variables.h"
-#include "shell.h"
 
 
 /********************************************************/
@@ -106,6 +106,11 @@ int docmd_chs(arg_struct *arg) {
                 cm->array->data[i] = -(cm->array->data[i]);
             break;
         }
+        case TYPE_UNIT: {
+            vartype_unit *u = (vartype_unit *) stack[sp];
+            u->x = -(u->x);
+            break;
+        }
         default:
             return ERR_INTERNAL_ERROR;
     }
@@ -158,18 +163,28 @@ int docmd_lastx(arg_struct *arg) {
 
 int docmd_complex(arg_struct *arg) {
     switch (stack[sp]->type) {
-        case TYPE_REAL: {
+        case TYPE_REAL:
+        case TYPE_UNIT: {
             if (stack[sp - 1]->type == TYPE_STRING)
                 return ERR_ALPHA_DATA_IS_INVALID;
             else if (stack[sp - 1]->type != TYPE_REAL)
                 return ERR_INVALID_TYPE;
             vartype *v;
             if (flags.f.polar) {
+                phloat phi;
+                if (stack[sp]->type == TYPE_UNIT) {
+                    int err = unit_to_angle(stack[sp], &phi);
+                    if (err != ERR_NONE)
+                        return err;
+                } else
+                    phi = ((vartype_real *) stack[sp])->x;
                 phloat re, im;
                 generic_p2r(((vartype_real *) stack[sp - 1])->x,
-                            ((vartype_real *) stack[sp])->x, &re, &im);
+                            phi, &re, &im);
                 v = new_complex(re, im);
             } else {
+                if (stack[sp]->type == TYPE_UNIT)
+                    return ERR_INCONSISTENT_UNITS;
                 v = new_complex(((vartype_real *) stack[sp - 1])->x,
                                 ((vartype_real *) stack[sp])->x);
             }
@@ -605,7 +620,31 @@ int docmd_polar(arg_struct *arg) {
 int docmd_size(arg_struct *arg) {
     if (arg->type != ARGTYPE_NUM)
         return ERR_INVALID_TYPE;
-    return dimension_array("REGS", 4, arg->val.num, 1, true);
+    vloc idx = lookup_var("REGS", 4);
+    if (arg->val.num == 0) {
+        if (!idx.not_found() && !purge_var("REGS", 4, true))
+            return ERR_RESTRICTED_OPERATION;
+        else
+            return ERR_NONE;
+    }
+    if (idx.not_found()) {
+        vartype *regs = new_realmatrix(arg->val.num, 1);
+        if (regs == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+        int err = store_root_var("REGS", 4, regs);
+        if (err != ERR_NONE)
+            free_vartype(regs);
+        return err;
+    } else {
+        if (matedit_mode == 3 && matedit_dir == idx.dir
+                && string_equals(matedit_name, matedit_length, "REGS", 4))
+            return ERR_RESTRICTED_OPERATION;
+        int err = dimension_array_ref(idx.value(), arg->val.num, 1);
+        if (err == ERR_NONE && matedit_mode == 1 && matedit_dir == idx.dir
+                && string_equals(matedit_name, matedit_length, "REGS", 4))
+            matedit_i = matedit_j = 0;
+        return err;
+    }
 }
 
 int docmd_quiet(arg_struct *arg) {
@@ -684,20 +723,14 @@ static int clv_helper(arg_struct *arg, bool global) {
         if (err != ERR_NONE)
             return err;
     }
-    if (arg->type == ARGTYPE_STR) {
-        /* When EDITN is active, don't allow the matrix being
-         * edited to be deleted. */
-        if (matedit_mode == 3
-                && string_equals(arg->val.text, arg->length, matedit_name, matedit_length))
-            return ERR_RESTRICTED_OPERATION;
-        if (!purge_var(arg->val.text, arg->length, global, !global))
-            return ERR_RESTRICTED_OPERATION;
-        if (!global)
-            maybe_pop_indexed_matrix(arg->val.text, arg->length);
-        remove_shadow(arg->val.text, arg->length);
-        return ERR_NONE;
-    } else
+    if (arg->type != ARGTYPE_STR)
         return ERR_INVALID_TYPE;
+    if (!purge_var(arg->val.text, arg->length, false, global, !global))
+        return ERR_RESTRICTED_OPERATION;
+    if (!global)
+        maybe_pop_indexed_matrix(arg->val.text, arg->length);
+    remove_shadow(arg->val.text, arg->length);
+    return ERR_NONE;
 }
 
 int docmd_clv(arg_struct *arg) {
@@ -760,7 +793,9 @@ int docmd_clrg(arg_struct *arg) {
 int docmd_del(arg_struct *arg) {
     if (arg->type != ARGTYPE_NUM)
         return ERR_INVALID_TYPE;
-    if (prgms[current_prgm].locked)
+    if (!current_prgm.is_editable())
+        return ERR_RESTRICTED_OPERATION;
+    if (current_prgm.is_locked())
         return ERR_PROGRAM_LOCKED;
     clear_prgm_lines(arg->val.num);
     return ERR_NONE;
@@ -774,8 +809,7 @@ int docmd_clkeys(arg_struct *arg) {
 int docmd_cllcd(arg_struct *arg) {
     clear_display();
     flush_display();
-    flags.f.message = 1;
-    flags.f.two_line_message = 1;
+    mode_message_lines = ALL_LINES;
     return ERR_NONE;
 }
 
@@ -810,9 +844,17 @@ int docmd_clall(arg_struct *arg) {
     flags.f.prgm_mode = 0;
 
     /* Clear all programs and variables */
-    clear_all_prgms();
+    clear_all_rtns();
+    current_prgm.set(-1, 0);
+
+    delete root;
+    root = new directory(2);
+    cwd = root;
+    dir_list_clear();
+    map_dir(1, eq_dir);
+    map_dir(2, root);
+
     goto_dot_dot(false);
-    purge_all_vars();
     regs = new_realmatrix(25, 1);
     store_var("REGS", 4, regs);
 
@@ -824,6 +866,8 @@ int docmd_clall(arg_struct *arg) {
 }
 
 int docmd_percent(arg_struct *arg) {
+    if (stack[sp]->type != TYPE_REAL)
+        return ERR_INVALID_TYPE;
     vartype_real *x = (vartype_real *) stack[sp];
     vartype_real *y = (vartype_real *) stack[sp - 1];
     phloat res = x->x * y->x;
@@ -834,9 +878,10 @@ int docmd_percent(arg_struct *arg) {
             return ERR_OUT_OF_RANGE;
     } else
         res /= 100.0;
-    vartype *new_x = new_real(res);
+    vartype *new_x = dup_vartype(stack[sp - 1]);
     if (new_x == NULL)
         return ERR_INSUFFICIENT_MEMORY;
+    ((vartype_real *) new_x)->x = res;
     unary_result(new_x);
     return ERR_NONE;
 }
@@ -963,9 +1008,16 @@ int docmd_to_hms(arg_struct *arg) {
 
 int docmd_to_rec(arg_struct *arg) {
     if (stack[sp]->type == TYPE_REAL) {
-        if (stack[sp - 1]->type == TYPE_REAL) {
+        phloat phi;
+        if (stack[sp - 1]->type == TYPE_UNIT) {
+            int err = unit_to_angle(stack[sp - 1], &phi);
+            if (err != ERR_NONE)
+                return err;
+            goto no_unit;
+        } else if (stack[sp - 1]->type == TYPE_REAL) {
+            phi = ((vartype_real *) stack[sp - 1])->x;
+            no_unit:
             phloat r = ((vartype_real *) stack[sp])->x;
-            phloat phi = ((vartype_real *) stack[sp - 1])->x;
             phloat x, y;
             vartype *vx, *vy;
             generic_p2r(r, phi, &x, &y);
@@ -1059,7 +1111,7 @@ static int mappable_ip(phloat x, phloat *y) {
 
 int docmd_ip(arg_struct *arg) {
     vartype *v;
-    int err = map_unary(stack[sp], &v, mappable_ip, NULL);
+    int err = map_unary(stack[sp], &v, mappable_ip, NULL, true);
     if (err == ERR_NONE)
         unary_result(v);
     return err;
@@ -1075,13 +1127,14 @@ static int mappable_fp(phloat x, phloat *y) {
 
 int docmd_fp(arg_struct *arg) {
     vartype *v;
-    int err = map_unary(stack[sp], &v, mappable_fp, NULL);
+    int err = map_unary(stack[sp], &v, mappable_fp, NULL, true);
     if (err == ERR_NONE)
         unary_result(v);
     return err;
 }
 
 static phloat rnd_multiplier;
+static phloat rnd_h;
 
 static int mappable_rnd_r(phloat x, phloat *y) {
     if (flags.f.fix_or_all && !flags.f.eng_or_all) {
@@ -1092,7 +1145,7 @@ static int mappable_rnd_r(phloat x, phloat *y) {
         if (t >= ALWAYS_INT_FROM)
             *y = x;
         else {
-            t = floor(t * rnd_multiplier + 0.5) / rnd_multiplier;
+            t = floor(t * rnd_multiplier + rnd_h) / rnd_multiplier;
             *y = neg ? -t : t;
         }
         return ERR_NONE;
@@ -1117,7 +1170,7 @@ static int mappable_rnd_r(phloat x, phloat *y) {
                  */
                 scale /= 10;
             }
-            t = floor(t / scale * rnd_multiplier + 0.5)
+            t = floor(t / scale * rnd_multiplier + rnd_h)
                                             / rnd_multiplier * scale;
             if (p_isinf(t)) {
                 if (flags.f.range_error_ignore)
@@ -1138,7 +1191,25 @@ static int mappable_rnd_c(phloat xre, phloat xim, phloat *yre, phloat *yim) {
     return mappable_rnd_r(xim, yim);
 }
 
-int docmd_rnd(arg_struct *arg) {
+int round_easy(phloat x, phloat *y) {
+    if (flags.f.fix_or_all && flags.f.eng_or_all) {
+        // This is the internal rounding used by AMORT; unlike the RND
+        // function, which rounds to 12 digits in ALL mode, I think it makes
+        // more sense not to round at all in the case of AMORT steps.
+        *y = x;
+        return ERR_NONE;
+    }
+    int digits = 0;
+    if (flags.f.digits_bit3) digits += 8;
+    if (flags.f.digits_bit2) digits += 4;
+    if (flags.f.digits_bit1) digits += 2;
+    if (flags.f.digits_bit0) digits += 1;
+    rnd_multiplier = pow(10.0, digits);
+    rnd_h = 0.5;
+    return mappable_rnd_r(x, y);
+}
+
+static bool rnd_helper(arg_struct *arg, bool trunc) {
     vartype *v;
     int err;
     int digits;
@@ -1152,10 +1223,19 @@ int docmd_rnd(arg_struct *arg) {
         if (flags.f.digits_bit0) digits += 1;
     }
     rnd_multiplier = pow(10.0, digits);
-    err = map_unary(stack[sp], &v, mappable_rnd_r, mappable_rnd_c);
+    rnd_h = trunc ? 0.0 : 0.5;
+    err = map_unary(stack[sp], &v, mappable_rnd_r, mappable_rnd_c, true);
     if (err == ERR_NONE)
         unary_result(v);
     return err;
+}
+
+int docmd_rnd(arg_struct *arg) {
+    return rnd_helper(arg, false);
+}
+
+int docmd_trunc(arg_struct *arg) {
+    return rnd_helper(arg, true);
 }
 
 int docmd_abs(arg_struct *arg) {
@@ -1207,6 +1287,18 @@ int docmd_abs(arg_struct *arg) {
             unary_result((vartype *) dst);
             return ERR_NONE;
         }
+        case TYPE_UNIT: {
+            vartype *r;
+            vartype_unit *u = (vartype_unit *) stack[sp];
+            phloat x = u->x;
+            if (x < 0)
+                x = -x;
+            r = new_unit(x, u->text, u->length);
+            if (r == NULL)
+                return ERR_INSUFFICIENT_MEMORY;
+            unary_result(r);
+            return ERR_NONE;
+        }
         default:
             return ERR_INTERNAL_ERROR;
     }
@@ -1232,7 +1324,8 @@ static int mappable_sign(phloat xre, phloat xim, phloat *yre, phloat *yim) {
 
 int docmd_sign(arg_struct *arg) {
     switch (stack[sp]->type) {
-        case TYPE_REAL: {
+        case TYPE_REAL:
+        case TYPE_UNIT: {
             /* Note that this implementation has sign(0) = 1, which is not
              * how most programming languages handle zero. This is a holdover
              * from the HP-41C, where SIGN did double duty for recognizing
@@ -1288,21 +1381,29 @@ int docmd_sign(arg_struct *arg) {
 }
 
 int docmd_mod(arg_struct *arg) {
-    phloat x = ((vartype_real *) stack[sp])->x;
-    phloat y = ((vartype_real *) stack[sp - 1])->x;
-    phloat res;
-    vartype *v;
-    if (x == 0)
-        res = y;
-    else if (y == 0)
-        res = 0;
-    else {
-        res = fmod(y, x);
-        if (res != 0 && ((x > 0 && y < 0) || (x < 0 && y > 0)))
-            res += x;
+    if (stack[sp]->type == TYPE_REAL && stack[sp - 1]->type == TYPE_REAL) {
+        phloat x = ((vartype_real *) stack[sp])->x;
+        phloat y = ((vartype_real *) stack[sp - 1])->x;
+        phloat res;
+        vartype *v;
+        if (x == 0)
+            res = y;
+        else if (y == 0)
+            res = 0;
+        else {
+            res = fmod(y, x);
+            if (res != 0 && ((x > 0 && y < 0) || (x < 0 && y > 0)))
+                res += x;
+        }
+        v = new_real(res);
+        if (v == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+        return binary_result(v);
+    } else {
+        vartype *dst;
+        int err = unit_mod(stack[sp], stack[sp - 1], &dst);
+        if (err != ERR_NONE)
+            return err;
+        return binary_result(dst);
     }
-    v = new_real(res);
-    if (v == NULL)
-        return ERR_INSUFFICIENT_MEMORY;
-    return binary_result(v);
 }

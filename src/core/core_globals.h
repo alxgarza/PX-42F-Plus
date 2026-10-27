@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,6 +22,7 @@
 #include <stdio.h>
 
 #include "free42.h"
+#include "core_parser.h"
 #include "core_phloat.h"
 #include "core_tables.h"
 #include "core_variables.h"
@@ -43,39 +44,51 @@ extern FILE *gfile;
 #define ERR_TOO_FEW_ARGUMENTS       8
 #define ERR_SIZE_ERROR              9
 #define ERR_STACK_DEPTH_ERROR      10
-#define ERR_RESTRICTED_OPERATION   11
-#define ERR_YES                    12
-#define ERR_NO                     13
-#define ERR_STOP                   14
-#define ERR_LABEL_NOT_FOUND        15
-#define ERR_NO_REAL_VARIABLES      16
-#define ERR_NO_COMPLEX_VARIABLES   17
-#define ERR_NO_MATRIX_VARIABLES    18
-#define ERR_NO_MENU_VARIABLES      19
-#define ERR_STAT_MATH_ERROR        20
-#define ERR_INVALID_FORECAST_MODEL 21
-#define ERR_SINGULAR_MATRIX        22
-#define ERR_SOLVE_SOLVE            23
-#define ERR_INTEG_INTEG            24
-#define ERR_RUN                    25
-#define ERR_INTERRUPTED            26
-#define ERR_PRINTING_IS_DISABLED   27
-#define ERR_INTERRUPTIBLE          28
-#define ERR_NO_VARIABLES           29
-#define ERR_INSUFFICIENT_MEMORY    30
-#define ERR_NOT_YET_IMPLEMENTED    31
-#define ERR_INTERNAL_ERROR         32
-#define ERR_SUSPICIOUS_OFF         33
-#define ERR_RTN_STACK_FULL         34
-#define ERR_NUMBER_TOO_LARGE       35
-#define ERR_NUMBER_TOO_SMALL       36
-#define ERR_BIG_STACK_DISABLED     37
-#define ERR_INVALID_CONTEXT        38
-#define ERR_NAME_TOO_LONG          39
-#define ERR_PROGRAM_LOCKED         40
-#define ERR_NEXT_PROGRAM_LOCKED    41
+#define ERR_STAT_MATH_ERROR        11
+#define ERR_INVALID_FORECAST_MODEL 12
+#define ERR_SINGULAR_MATRIX        13
+#define ERR_RESTRICTED_OPERATION   14
+#define ERR_YES                    15
+#define ERR_NO                     16
+#define ERR_STOP                   17
+#define ERR_LABEL_NOT_FOUND        18
+#define ERR_NO_REAL_VARIABLES      19
+#define ERR_NO_COMPLEX_VARIABLES   20
+#define ERR_NO_MATRIX_VARIABLES    21
+#define ERR_NO_LIST_VARIABLES      22
+#define ERR_NO_EQUATION_VARIABLES  23
+#define ERR_NO_NAMED_EQUATIONS     24
+#define ERR_NO_OTHER_VARIABLES     25
+#define ERR_NO_MENU_VARIABLES      26
+#define ERR_SOLVE_SOLVE            27
+#define ERR_INTEG_INTEG            28
+#define ERR_RUN                    29
+#define ERR_INTERRUPTED            30
+#define ERR_PRINTING_IS_DISABLED   31
+#define ERR_INTERRUPTIBLE          32
+#define ERR_NO_VARIABLES           33
+#define ERR_INSUFFICIENT_MEMORY    34
+#define ERR_NOT_YET_IMPLEMENTED    35
+#define ERR_INTERNAL_ERROR         36
+#define ERR_SUSPICIOUS_OFF         37
+#define ERR_RTN_STACK_FULL         38
+#define ERR_NUMBER_TOO_LARGE       39
+#define ERR_NUMBER_TOO_SMALL       40
+#define ERR_INVALID_CONTEXT        41
+#define ERR_NAME_TOO_LONG          42
+#define ERR_PARSE_ERROR            43
+#define ERR_INVALID_EQUATION       44
+#define ERR_INCONSISTENT_UNITS     45
+#define ERR_INVALID_UNIT           46
+#define ERR_VARIABLE_NOT_WRITABLE  47
+#define ERR_DIRECTORY_EXISTS       48
+#define ERR_VARIABLE_EXISTS        49
+#define ERR_TOO_MANY_ARGUMENTS     50
+#define ERR_NO_SOLUTION_FOUND      51
+#define ERR_PROGRAM_LOCKED         52
+#define ERR_NEXT_PROGRAM_LOCKED    53
 
-#define RTNERR_MAX 8
+#define RTNERR_MAX 13
 
 struct error_spec {
     const char *text;
@@ -147,70 +160,91 @@ extern const error_spec errors[];
 #define MENU_ALPHA_PAREN   11
 #define MENU_ALPHA_ARROW   12
 #define MENU_ALPHA_COMP    13
-#define MENU_ALPHA_MATH    14
-#define MENU_ALPHA_PUNC1   15
-#define MENU_ALPHA_PUNC2   16
-#define MENU_ALPHA_MISC1   17
-#define MENU_ALPHA_MISC2   18
-#define MENU_ST            19
-#define MENU_IND_ST        20
-#define MENU_IND           21
-#define MENU_MODES1        22
-#define MENU_MODES2        23
-#define MENU_MODES3        24
-#define MENU_MODES4        25
-#define MENU_MODES_MENUS   26
-#define MENU_DISP          27
-#define MENU_CLEAR1        28
-#define MENU_CLEAR2        29
-#define MENU_CONVERT1      30
-#define MENU_CONVERT2      31
-#define MENU_FLAGS         32
-#define MENU_PROB          33
-#define MENU_CUSTOM1       34
-#define MENU_CUSTOM2       35
-#define MENU_CUSTOM3       36
-#define MENU_PGM_FCN1      37
-#define MENU_PGM_FCN2      38
-#define MENU_PGM_FCN3      39
-#define MENU_PGM_FCN4      40
-#define MENU_PGM_XCOMP0    41
-#define MENU_PGM_XCOMPY    42
-#define MENU_PRINT1        43
-#define MENU_PRINT2        44
-#define MENU_PRINT3        45
-#define MENU_TOP_FCN       46
-#define MENU_CATALOG       47
-#define MENU_BLANK         48
-#define MENU_PROGRAMMABLE  49
-#define MENU_VARMENU       50
-#define MENU_STAT1         51
-#define MENU_STAT2         52
-#define MENU_STAT_CFIT     53
-#define MENU_STAT_MODL     54
-#define MENU_STAT_SUMS1    55
-#define MENU_STAT_SUMS2    56
-#define MENU_STAT_SUMS3    57
-#define MENU_MATRIX1       58
-#define MENU_MATRIX2       59
-#define MENU_MATRIX3       60
-#define MENU_MATRIX_SIMQ   61
-#define MENU_MATRIX_EDIT1  62
-#define MENU_MATRIX_EDIT2  63
-#define MENU_BASE1         64
-#define MENU_BASE2         65
-#define MENU_BASE3         66
-#define MENU_BASE4         67
-#define MENU_BASE5         68
-#define MENU_BASE_A_THRU_F 69
-#define MENU_BASE_LOGIC    70
-#define MENU_BASE_FLOAT1   71
-#define MENU_BASE_FLOAT2   72
-#define MENU_BASE_MODES    73
-#define MENU_BASE_DISP     74
-#define MENU_SOLVE         75
-#define MENU_INTEG         76
-#define MENU_INTEG_PARAMS  77
+#define MENU_ALPHA_MATH1   14
+#define MENU_ALPHA_MATH2   15
+#define MENU_ALPHA_PUNC1   16
+#define MENU_ALPHA_PUNC2   17
+#define MENU_ALPHA_PUNC3   18
+#define MENU_ALPHA_MISC1   19
+#define MENU_ALPHA_MISC2   20
+#define MENU_ST            21
+#define MENU_IND_ST        22
+#define MENU_IND           23
+#define MENU_MODES1        24
+#define MENU_MODES2        25
+#define MENU_MODES3        26
+#define MENU_MODES4        27
+#define MENU_MODES_MENUS   28
+#define MENU_DISP1         29
+#define MENU_DISP2         30
+#define MENU_DISP3         31
+#define MENU_DISP4         32
+#define MENU_CLEAR1        33
+#define MENU_CLEAR2        34
+#define MENU_CONVERT1      35
+#define MENU_CONVERT2      36
+#define MENU_FLAGS         37
+#define MENU_PROB          38
+#define MENU_CUSTOM1       39
+#define MENU_CUSTOM2       40
+#define MENU_CUSTOM3       41
+#define MENU_PGM_FCN1      42
+#define MENU_PGM_FCN2      43
+#define MENU_PGM_FCN3      44
+#define MENU_PGM_FCN4      45
+#define MENU_PGM_XCOMP0    46
+#define MENU_PGM_XCOMPY    47
+#define MENU_PRINT1        48
+#define MENU_PRINT2        49
+#define MENU_PRINT3        50
+#define MENU_TOP_FCN       51
+#define MENU_CATALOG       52
+#define MENU_BLANK         53
+#define MENU_PROGRAMMABLE  54
+#define MENU_VARMENU       55
+#define MENU_STAT1         56
+#define MENU_STAT2         57
+#define MENU_STAT_CFIT     58
+#define MENU_STAT_MODL     59
+#define MENU_STAT_SUMS1    60
+#define MENU_STAT_SUMS2    61
+#define MENU_STAT_SUMS3    62
+#define MENU_MATRIX1       63
+#define MENU_MATRIX2       64
+#define MENU_MATRIX3       65
+#define MENU_MATRIX_SIMQ   66
+#define MENU_MATRIX_EDIT1  67
+#define MENU_MATRIX_EDIT2  68
+#define MENU_BASE1         69
+#define MENU_BASE2         70
+#define MENU_BASE3         71
+#define MENU_BASE4         72
+#define MENU_BASE5         73
+#define MENU_BASE_A_THRU_F 74
+#define MENU_BASE_LOGIC    75
+#define MENU_BASE_FLOAT1   76
+#define MENU_BASE_FLOAT2   77
+#define MENU_BASE_MODES    78
+#define MENU_BASE_DISP     79
+#define MENU_SOLVE         80
+#define MENU_INTEG         81
+#define MENU_INTEG_PARAMS  82
+#define MENU_DIR_FCN1      83
+#define MENU_DIR_FCN2      84
+#define MENU_UNIT_FCN1     85
+#define MENU_UNIT_FCN2     86
+#define MENU_TVM_APP1      87
+#define MENU_TVM_APP2      88
+#define MENU_TVM_AMORT     89
+#define MENU_TVM_TABLE     90
+#define MENU_TVM_PARAMS    91
+#define MENU_TVM_PRGM1     92
+#define MENU_TVM_PRGM2     93
+#define MENU_EQN_FCN1      94
+#define MENU_EQN_FCN2      95
+#define MENU_GRAPH         96
+#define MENU_GRAPH_AXES    97
+#define MENU_GRAPH_VIEW    98
 
 
 struct menu_item_spec {
@@ -235,6 +269,8 @@ extern const menu_spec menus[];
 
 /* Suppress menu updates while state loading is in progress */
 extern bool loading_state;
+extern bool saving_state;
+
 
 /* Registers */
 #define REG_T 0
@@ -266,7 +302,7 @@ typedef union {
         char double_wide_print;
         char lowercase_print;
         char f14;
-        char trace_print; /* 'normal_print' ignored if this is set */
+        char trace_print; /* This and 'normal_print' both set: STRACE mode */
         char normal_print;
         char f17; char f18; char f19; char f20;
         char printer_enable;
@@ -280,7 +316,8 @@ typedef union {
         char thousands_separators;
         char stack_lift_disable;
         char dmy; /* Time Module DMY mode */
-        char f32; char f33;
+        char direct_solver;
+        char prev_progmenu;
         char agraph_control1; /* 0 (default): dst = dst | src, 1: dst = src, */
         char agraph_control0; /* 2: dst = dst & ~src, 3: dst = dst ^ src */
         char digits_bit3;
@@ -297,11 +334,11 @@ typedef union {
         char VIRTUAL_variable_menu;
         char VIRTUAL_alpha_mode;
         char VIRTUAL_low_battery;
-        char message;
-        char two_line_message;
+        char VIRTUAL_message;
+        char VIRTUAL_two_line_message;
         char prgm_mode;
         char VIRTUAL_input;
-        char f54;
+        char eqn_compat; /* HP-17B compatibility for equations */
         char printer_exists;
         char lin_fit;
         char log_fit;
@@ -350,9 +387,6 @@ struct var_struct {
     int2 flags;
     vartype *value;
 };
-extern int vars_capacity;
-extern int vars_count;
-extern var_struct *vars;
 
 /* Programs */
 struct prgm_struct {
@@ -361,27 +395,67 @@ struct prgm_struct {
     bool lclbl_invalid;
     bool locked;
     unsigned char *text;
+    equation_data *eq_data;
     inline bool is_end(int4 pc) {
         return text[pc] == CMD_END && (text[pc + 1] & 112) == 0;
     }
 };
-extern int prgms_capacity;
-extern int prgms_count;
-extern prgm_struct *prgms;
 struct label_struct {
     unsigned char length;
     char name[7];
     int prgm;
     int4 pc;
 };
-extern int labels_capacity;
-extern int labels_count;
-extern label_struct *labels;
 
-extern int current_prgm;
+struct directory;
+
+/* Subdirectories */
+struct subdir_struct {
+    unsigned char length;
+    char name[7];
+    directory *dir;
+};
+
+extern int local_vars_capacity;
+extern int local_vars_count;
+extern var_struct *local_vars;
+
+/* Hierarchical storage */
+struct directory {
+    int id;
+    int vars_capacity;
+    int vars_count;
+    var_struct *vars;
+    int prgms_capacity;
+    int prgms_count;
+    prgm_struct *prgms;
+    int labels_capacity;
+    int labels_count;
+    label_struct *labels;
+    int children_capacity;
+    int children_count;
+    subdir_struct *children;
+    directory *parent;
+    directory(int id);
+    ~directory();
+    directory *clone();
+};
+
+extern directory *root;
+extern directory *cwd;
+extern directory *eq_dir;
+extern directory **dir_list;
+int get_dir_id();
+void map_dir(int id, directory *dir);
+void unmap_dir(int id);
+directory *get_dir(int id);
+void dir_list_clear();
+
+extern pgm_index current_prgm;
 extern int4 pc;
 extern int prgm_highlight_row;
 
+extern vartype *varmenu_eqn;
 extern int varmenu_length;
 extern char varmenu[7];
 extern int varmenu_rows;
@@ -396,6 +470,8 @@ extern int varmenu_role;
 /****************/
 
 extern bool mode_clall;
+#define ALL_LINES 9999
+extern int mode_message_lines;
 extern int (*mode_interruptible)(bool);
 extern bool mode_stoppable;
 extern bool mode_command_entry;
@@ -403,6 +479,7 @@ extern char mode_number_entry;
 extern bool mode_alpha_entry;
 extern bool mode_shift;
 extern int mode_appmenu;
+extern int mode_auxmenu;
 extern int mode_plainmenu;
 extern bool mode_plainmenu_sticky;
 extern int mode_transientmenu;
@@ -414,6 +491,7 @@ extern bool mode_getkey1;
 extern bool mode_pause;
 extern bool mode_disable_stack_lift;
 extern bool mode_varmenu;
+extern int mode_varmenu_whence;
 extern bool mode_updown;
 extern int4 mode_sigma_reg;
 extern int mode_goose;
@@ -431,6 +509,19 @@ extern bool mode_menu_static;
 #if defined(ANDROID) || defined(IPHONE)
 extern bool mode_popup_unknown;
 #endif
+extern bool mode_header;
+extern int mode_amort_seq;
+extern bool mode_plot_viewer;
+extern int mode_plot_key;
+extern int mode_plot_sp;
+extern vartype *mode_plot_inv;
+extern int mode_plot_result_width;
+extern bool mode_multi_line;
+extern bool mode_lastx_top;
+extern bool mode_alpha_top;
+extern bool mode_header_flags;
+extern bool mode_header_polar;
+extern bool mode_matedit_stk;
 
 extern phloat entered_number;
 extern int entered_string_length;
@@ -449,7 +540,7 @@ extern int incomplete_length;
 extern int incomplete_maxdigits;
 extern int incomplete_argtype;
 extern int incomplete_num;
-extern char incomplete_str[22];
+extern char incomplete_str[50];
 extern int4 incomplete_saved_pc;
 extern int4 incomplete_saved_highlight_row;
 
@@ -459,48 +550,108 @@ extern int4 incomplete_saved_highlight_row;
 #define CATSECT_REAL 3
 #define CATSECT_CPX 4
 #define CATSECT_MAT 5
-#define CATSECT_PGM_ONLY 6
-#define CATSECT_REAL_ONLY 7
-#define CATSECT_MAT_ONLY 8
-#define CATSECT_VARS_ONLY 9
-#define CATSECT_PGM_SOLVE 10
-#define CATSECT_PGM_INTEG 11
-#define CATSECT_PGM_MENU 12
-#define CATSECT_EXT_1 13
-#define CATSECT_EXT_TIME 14
-#define CATSECT_EXT_XFCN 15
-#define CATSECT_EXT_BASE 16
-#define CATSECT_EXT_PRGM 17
-#define CATSECT_EXT_STR 18
-#define CATSECT_EXT_STK 19
-#define CATSECT_EXT_2 20
-#define CATSECT_EXT_STAT 21
-#define CATSECT_EXT_MISC 22
-#define CATSECT_EXT_0_CMP 23
-#define CATSECT_EXT_X_CMP 24
-#define CATSECT_LIST_STR_ONLY 25
-#define CATSECT_MAT_LIST 26
-#define CATSECT_MAT_LIST_ONLY 27
-#define CATSECT_LIST 28
-#define CATSECT_LIST_ONLY 29
+#define CATSECT_MORE 6
+#define CATSECT_LIST 7
+#define CATSECT_EQN 8
+#define CATSECT_EQN_NAMED 9
+#define CATSECT_PGM_ONLY 10
+#define CATSECT_REAL_ONLY 11
+#define CATSECT_MAT_ONLY 12
+#define CATSECT_EQN_ONLY 13
+#define CATSECT_VARS_ONLY 14
+#define CATSECT_PGM_SOLVE 15
+#define CATSECT_PGM_INTEG 16
+#define CATSECT_PGM_MENU 17
+#define CATSECT_EXT_1 18
+#define CATSECT_EXT_TIME 19
+#define CATSECT_EXT_XFCN 20
+#define CATSECT_EXT_BASE 21
+#define CATSECT_EXT_PRGM 22
+#define CATSECT_EXT_STR 23
+#define CATSECT_EXT_STK 24
+#define CATSECT_EXT_2 25
+#define CATSECT_EXT_EQN 26
+#define CATSECT_EXT_UNIT 27
+#define CATSECT_EXT_STAT 28
+#define CATSECT_EXT_DIR 29
+#define CATSECT_EXT_DISP 30
+#define CATSECT_EXT_MISC 31
+#define CATSECT_EXT_0_CMP 32
+#define CATSECT_EXT_X_CMP 33
+#define CATSECT_UNITS_1 34
+#define CATSECT_UNITS_2 35
+#define CATSECT_UNITS_3 36
+#define CATSECT_UNITS_LENG 37
+#define CATSECT_UNITS_AREA 38
+#define CATSECT_UNITS_VOL 39
+#define CATSECT_UNITS_TIME 40
+#define CATSECT_UNITS_SPEED 41
+#define CATSECT_UNITS_MASS 42
+#define CATSECT_UNITS_FORCE 43
+#define CATSECT_UNITS_ENRG 44
+#define CATSECT_UNITS_POWR 45
+#define CATSECT_UNITS_PRESS 46
+#define CATSECT_UNITS_TEMP 47
+#define CATSECT_UNITS_ELEC 48
+#define CATSECT_UNITS_ANGL 49
+#define CATSECT_UNITS_LIGHT 50
+#define CATSECT_UNITS_RAD 51
+#define CATSECT_UNITS_VISC 52
+#define CATSECT_DIRS 53
+#define CATSECT_DIRS_ONLY 54
+#define CATSECT_OTHER 55
+#define CATSECT_LIST_STR_ONLY 56
+#define CATSECT_MAT_LIST 57
+#define CATSECT_MAT_LIST_ONLY 58
+#define CATSECT_LIST_ONLY 59
 
 /* Command line handling temporaries */
 extern char cmdline[100];
 extern int cmdline_length;
-extern int cmdline_row;
+extern int cmdline_unit;
 
 /* Matrix editor / matrix indexing */
 extern int matedit_mode; /* 0=off, 1=index, 2=edit, 3=editn */
-extern int matedit_level;
+extern int4 matedit_dir; /* dir <= 0 is local at level -dir */
 extern char matedit_name[7];
 extern int matedit_length;
 extern vartype *matedit_x;
 extern int4 matedit_i;
 extern int4 matedit_j;
 extern int matedit_prev_appmenu;
-extern int4 *matedit_stack;
+
+struct matedit_stack_entry {
+    int4 coord;
+    int4 anchor;
+    void set(int4 coord, int4 anchor) {
+        this->coord = coord;
+        this->anchor = anchor;
+    }
+    void set(int8 combined) {
+        coord = (int4) combined;
+        anchor = (int4) (combined >> 32);
+    }
+    int8 as_int8() {
+        return coord & 0x0ffffffffLL | (((int8) anchor) << 32);
+    }
+    void set(phloat combined) {
+        int8 c = to_int8(combined);
+        coord = (int4) c;
+        int2 offset = (int2) (c >> 32);
+        anchor = coord + offset;
+    }
+    phloat as_phloat() {
+        int4 offset = anchor - coord;
+        int8 combined = coord & 0x0ffffffffLL | ((offset & 0x0ffffLL) << 32);
+        return phloat(combined);
+    }
+};
+
+extern matedit_stack_entry *matedit_stack;
 extern int matedit_stack_depth;
 extern bool matedit_is_list;
+extern int4 matedit_view_i;
+extern int4 matedit_view_j;
 
 /* INPUT */
 extern char input_name[11];
@@ -531,9 +682,7 @@ extern int keybuf[16];
 extern int remove_program_catalog;
 
 #define NUMBER_FORMAT_BINARY 0
-#define NUMBER_FORMAT_BCD20_OLD 1 // obsolete
-#define NUMBER_FORMAT_BCD20_NEW 2 // obsolete
-#define NUMBER_FORMAT_BID128 3
+#define NUMBER_FORMAT_BID128 1
 extern int state_file_number_format;
 
 extern bool no_keystrokes_yet;
@@ -543,17 +692,20 @@ extern bool no_keystrokes_yet;
 /* Utility functions */
 /*********************/
 
-void clear_all_prgms();
+int4 new_eqn_idx();
+void clear_rtns_vars_and_prgms();
 int clear_prgm(const arg_struct *arg);
-int clear_prgm_by_index(int prgm_index);
+int clear_prgm_by_int_index(int prgm);
 void clear_prgm_lines(int4 count);
 bool goto_dot_dot(bool force_new);
 bool mvar_prgms_exist();
-bool label_has_mvar(int lblindex);
-int get_command_length(int prgm, int4 pc);
+bool label_has_mvar(int4 dir_id, int lblindex);
+int get_command_length(pgm_index prgm, int4 pc);
 void get_next_command(int4 *pc, int *command, arg_struct *arg, int find_target, const char **num_str);
 void rebuild_label_table();
+void count_embed_references(directory *dir, int prgm, bool up);
 void delete_command(int4 pc);
+int eqn_flip(int4 pc);
 bool store_command(int4 pc, int command, arg_struct *arg, const char *num_str);
 bool store_command_after(int4 *pc, int command, arg_struct *arg, const char *num_str);
 int x2line();
@@ -561,30 +713,44 @@ int a2line(bool append);
 int prgm_lock(bool lock);
 int4 pc2line(int4 pc);
 int4 line2pc(int4 line);
-int4 global_pc2line(int prgm, int4 pc);
-int4 global_line2pc(int prgm, int4 line);
+int4 global_pc2line(pgm_index prgm, int4 pc);
+int4 global_line2pc(pgm_index prgm, int4 line);
 int4 find_local_label(const arg_struct *arg);
-bool find_global_label(const arg_struct *arg, int *prgm, int4 *pc);
-bool find_global_label_index(const arg_struct *arg, int *idx);
-int push_rtn_addr(int prgm, int4 pc);
+bool find_global_label(const arg_struct *arg, pgm_index *prgm, int4 *pc, int *idx = NULL);
+int push_rtn_addr(pgm_index prgm, int4 pc);
 int push_indexed_matrix();
 void maybe_pop_indexed_matrix(const char *name, int len);
 int push_func_state(int n);
 int push_stack_state(bool big);
 int pop_func_state(bool error);
+int set_trap(int4 flags);
+bool should_trap(int err);
+int get_trap_rtn_level(int err);
+void set_caught(bool caught);
+bool get_caught();
+int get_saved_stack_level(int level, vartype **res);
 void step_out();
 void step_over();
+void return_here_after_last_rtn();
+void equation_deleted(int eqn_index);
+bool unwind_after_eqn_error();
 bool should_i_stop_at_this_level();
+void returning_from_solve_integ_or_plot();
 int rtn(int err);
 int rtn_with_error(int err);
-void pop_rtn_addr(int *prgm, int4 *pc, bool *stop);
+bool need_fstart();
+void pop_rtn_addr(pgm_index *prgm, int4 *pc, bool *stop);
 void clear_all_rtns();
 int get_rtn_level();
 void save_csld();
 bool is_csld();
 bool solve_active();
 bool integ_active();
-bool unwind_stack_until_solve();
+bool solve_or_plot_active();
+int solve_or_plot_level();
+bool unwind_stack_until_solve_or_plot(int *which);
+bool unwind_stack_until_level(int level, bool save_stack_trace);
+int print_backtrace();
 
 bool read_bool(bool *b);
 bool write_bool(bool b);
@@ -600,16 +766,24 @@ bool read_int8(int8 *n);
 bool write_int8(int8 n);
 bool read_phloat(phloat *d);
 bool write_phloat(phloat d);
-bool read_arg(arg_struct *arg);
+bool read_arg(arg_struct *arg, bool old);
 bool write_arg(const arg_struct *arg);
 
-bool load_state(int4 version, bool *clear, bool *too_new);
-void save_state(bool *success);
+#define TRACK_VAR 0
+#define TRACK_STK 1
+#define TRACK_IDX 2
+
+bool load_state(bool *clear, bool *too_new);
+bool save_state();
+void clean_state();
 // Reason:
 // 0 = Memory Clear
 // 1 = State File Corrupt
 // 2 = State File Too New
 void hard_reset(int reason);
+
+bool persist_vartype(vartype *v);
+bool unpersist_vartype(vartype **v);
 
 #ifdef IPHONE
 bool off_enabled();

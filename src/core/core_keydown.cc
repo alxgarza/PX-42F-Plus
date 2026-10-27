@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,7 +22,11 @@
 #include "core_commands2.h"
 #include "core_commands3.h"
 #include "core_commands4.h"
+#include "core_commands8.h"
+#include "core_commands9.h"
+#include "core_commandsa.h"
 #include "core_display.h"
+#include "core_equations.h"
 #include "core_helpers.h"
 #include "core_main.h"
 #include "core_math1.h"
@@ -34,19 +38,35 @@
 // Buffer used to pass LBL name, for direct XEQ "LBL" mapping
 char dcm_lbl[8];
 
-static void handle_dcm_xeq() {
-    pending_command = CMD_XEQ;
+static int handle_dcm_xeq() {
     pending_command_arg.type = ARGTYPE_STR;
     pending_command_arg.length = dcm_lbl[0];
     for (int i = 0; i < pending_command_arg.length; i++)
         pending_command_arg.val.text[i] = dcm_lbl[i + 1];
+
+    pgm_index dummyprgm;
+    int4 dummypc;
+    if (!find_global_label(&pending_command_arg, &dummyprgm, &dummypc)) {
+        int cmd = find_builtin(dcm_lbl + 1, dcm_lbl[0]);
+        if (cmd != CMD_NONE)
+            return cmd;
+    }
+
+    pending_command = CMD_XEQ;
     if (flags.f.prgm_mode) {
-        store_command_after(&pc, pending_command,
-                                    &pending_command_arg, NULL);
-        prgm_highlight_row = 1;
+        if (!current_prgm.is_editable()) {
+            display_error(ERR_RESTRICTED_OPERATION);
+        } else if (current_prgm.is_locked()) {
+            display_error(ERR_PROGRAM_LOCKED);
+        } else {
+            store_command_after(&pc, pending_command,
+                                        &pending_command_arg, NULL);
+            move_prgm_highlight(1);
+        }
         pending_command = CMD_NONE;
         redisplay();
     }
+    return CMD_NONE;
 }
 
 static bool is_number_key(int shift, int key, bool *invalid) {
@@ -97,13 +117,10 @@ static void set_solve_integ(int solve) {
         if (err == ERR_NONE) {
             set_cat_section(solve ? CATSECT_PGM_SOLVE : CATSECT_PGM_INTEG);
             move_cat_row(0);
-            clear_row(0);
             if (solve)
-                draw_string(0, 0, "Select Solve Program", 20);
+                draw_message(0, "Select Solve Program", 20, false);
             else
-                draw_string(0, 0, "Select \3f(x) Program", 20);
-            flags.f.message = 1;
-            flags.f.two_line_message = 0;
+                draw_message(0, "Select \3f(x) Program", 20, false);
         } else
             display_error(err);
     }
@@ -123,7 +140,7 @@ static void view(const char *varname, int varlength) {
         flush_display();
         pending_command = CMD_NONE;
     } else {
-        flags.f.message = 0;
+        clear_message();
         pending_command = CMD_LINGER1;
         shell_request_timeout3(2000);
     }
@@ -134,7 +151,7 @@ struct cmd_getkey_mapping_struct {
     int2 cmd;
 };
 
-static cmd_getkey_mapping_struct cmd_getkey_mapping[] = {
+static const cmd_getkey_mapping_struct cmd_getkey_mapping[] = {
     {  1, CMD_SIGMAADD },
     {  2, CMD_INV },
     {  3, CMD_SQRT },
@@ -175,7 +192,7 @@ static cmd_getkey_mapping_struct cmd_getkey_mapping[] = {
 };
 
 int find_cmd_getkey_mapping(int cmd) {
-    cmd_getkey_mapping_struct *gm = cmd_getkey_mapping;
+    const cmd_getkey_mapping_struct *gm = cmd_getkey_mapping;
     while (true) {
         if (gm->key == 0)
             // Command that's not on the standard keyboard
@@ -186,7 +203,7 @@ int find_cmd_getkey_mapping(int cmd) {
     }
 }
 
-void keydown(int shift, int key) {
+static void keydown2(int shift, int key) {
     // Preserve state of Shift, to allow MENU handlers to implement
     // different behaviors for unshifted and shifted menu keys.
     flags.f.shift_state = shift;
@@ -258,7 +275,7 @@ void keydown(int shift, int key) {
     }
 
     if (shift && key == KEY_RUN) {
-        if (mode_command_entry) {
+        if (mode_command_entry || mode_number_entry && alpha_active()) {
             squeak();
             return;
         }
@@ -271,7 +288,7 @@ void keydown(int shift, int key) {
                 arg.val_d = entered_number;
                 cmdline[cmdline_length] = 0;
                 store_command(pc, CMD_NUMBER, &arg, cmdline);
-                prgm_highlight_row = 1;
+                move_prgm_highlight(1);
             }
         } else if (mode_alpha_entry) {
             if ((flags.f.trace_print || flags.f.normal_print)
@@ -285,7 +302,7 @@ void keydown(int shift, int key) {
             }
         }
 
-        print_menu_trace_always("PRGM", 4);
+        print_menu_trace("PRGM", 4);
 
         mode_alpha_entry = false;
         mode_number_entry = false;
@@ -297,23 +314,22 @@ void keydown(int shift, int key) {
                 set_menu(MENULEVEL_APP, MENU_BASE1);
             else if (mode_plainmenu == MENU_PROGRAMMABLE)
                 set_menu(MENULEVEL_PLAIN, MENU_NONE);
+            else if (mode_appmenu == MENU_PROGRAMMABLE)
+                set_menu(MENULEVEL_APP, MENU_NONE);
             input_length = 0;
         }
-        flags.f.message = 0;
-        flags.f.two_line_message = 0;
+        clear_message();
         redisplay();
         return;
     }
 
-    if (flags.f.message && !shift && key == KEY_BSP) {
-        flags.f.message = 0;
-        flags.f.two_line_message = 0;
+    if (mode_message_lines > 0 && !shift && key == KEY_BSP) {
+        clear_message();
         redisplay();
         return;
     }
 
-    flags.f.message = 0;
-    flags.f.two_line_message = 0;
+    clear_message();
 
     if (mode_number_entry && get_base() == 16 && key == KEY_SIGMA
             && get_front_menu() == MENU_BASE1) {
@@ -330,7 +346,11 @@ void keydown(int shift, int key) {
     if (mode_number_entry
             && !is_number_key(shift, key, &invalid)
             && (key != KEY_CHS || shift || basekeys() || get_base() != 10)
-            && (key != KEY_BSP || shift)) {
+            && (key != KEY_BSP || shift)
+            // starting attached unit
+            && (key != KEY_DOT || !shift || get_base() != 10)
+            // entering an attached unit
+            && (key == KEY_ENTER || !alpha_active())) {
         if (invalid)
             return;
         /* Leaving number entry mode */
@@ -340,11 +360,55 @@ void keydown(int shift, int key) {
             arg.type = ARGTYPE_DOUBLE;
             arg.val_d = entered_number;
             cmdline[cmdline_length] = 0;
-            store_command(pc, CMD_NUMBER, &arg, cmdline);
-            prgm_highlight_row = 1;
+            move_prgm_highlight(1);
+            if (cmdline_unit == -1) {
+                store_command(pc, CMD_NUMBER, &arg, cmdline);
+            } else {
+                std::string u;
+                int ulen = cmdline_length - cmdline_unit - 1;
+                if (ulen > 0) {
+                    if (!normalize_unit(std::string(cmdline + cmdline_unit + 1, ulen), &u)) {
+                        mode_number_entry = true;
+                        squeak();
+                        return;
+                    }
+                }
+                if (u == "")
+                    u = std::string(cmdline, cmdline_unit);
+                else
+                    u = std::string(cmdline, cmdline_unit + 1) + u;
+                store_command(pc, CMD_NUMBER, &arg, u.c_str());
+                set_menu(MENULEVEL_COMMAND, MENU_NONE);
+                redisplay();
+                return;
+            }
         } else if ((flags.f.trace_print || flags.f.normal_print)
                 && flags.f.printer_exists)
             deferred_print = 1;
+        if (!flags.f.prgm_mode && alpha_active()) {
+            /* Attach unit to the entered number, which is already in X */
+            int ulen = cmdline_length - cmdline_unit - 1;
+            if (ulen > 0) {
+                std::string u;
+                if (!normalize_unit(std::string(cmdline + cmdline_unit + 1, ulen), &u)) {
+                    mode_number_entry = true;
+                    deferred_print = 0;
+                    squeak();
+                    return;
+                }
+                vartype_real *x = (vartype_real *) stack[sp];
+                vartype *new_x = new_unit(x->x, u.c_str(), (int) u.length());
+                if (new_x == NULL) {
+                    squeak();
+                } else {
+                    free_vartype(stack[sp]);
+                    stack[sp] = new_x;
+                }
+            }
+            set_menu(MENULEVEL_COMMAND, MENU_NONE);
+            redisplay();
+            return;
+        }
         if (flags.f.big_stack && !shift && key == KEY_ENTER) {
             redisplay();
             return;
@@ -381,28 +445,38 @@ void keydown(int shift, int key) {
         return;
     }
 
-    if (key == KEY_UP || key == KEY_DOWN) {
-        if (get_front_menu() == MENU_CATALOG) {
-            int sect = get_cat_section();
-            switch (sect) {
-                case CATSECT_TOP:
-                    sect = key == KEY_UP ? CATSECT_EXT_2 : CATSECT_EXT_1;
-                    break;
-                case CATSECT_EXT_1:
-                    sect = key == KEY_UP ? CATSECT_TOP : CATSECT_EXT_2;
-                    break;
-                case CATSECT_EXT_2:
-                    sect = key == KEY_UP ? CATSECT_EXT_1 : CATSECT_TOP;
-                    break;
-                default:
-                    sect = -1;
-                    break;
-            }
-            if (sect != -1) {
-                set_cat_section(sect);
-                redisplay();
-                return;
-            }
+    if (!shift && (key == KEY_UP || key == KEY_DOWN) && get_front_menu() == MENU_CATALOG) {
+        int sect = get_cat_section();
+        switch (sect) {
+            case CATSECT_TOP:
+                sect = key == KEY_UP ? CATSECT_EXT_2 : CATSECT_MORE;
+                break;
+            case CATSECT_MORE:
+                sect = key == KEY_UP ? CATSECT_TOP : CATSECT_EXT_1;
+                break;
+            case CATSECT_EXT_1:
+                sect = key == KEY_UP ? CATSECT_MORE : CATSECT_EXT_2;
+                break;
+            case CATSECT_EXT_2:
+                sect = key == KEY_UP ? CATSECT_EXT_1 : CATSECT_TOP;
+                break;
+            case CATSECT_UNITS_1:
+                sect = key == KEY_UP ? CATSECT_UNITS_3 : CATSECT_UNITS_2;
+                break;
+            case CATSECT_UNITS_2:
+                sect = key == KEY_UP ? CATSECT_UNITS_1 : CATSECT_UNITS_3;
+                break;
+            case CATSECT_UNITS_3:
+                sect = key == KEY_UP ? CATSECT_UNITS_2 : CATSECT_UNITS_1;
+                break;
+            default:
+                sect = -1;
+                break;
+        }
+        if (sect != -1) {
+            set_cat_section(sect);
+            redisplay();
+            return;
         }
     }
 
@@ -433,10 +507,18 @@ void keydown(int shift, int key) {
         keydown_normal_mode(shift, key);
 }
 
+void keydown(int shift, int key) {
+    // This bit of trickery serves to allow programmable menu keystrokes
+    // to let flag 33 remain unchanged, while all other keystrokes will
+    // cause it to be cleared.
+    bool prev_progmenu = flags.f.prev_progmenu;
+    flags.f.prev_progmenu = false;
+    keydown2(shift, key);
+    flags.f.prev_progmenu = prev_progmenu && flags.f.prev_progmenu;
+}
+
 void keydown_number_entry(int shift, int key) {
     phloat x;
-    char buf[100];
-    int bufptr;
     int base = get_base();
 
     if (key == -1) {
@@ -461,7 +543,7 @@ void keydown_number_entry(int shift, int key) {
         mode_number_entry = false;
         if (flags.f.prgm_mode) {
             pc = line2pc(pc2line(pc) - 1);
-            prgm_highlight_row = 0;
+            move_prgm_highlight(-1);
             redisplay();
             return;
         } else {
@@ -471,6 +553,10 @@ void keydown_number_entry(int shift, int key) {
     }
 
     if (key == KEY_BSP) {
+        if (shift) {
+            squeak();
+            return;
+        }
         cmdline_length--;
         if (!flags.f.prgm_mode)
             if (base == 10)
@@ -482,6 +568,101 @@ void keydown_number_entry(int shift, int key) {
             repeating_key = key;
             repeating_shift = shift;
         }
+        if (cmdline_length <= cmdline_unit) {
+            remove_unit:
+            cmdline_unit = -1;
+            set_menu(MENULEVEL_COMMAND, MENU_NONE);
+            vartype *r = new_real(((vartype_unit *) stack[sp])->x);
+            if (r != NULL) {
+                free_vartype(stack[sp]);
+                stack[sp] = r;
+            }
+            redisplay();
+        }
+        if (cmdline_unit != -1)
+            goto draw_number;
+    } else if (alpha_active()) {
+        char c;
+        int menukey;
+        const menu_spec *m = NULL;
+        if (key >= 1024 && key < 2048) {
+            c = key - 1024;
+            goto handle_char;
+        } else if ((menukey = find_menu_key(key)) != -1) {
+            const menu_item_spec *mi;
+            m = menus + mode_commandmenu;
+            mi = m->child + menukey;
+            if (mi->menuid != MENU_NONE) {
+                set_menu(MENULEVEL_COMMAND, mi->menuid);
+            } else {
+                c = mi->title[0];
+                if (shift && c >= 'A' && c <= 'Z')
+                    c += 'a' - 'A';
+                handle_char:
+                if (cmdline_length < 100)
+                    cmdline[cmdline_length++] = c;
+                if (m != NULL)
+                    set_menu(MENULEVEL_COMMAND, m->parent);
+                if (core_settings.auto_repeat) {
+                    repeating = 2;
+                    repeating_key = c + 1024;
+                    repeating_shift = 0;
+                }
+            }
+            redisplay();
+        } else {
+            if (key == KEY_UP || key == KEY_DOWN) {
+                if (shift) {
+                    squeak();
+                    return;
+                }
+                m = menus + mode_commandmenu;
+                int id = key == KEY_UP ? m->prev : m->next;
+                if (id != MENU_NONE) {
+                    set_menu(MENULEVEL_COMMAND, id);
+                    redisplay();
+                }
+            } else if (key == KEY_EXIT) {
+                m = menus + mode_commandmenu;
+                int id = m->parent;
+                if (id == MENU_NONE) {
+                    cmdline_length = cmdline_unit;
+                    goto remove_unit;
+                } else {
+                    set_menu(MENULEVEL_COMMAND, id);
+                    redisplay();
+                }
+            } else if (!shift) {
+                switch (key) {
+                    case KEY_0:   c = '0'; break;
+                    case KEY_1:   c = '1'; break;
+                    case KEY_2:   c = '2'; break;
+                    case KEY_3:   c = '3'; break;
+                    case KEY_4:   c = '4'; break;
+                    case KEY_5:   c = '5'; break;
+                    case KEY_6:   c = '6'; break;
+                    case KEY_7:   c = '7'; break;
+                    case KEY_8:   c = '8'; break;
+                    case KEY_9:   c = '9'; break;
+                    case KEY_DOT: c = '.'; break;
+                    case KEY_E:   c = 24;  break;
+                    case KEY_DIV: c = 0;   break;
+                    case KEY_MUL: c = 1;   break;
+                    case KEY_SUB: c = '-'; break;
+                    case KEY_ADD: c = '+'; break;
+                    default: squeak(); return;
+                }
+                goto handle_char;
+            } else {
+                switch (key) {
+                    case KEY_RCL: c = '%'; break;
+                    case KEY_RDN: c = 7;   break;
+                    default: squeak(); return;
+                }
+                goto handle_char;
+            }
+        }
+        goto draw_number;
     } else if (key == KEY_CHS) {
         /* Check if mantissa or exponent gets the sign change */
         int i;
@@ -521,7 +702,7 @@ void keydown_number_entry(int shift, int key) {
                     if (flags.f.prgm_mode) {
                         mode_number_entry = false;
                         pc = line2pc(pc2line(pc) - 1);
-                            prgm_highlight_row = 0;
+                            move_prgm_highlight(-1);
                         redisplay();
                         return;
                     } else {
@@ -530,6 +711,7 @@ void keydown_number_entry(int shift, int key) {
                          */
                         free_vartype(stack[sp]);
                         stack[sp] = new_real(0);
+                        pending_command = flags.f.big_stack ? CMD_DROP : CMD_CLX;
                         pending_command = flags.f.big_stack ? mode_number_entry == 2 ? CMD_DROP_CANCL : CMD_DROP : CMD_CLX;
                         mode_number_entry = false;
                         return;
@@ -575,6 +757,25 @@ void keydown_number_entry(int shift, int key) {
             cmdline[cmdline_length++] = 24;
         } else
             return;
+    } else if (key == KEY_DOT && shift && get_base() == 10) {
+        /* Only allow _ if there isn't one already.
+         * Also, require at least one digit.
+         */
+        bool digit = false;
+        for (int i = 0; i < cmdline_length; i++) {
+            char c = cmdline[i];
+            if (c == '_')
+                return;
+            if (c >= '0' && c <= '9')
+                digit = true;
+        }
+        if (!digit)
+            return;
+        cmdline_unit = cmdline_length;
+        cmdline[cmdline_length++] = '_';
+        set_menu(MENULEVEL_COMMAND, MENU_ALPHA1);
+        redisplay();
+        goto draw_number;
     } else if (key == KEY_DOT) {
         if (cmdline_length == 0 ||
                 (cmdline_length == 1 && cmdline[0] == '-')) {
@@ -697,28 +898,7 @@ void keydown_number_entry(int shift, int key) {
     }
 
     draw_number:
-
-    bufptr = 0;
-    if (flags.f.prgm_mode) {
-        int line = pc2line(pc);
-        if (line < 10)
-            char2buf(buf, 100, &bufptr, '0');
-        bufptr += int2string(line, buf + bufptr, 100 - bufptr);
-        char2buf(buf, 100, &bufptr, 6);
-    } else {
-        xlabel2buf(buf, 100, &bufptr);
-    }
-    string2buf(buf, 100, &bufptr, cmdline, cmdline_length);
-    char2buf(buf, 100, &bufptr, '_');
-
-    clear_row(cmdline_row);
-    if (bufptr <= 22)
-        draw_string(0, cmdline_row, buf, bufptr);
-    else {
-        draw_char(0, cmdline_row, 26);
-        draw_string(1, cmdline_row, buf + bufptr - 21, 21);
-    }
-    flush_display();
+    redisplay();
     return;
 }
 
@@ -915,9 +1095,19 @@ void keydown_command_entry(int shift, int key) {
             if (catsect == CATSECT_TOP) {
                 switch (menukey) {
                     case 0:
-                        set_cat_section(CATSECT_FCN);
-                        move_cat_row(0);
-                        break;
+                        if ((skin_flags & 1) != 0) {
+                            set_cat_section(CATSECT_FCN);
+                            break;
+                        } else {
+                            if (incomplete_command == CMD_ASSIGNa || cwd->children_count == 0) {
+                                squeak();
+                                return;
+                            } else {
+                                set_cat_section(CATSECT_DIRS_ONLY);
+                                move_cat_row(0);
+                                break;
+                            }
+                        }
                     case 1:
                         set_cat_section(CATSECT_PGM);
                         move_cat_row(0);
@@ -949,11 +1139,86 @@ void keydown_command_entry(int shift, int key) {
                             move_cat_row(0);
                             break;
                         }
-                    case 5: display_mem();
+                    case 5:
+                        if ((skin_flags & 2) != 0) {
+                            display_mem();
                             pending_command = CMD_LINGER1;
                             shell_request_timeout3(2000);
                             return;
+                        } else {
+                            if (incomplete_command == CMD_ASSIGNa) {
+                                set_cat_section(CATSECT_UNITS_1);
+                                break;
+                            } else {
+                                squeak();
+                                return;
+                            }
+                        }
                 }
+                redisplay();
+                return;
+            } else if (catsect == CATSECT_MORE) {
+                switch (menukey) {
+                    case 0:
+                        if (!vars_exist(CATSECT_LIST)) {
+                            squeak();
+                            return;
+                        } else {
+                            set_cat_section(CATSECT_LIST);
+                            break;
+                        }
+                    case 1:
+                        if (!vars_exist(CATSECT_EQN)) {
+                            squeak();
+                            return;
+                        } else {
+                            set_cat_section(CATSECT_EQN);
+                            break;
+                        }
+                    case 2:
+                        // There are no commands that take equation names,
+                        // so there's not much point entering this section
+                        squeak();
+                        return;
+                    case 3:
+                        if (!vars_exist(CATSECT_OTHER)) {
+                            squeak();
+                            return;
+                        } else {
+                            set_cat_section(CATSECT_OTHER);
+                            break;
+                        }
+                    case 4:
+                        if ((skin_flags & 1) == 0) {
+                            set_cat_section(CATSECT_FCN);
+                            break;
+                        } else {
+                            if (incomplete_command == CMD_ASSIGNa || cwd->children_count == 0) {
+                                squeak();
+                                return;
+                            } else {
+                                set_cat_section(CATSECT_DIRS_ONLY);
+                                move_cat_row(0);
+                                break;
+                            }
+                        }
+                    case 5:
+                        if ((skin_flags & 2) == 0) {
+                            display_mem();
+                            pending_command = CMD_LINGER1;
+                            shell_request_timeout3(2000);
+                            return;
+                        } else {
+                            if (incomplete_command == CMD_ASSIGNa) {
+                                set_cat_section(CATSECT_UNITS_1);
+                                break;
+                            } else {
+                                squeak();
+                                return;
+                            }
+                        }
+                }
+                move_cat_row(0);
                 redisplay();
                 return;
             } else if (catsect == CATSECT_EXT_1) {
@@ -970,19 +1235,107 @@ void keydown_command_entry(int shift, int key) {
                 return;
             } else if (catsect == CATSECT_EXT_2) {
                 switch (menukey) {
-                    case 0: set_cat_section(CATSECT_EXT_STAT); break;
-                    case 1: set_cat_section(CATSECT_EXT_MISC); break;
+                    case 0:
+                        set_cat_section(CATSECT_EXT_EQN);
+                        move_cat_row(0);
+                        break;
+                    case 1:
+                        set_cat_section(CATSECT_EXT_UNIT);
+                        move_cat_row(0);
+                        break;
+                    case 2:
+                        set_cat_section(CATSECT_EXT_STAT);
+                        move_cat_row(0);
+                        break;
+                    case 3:
+                        set_cat_section(CATSECT_EXT_DIR);
+                        move_cat_row(0);
+                        break;
+                    case 4:
+                        set_cat_section(CATSECT_EXT_DISP);
+                        move_cat_row(0);
+                        break;
+                    case 5:
+                        set_cat_section(CATSECT_EXT_MISC);
+                        move_cat_row(0);
+                        break;
                     default:
                         squeak();
                         return;
                 }
+                redisplay();
+                return;
+            } else if (catsect == CATSECT_DIRS_ONLY) {
+                int p = get_cat_row() * 6 + menukey;
+                if (p < cwd->children_count) {
+                    pending_command = incomplete_command;
+                    pending_command_arg.type =
+                        incomplete_ind ? ARGTYPE_IND_STR : ARGTYPE_STR;
+                    pending_command_arg.length = cwd->children[p].length;
+                    for (int i = 0; i < pending_command_arg.length; i++)
+                        pending_command_arg.val.text[i] = cwd->children[p].name[i];
+                    finish_command_entry(true);
+                } else {
+                    squeak();
+                }
+                return;
+            } else if (catsect == CATSECT_UNITS_1) {
+                switch (menukey) {
+                    case 0: set_cat_section(CATSECT_UNITS_LENG); break;
+                    case 1: set_cat_section(CATSECT_UNITS_AREA); break;
+                    case 2: set_cat_section(CATSECT_UNITS_VOL); break;
+                    case 3: set_cat_section(CATSECT_UNITS_TIME); break;
+                    case 4: set_cat_section(CATSECT_UNITS_SPEED); break;
+                    case 5: set_cat_section(CATSECT_UNITS_MASS); break;
+                }
                 move_cat_row(0);
                 redisplay();
                 return;
+            } else if (catsect == CATSECT_UNITS_2) {
+                switch (menukey) {
+                    case 0: set_cat_section(CATSECT_UNITS_FORCE); break;
+                    case 1: set_cat_section(CATSECT_UNITS_ENRG); break;
+                    case 2: set_cat_section(CATSECT_UNITS_POWR); break;
+                    case 3: set_cat_section(CATSECT_UNITS_PRESS); break;
+                    case 4: set_cat_section(CATSECT_UNITS_TEMP); break;
+                    case 5: set_cat_section(CATSECT_UNITS_ELEC); break;
+                }
+                move_cat_row(0);
+                redisplay();
+                return;
+            } else if (catsect == CATSECT_UNITS_3) {
+                switch (menukey) {
+                    case 0: set_cat_section(CATSECT_UNITS_ANGL); break;
+                    case 1: set_cat_section(CATSECT_UNITS_LIGHT); break;
+                    case 2: set_cat_section(CATSECT_UNITS_RAD); break;
+                    case 3: set_cat_section(CATSECT_UNITS_VISC); break;
+                    case 4: squeak(); return;
+                    case 5: squeak(); return;
+                }
+                move_cat_row(0);
+                redisplay();
+                return;
+            } else if (catsect >= CATSECT_UNITS_LENG && catsect <= CATSECT_UNITS_VISC) {
+                const char *text[6];
+                int length[6];
+                int row;
+                row = get_cat_row();
+                int rows;
+                get_units_cat_row(catsect, text, length, &row, &rows);
+                if (length[menukey] == 0 || length[menukey] > 7) {
+                    squeak();
+                    return;
+                } else {
+                    pending_command = incomplete_command;
+                    pending_command_arg.type = ARGTYPE_STR;
+                    string_copy(pending_command_arg.val.text, &pending_command_arg.length, text[menukey], length[menukey]);
+                    finish_command_entry(true);
+                    return;
+                }
             } else {
-                int i, itemindex;
-                itemindex = get_cat_item(menukey);
-                if (itemindex == -1) {
+                int4 dir_id;
+                int itemindex;
+                if (!get_cat_item(menukey, &dir_id, &itemindex)) {
                     squeak();
                     return;
                 } else if (itemindex < 0) {
@@ -991,8 +1344,9 @@ void keydown_command_entry(int shift, int key) {
                     redisplay();
                     return;
                 }
+                directory *dir = get_dir(dir_id);
                 if (catsect == CATSECT_PGM || catsect == CATSECT_PGM_ONLY) {
-                    if (labels[itemindex].length == 0) {
+                    if (dir->labels[itemindex].length == 0) {
                         /* END or .END. */
                         if (incomplete_command != CMD_GTODOT
                                 && incomplete_command != CMD_PRP
@@ -1012,15 +1366,12 @@ void keydown_command_entry(int shift, int key) {
                             || incomplete_command == CMD_PRP) {
                         pending_command_arg.type = ARGTYPE_LBLINDEX;
                         pending_command_arg.val.num = itemindex;
+                        pending_command_arg.target = dir_id;
                         xeq_invisible = 0;
                     } else {
                         pending_command_arg.type =
                             incomplete_ind ? ARGTYPE_IND_STR : ARGTYPE_STR;
-                        pending_command_arg.length =
-                                                labels[itemindex].length;
-                        for (i = 0; i < pending_command_arg.length; i++)
-                            pending_command_arg.val.text[i] =
-                                                labels[itemindex].name[i];
+                        string_copy(pending_command_arg.val.text, &pending_command_arg.length, dir->labels[itemindex].name, dir->labels[itemindex].length);
                     }
                     finish_command_entry(true);
                     return;
@@ -1031,14 +1382,14 @@ void keydown_command_entry(int shift, int key) {
                 if (catsect == CATSECT_FCN
                         || catsect >= CATSECT_EXT_TIME && catsect <= CATSECT_EXT_MISC) {
                     const command_spec *cs = &cmd_array[itemindex];
-                    pending_command_arg.length = cs->name_length;
-                    for (i = 0; i < pending_command_arg.length; i++)
-                        pending_command_arg.val.text[i] = cs->name[i];
+                    string_copy(pending_command_arg.val.text, &pending_command_arg.length, cs->name, cs->name_length);
                 } else {
-                    pending_command_arg.length = vars[itemindex].length;
-                    for (i = 0; i < pending_command_arg.length; i++)
-                        pending_command_arg.val.text[i] =
-                                            vars[itemindex].name[i];
+                    var_struct *vs;
+                    if (dir_id == 0)
+                        vs = local_vars + itemindex;
+                    else
+                        vs = get_dir(dir_id)->vars + itemindex;
+                    string_copy(pending_command_arg.val.text, &pending_command_arg.length, vs->name, vs->length);
                 }
 
                 if (!incomplete_ind
@@ -1079,13 +1430,45 @@ void keydown_command_entry(int shift, int key) {
             redisplay();
             return;
         }
+        if (incomplete_command == CMD_ASSIGNa && key == 2048 + CMD_UNITS) {
+            set_cat_section_using_units_key();
+            redisplay();
+            return;
+        }
         if (key == KEY_EXIT) {
-            if (catsect == CATSECT_FCN
-                    || catsect == CATSECT_PGM
+            if (catsect == CATSECT_PGM
                     || catsect == CATSECT_REAL
                     || catsect == CATSECT_CPX
                     || catsect == CATSECT_MAT) {
                 set_cat_section(CATSECT_TOP);
+                redisplay();
+            } else if (catsect == CATSECT_DIRS) {
+                set_cat_section((skin_flags & 1) == 0 ? CATSECT_TOP : CATSECT_MORE);
+                redisplay();
+            } else if (catsect >= CATSECT_UNITS_1
+                        && catsect <= CATSECT_UNITS_3) {
+                set_cat_section((skin_flags & 2) == 0 ? CATSECT_TOP : CATSECT_MORE);
+                redisplay();
+            } else if (catsect == CATSECT_LIST
+                    || catsect == CATSECT_EQN
+                    || catsect == CATSECT_EQN_NAMED
+                    || catsect == CATSECT_OTHER) {
+                set_cat_section(CATSECT_MORE);
+                redisplay();
+            } else if (catsect == CATSECT_FCN) {
+                set_cat_section((skin_flags & 1) == 0 ? CATSECT_MORE : CATSECT_TOP);
+                redisplay();
+            } else if (catsect >= CATSECT_UNITS_LENG
+                    && catsect <= CATSECT_UNITS_MASS) {
+                set_cat_section(CATSECT_UNITS_1);
+                redisplay();
+            } else if (catsect >= CATSECT_UNITS_FORCE
+                    && catsect <= CATSECT_UNITS_ELEC) {
+                set_cat_section(CATSECT_UNITS_2);
+                redisplay();
+            } else if (catsect >= CATSECT_UNITS_ANGL
+                    && catsect <= CATSECT_UNITS_VISC) {
+                set_cat_section(CATSECT_UNITS_3);
                 redisplay();
             } else if (catsect == CATSECT_EXT_TIME
                     || catsect == CATSECT_EXT_XFCN
@@ -1095,7 +1478,11 @@ void keydown_command_entry(int shift, int key) {
                     || catsect == CATSECT_EXT_STK) {
                 set_cat_section(CATSECT_EXT_1);
                 redisplay();
-            } else if (catsect == CATSECT_EXT_STAT
+            } else if (catsect == CATSECT_EXT_EQN
+                    || catsect == CATSECT_EXT_UNIT
+                    || catsect == CATSECT_EXT_STAT
+                    || catsect == CATSECT_EXT_DIR
+                    || catsect == CATSECT_EXT_DISP
                     || catsect == CATSECT_EXT_MISC) {
                 set_cat_section(CATSECT_EXT_2);
                 redisplay();
@@ -1149,22 +1536,31 @@ void keydown_command_entry(int shift, int key) {
             finish_command_entry(false);
             return;
         }
-    } else if (mode_commandmenu == MENU_INTEG_PARAMS) {
+    } else if (mode_commandmenu == MENU_INTEG_PARAMS || mode_commandmenu == MENU_TVM_PARAMS) {
         int menukey = find_menu_key(key);
         if (menukey != -1) {
             const char *name;
-            int length, i;
-            switch (menukey) {
-                case 0: name = "LLIM"; length = 4; break;
-                case 1: name = "ULIM"; length = 4; break;
-                case 2: name = "ACC";  length = 3; break;
-                default: squeak(); return;
+            int length;
+            if (mode_commandmenu == MENU_INTEG_PARAMS) {
+                switch (menukey) {
+                    case 0: name = "LLIM"; length = 4; break;
+                    case 1: name = "ULIM"; length = 4; break;
+                    case 2: name = "ACC";  length = 3; break;
+                    default: squeak(); return;
+                }
+            } else {
+                switch (menukey) {
+                    case 0: name = "N";    length = 1; break;
+                    case 1: name = "I%YR"; length = 4; break;
+                    case 2: name = "PV";   length = 2; break;
+                    case 3: name = "PMT";  length = 3; break;
+                    case 4: name = "FV";   length = 2; break;
+                    case 5: name = "P/YR"; length = 4; break;
+                }
             }
             pending_command = incomplete_command;
             pending_command_arg.type = ARGTYPE_STR;
-            pending_command_arg.length = length;
-            for (i = 0; i < length; i++)
-                pending_command_arg.val.text[i] = name[i];
+            string_copy(pending_command_arg.val.text, &pending_command_arg.length, name, length);
             finish_command_entry(false);
             return;
         }
@@ -1251,7 +1647,7 @@ void keydown_command_entry(int shift, int key) {
             if (incomplete_length == 0) {
                 if (incomplete_ind
                         && !flags.f.prgm_mode
-                        && !vars_exist(CATSECT_REAL))
+                        && !vars_exist(CATSECT_REAL_ONLY))
                     squeak();
                 else if (incomplete_ind
                         || incomplete_argtype == ARG_VAR
@@ -1318,7 +1714,9 @@ void keydown_command_entry(int shift, int key) {
                         || incomplete_argtype == ARG_PRGM
                         || incomplete_argtype == ARG_NUM9
                         || incomplete_argtype == ARG_NUM11
-                        || incomplete_argtype == ARG_NUM99) {
+                        || incomplete_argtype == ARG_NUM99
+                        || incomplete_argtype == ARG_EQN
+                        || incomplete_argtype == ARG_DIR) {
                     set_menu(MENULEVEL_COMMAND, MENU_ST);
                     redisplay();
                 }
@@ -1364,7 +1762,8 @@ void keydown_command_entry(int shift, int key) {
                 squeak();
                 return;
             }
-            if (incomplete_command == CMD_RTNERR && !incomplete_ind && digit > 8) {
+            if ((incomplete_command == CMD_RTNERR || incomplete_command == CMD_RAISE)
+                    && !incomplete_ind && incomplete_num * 10 + digit > RTNERR_MAX) {
                 squeak();
                 return;
             }
@@ -1436,6 +1835,8 @@ void keydown_command_entry(int shift, int key) {
                             set_menu(MENULEVEL_COMMAND, MENU_VARMENU);
                         else if (mode_appmenu == MENU_INTEG_PARAMS)
                             set_menu(MENULEVEL_COMMAND, MENU_INTEG_PARAMS);
+                        else if (mode_appmenu >= MENU_TVM_APP1 && mode_appmenu <= MENU_TVM_TABLE)
+                            set_menu(MENULEVEL_COMMAND, MENU_TVM_PARAMS);
                         else
                             set_catalog_menu(CATSECT_VARS_ONLY);
                     else if (incomplete_ind)
@@ -1445,6 +1846,8 @@ void keydown_command_entry(int shift, int key) {
                             set_menu(MENULEVEL_COMMAND, MENU_VARMENU);
                         else if (mode_appmenu == MENU_INTEG_PARAMS)
                             set_menu(MENULEVEL_COMMAND, MENU_INTEG_PARAMS);
+                        else if (mode_appmenu >= MENU_TVM_APP1 && mode_appmenu <= MENU_TVM_TABLE)
+                            set_menu(MENULEVEL_COMMAND, MENU_TVM_PARAMS);
                         else
                             set_catalog_menu(CATSECT_REAL_ONLY);
                     else if (incomplete_argtype == ARG_LBL)
@@ -1490,7 +1893,7 @@ void keydown_command_entry(int shift, int key) {
             if (shift && c >= 'A' && c <= 'Z')
                 c += 'a' - 'A';
             handle_char:
-            if (incomplete_length < (incomplete_argtype == ARG_XSTR ? 22 : 7))
+            if (incomplete_length < (incomplete_argtype == ARG_XSTR ? 50 : 7))
                 incomplete_str[incomplete_length++] = c;
             if (m != NULL)
                 set_menu(MENULEVEL_COMMAND, m->parent);
@@ -1509,11 +1912,14 @@ void keydown_command_entry(int shift, int key) {
         if ((incomplete_argtype == ARG_NAMED
                     || incomplete_argtype == ARG_PRGM
                     || incomplete_argtype == ARG_RVAR
-                    || incomplete_argtype == ARG_MAT)
+                    || incomplete_argtype == ARG_MAT
+                    || incomplete_argtype == ARG_DIR)
                 && incomplete_command != CMD_ASSIGNa
                 && incomplete_command != CMD_CLP
                 && incomplete_command != CMD_PRP
                 && incomplete_command != CMD_MVAR
+                && incomplete_command != CMD_GSTO
+                && incomplete_command != CMD_GRCL
                 && !incomplete_ind
                 && incomplete_length == 0
                 && (mode_commandmenu < MENU_ALPHA1
@@ -1531,6 +1937,24 @@ void keydown_command_entry(int shift, int key) {
                 && (mode_commandmenu < MENU_ALPHA1
                     || mode_commandmenu > MENU_ALPHA_MISC2)
                 && !shift && key == KEY_DOT) {
+            set_menu(MENULEVEL_COMMAND, MENU_IND_ST);
+            redisplay();
+            return;
+        }
+
+        if (incomplete_argtype == ARG_EQN
+                && !incomplete_ind
+                && incomplete_length == 0
+                /* Note that we're letting KEY_DOT go to the IND/ST
+                 * menu if on the first row of ALPHA; otherwise, if
+                 * no EQN variables existed, we wouldn't be able to
+                 * do this att all.
+                 */
+                && (mode_commandmenu < MENU_ALPHA2
+                    || mode_commandmenu > MENU_ALPHA_MISC2)
+                && !shift && key == KEY_DOT) {
+            incomplete_ind = false;
+            incomplete_alpha = false;
             set_menu(MENULEVEL_COMMAND, MENU_IND_ST);
             redisplay();
             return;
@@ -1576,7 +2000,7 @@ void keydown_command_entry(int shift, int key) {
                 default: goto nocharkey1;
             }
         }
-        if (incomplete_length < (incomplete_argtype == ARG_XSTR ? 22 : 7))
+        if (incomplete_length < (incomplete_argtype == ARG_XSTR ? 50 : 7))
             incomplete_str[incomplete_length++] = c;
         if (core_settings.auto_repeat) {
             repeating = 2;
@@ -1615,6 +2039,25 @@ void keydown_command_entry(int shift, int key) {
                         || catsect == CATSECT_CPX
                         || catsect == CATSECT_MAT) {
                     set_cat_section(CATSECT_TOP);
+                    redisplay();
+                    return;
+                } else if (catsect == CATSECT_DIRS) {
+                    set_cat_section((skin_flags & 1) == 0 ? CATSECT_TOP : CATSECT_MORE);
+                    redisplay();
+                    return;
+                } else if (catsect >= CATSECT_UNITS_1
+                        || catsect <= CATSECT_UNITS_3) {
+                    set_cat_section((skin_flags & 2) == 0 ? CATSECT_TOP : CATSECT_MORE);
+                    redisplay();
+                    return;
+                } else if (catsect == CATSECT_LIST
+                        || catsect == CATSECT_EQN
+                        || catsect == CATSECT_OTHER) {
+                    set_cat_section(CATSECT_MORE);
+                    redisplay();
+                    return;
+                } else if (catsect == CATSECT_FCN) {
+                    set_cat_section((skin_flags & 1) == 0 ? CATSECT_MORE : CATSECT_TOP);
                     redisplay();
                     return;
                 }
@@ -1675,7 +2118,7 @@ void keydown_command_entry(int shift, int key) {
                         } else
                             goto out_of_alpha;
                     } else if (incomplete_argtype == ARG_MAT) {
-                        if (vars_exist(CATSECT_MAT_LIST))
+                        if (vars_exist(CATSECT_MAT_LIST_ONLY))
                             set_catalog_menu(CATSECT_MAT_LIST_ONLY);
                         else
                             set_menu(MENULEVEL_COMMAND, MENU_NONE);
@@ -1689,6 +2132,16 @@ void keydown_command_entry(int shift, int key) {
                             set_catalog_menu(CATSECT_LIST_ONLY);
                         else
                             set_menu(MENULEVEL_COMMAND, MENU_NONE);
+                    } else if (incomplete_argtype == ARG_DIR) {
+                        if (cwd->children_count != 0)
+                            set_catalog_menu(CATSECT_DIRS_ONLY);
+                        else
+                            set_menu(MENULEVEL_COMMAND, MENU_NONE);
+                    } else if (incomplete_argtype == ARG_EQN) {
+                        if (vars_exist(CATSECT_EQN))
+                            set_catalog_menu(CATSECT_EQN_ONLY);
+                        else
+                            set_menu(MENULEVEL_COMMAND, MENU_NONE);
                     } else if (incomplete_argtype == ARG_PRGM)
                         set_catalog_menu(CATSECT_PGM_ONLY);
                     else if (incomplete_argtype == ARG_XSTR) {
@@ -1698,15 +2151,49 @@ void keydown_command_entry(int shift, int key) {
                         goto out_of_alpha;
                     redisplay();
                 } else if (mode_commandmenu == MENU_CATALOG
-                        && ((catsect = get_cat_section()) == CATSECT_FCN
-                                || catsect == CATSECT_PGM
+                        && ((catsect = get_cat_section()) == CATSECT_PGM
                                 || catsect == CATSECT_REAL
                                 || catsect == CATSECT_CPX
                                 || catsect == CATSECT_MAT)) {
                     set_catalog_menu(CATSECT_TOP);
                     redisplay();
                 } else if (mode_commandmenu == MENU_CATALOG
-                        && ((catsect = get_cat_section()) == CATSECT_EXT_TIME
+                        && catsect == CATSECT_DIRS) {
+                    set_catalog_menu((skin_flags & 1) == 0 ? CATSECT_TOP : CATSECT_MORE);
+                    redisplay();
+                } else if (mode_commandmenu == MENU_CATALOG
+                        && catsect >= CATSECT_UNITS_1
+                        && catsect <= CATSECT_UNITS_3) {
+                    set_catalog_menu((skin_flags & 2) == 0 ? CATSECT_TOP : CATSECT_MORE);
+                    redisplay();
+                } else if (mode_commandmenu == MENU_CATALOG
+                        && catsect >= CATSECT_UNITS_LENG
+                        && catsect <= CATSECT_UNITS_MASS) {
+                    set_catalog_menu(CATSECT_UNITS_1);
+                    redisplay();
+                } else if (mode_commandmenu == MENU_CATALOG
+                        && catsect >= CATSECT_UNITS_FORCE
+                        && catsect <= CATSECT_UNITS_ELEC) {
+                    set_catalog_menu(CATSECT_UNITS_2);
+                    redisplay();
+                } else if (mode_commandmenu == MENU_CATALOG
+                        && catsect >= CATSECT_UNITS_ANGL
+                        && catsect <= CATSECT_UNITS_VISC) {
+                    set_catalog_menu(CATSECT_UNITS_3);
+                    redisplay();
+                } else if (mode_commandmenu == MENU_CATALOG
+                        && (catsect == CATSECT_LIST
+                                || catsect == CATSECT_EQN
+                                || catsect == CATSECT_EQN_NAMED
+                                || catsect == CATSECT_OTHER)) {
+                    set_catalog_menu(CATSECT_MORE);
+                    redisplay();
+                } else if (mode_commandmenu == MENU_CATALOG
+                        && catsect == CATSECT_FCN) {
+                    set_catalog_menu((skin_flags & 1) == 0 ? CATSECT_MORE : CATSECT_TOP);
+                    redisplay();
+                } else if (mode_commandmenu == MENU_CATALOG
+                        && (catsect == CATSECT_EXT_TIME
                                 || catsect == CATSECT_EXT_XFCN
                                 || catsect == CATSECT_EXT_BASE
                                 || catsect == CATSECT_EXT_PRGM
@@ -1715,12 +2202,16 @@ void keydown_command_entry(int shift, int key) {
                     set_catalog_menu(CATSECT_EXT_1);
                     redisplay();
                 } else if (mode_commandmenu == MENU_CATALOG
-                        && ((catsect = get_cat_section()) == CATSECT_EXT_STAT
+                        && (catsect == CATSECT_EXT_EQN
+                                || catsect == CATSECT_EXT_UNIT
+                                || catsect == CATSECT_EXT_STAT
+                                || catsect == CATSECT_EXT_DIR
+                                || catsect == CATSECT_EXT_DISP
                                 || catsect == CATSECT_EXT_MISC)) {
                     set_catalog_menu(CATSECT_EXT_2);
                     redisplay();
                 } else if (mode_commandmenu == MENU_CATALOG
-                        && ((catsect = get_cat_section()) == CATSECT_EXT_0_CMP
+                        && (catsect == CATSECT_EXT_0_CMP
                                 || catsect == CATSECT_EXT_X_CMP)) {
                     set_catalog_menu(CATSECT_EXT_PRGM);
                     set_cat_row(3);
@@ -1752,10 +2243,10 @@ void keydown_command_entry(int shift, int key) {
                     if (incomplete_ind)
                         goto out_of_alpha;
                 } else if (incomplete_argtype == ARG_RVAR) {
-                    if (vars_exist(CATSECT_REAL))
+                    if (vars_exist(CATSECT_REAL_ONLY))
                         set_catalog_menu(CATSECT_REAL_ONLY);
                 } else if (incomplete_argtype == ARG_MAT) {
-                    if (vars_exist(CATSECT_MAT_LIST))
+                    if (vars_exist(CATSECT_MAT_LIST_ONLY))
                         set_catalog_menu(CATSECT_MAT_LIST_ONLY);
                 } else if (incomplete_argtype == ARG_M_STK) {
                     if (vars_exist(CATSECT_MAT))
@@ -1763,6 +2254,12 @@ void keydown_command_entry(int shift, int key) {
                 } else if (incomplete_argtype == ARG_L_STK) {
                     if (vars_exist(CATSECT_LIST))
                         set_catalog_menu(CATSECT_LIST_ONLY);
+                } else if (incomplete_argtype == ARG_DIR) {
+                    if (cwd->children_count != 0)
+                        set_catalog_menu(CATSECT_DIRS_ONLY);
+                } else if (incomplete_argtype == ARG_EQN) {
+                    if (vars_exist(CATSECT_EQN_ONLY))
+                        set_catalog_menu(CATSECT_EQN_ONLY);
                 } else if (incomplete_argtype == ARG_PRGM)
                     set_catalog_menu(CATSECT_PGM_ONLY);
                 else if (incomplete_argtype == ARG_XSTR) {
@@ -1779,6 +2276,8 @@ void keydown_command_entry(int shift, int key) {
                             set_menu(MENULEVEL_COMMAND, MENU_VARMENU);
                         else if (mode_appmenu == MENU_INTEG_PARAMS)
                             set_menu(MENULEVEL_COMMAND, MENU_INTEG_PARAMS);
+                        else if (mode_appmenu >= MENU_TVM_APP1 && mode_appmenu <= MENU_TVM_TABLE)
+                            set_menu(MENULEVEL_COMMAND, MENU_TVM_PARAMS);
                         else
                             set_catalog_menu(CATSECT_VARS_ONLY);
                     else if (incomplete_argtype == ARG_REAL)
@@ -1786,6 +2285,8 @@ void keydown_command_entry(int shift, int key) {
                             set_menu(MENULEVEL_COMMAND, MENU_VARMENU);
                         else if (mode_appmenu == MENU_INTEG_PARAMS)
                             set_menu(MENULEVEL_COMMAND, MENU_INTEG_PARAMS);
+                        else if (mode_appmenu >= MENU_TVM_APP1 && mode_appmenu <= MENU_TVM_TABLE)
+                            set_menu(MENULEVEL_COMMAND, MENU_TVM_PARAMS);
                         else
                             set_catalog_menu(CATSECT_REAL_ONLY);
                     else if (incomplete_argtype == ARG_LBL)
@@ -1813,15 +2314,18 @@ void keydown_command_entry(int shift, int key) {
                 if (mode_commandmenu == MENU_NONE
                         || (mode_commandmenu == MENU_CATALOG
                             && ((catsect = get_cat_section()) == CATSECT_TOP
+                            || catsect == CATSECT_MORE
                             || catsect == CATSECT_EXT_1
                             || catsect == CATSECT_EXT_2
                             || catsect == CATSECT_PGM_ONLY
                             || catsect == CATSECT_REAL_ONLY
                             || catsect == CATSECT_MAT_ONLY
-                            || catsect == CATSECT_LIST_STR_ONLY
                             || catsect == CATSECT_MAT_LIST_ONLY
                             || catsect == CATSECT_LIST_ONLY
-                            || catsect == CATSECT_VARS_ONLY))) {
+                            || catsect == CATSECT_EQN_ONLY
+                            || catsect == CATSECT_VARS_ONLY
+                            || catsect == CATSECT_LIST_STR_ONLY
+                            || catsect == CATSECT_DIRS_ONLY))) {
                     set_menu(MENULEVEL_COMMAND, MENU_ALPHA1);
                     redisplay();
                     return;
@@ -1923,13 +2427,19 @@ void keydown_alpha_mode(int shift, int key) {
 
         handle_char:
         if (flags.f.prgm_mode) {
-            if (!mode_alpha_entry)
+            if (!mode_alpha_entry) {
                 if (!start_alpha_prgm_line()) {
-                    display_error(ERR_PROGRAM_LOCKED);
+                    if (!current_prgm.is_editable())
+                        display_error(ERR_RESTRICTED_OPERATION);
+                    else
+                        display_error(ERR_PROGRAM_LOCKED);
                     redisplay();
                     return;
                 }
-            if (entered_string_length < 15)
+            }
+            if ((c & 128) != 0 && entered_string_length == 0)
+                squeak();
+            else if (entered_string_length < 15)
                 entered_string[entered_string_length++] = c;
         } else {
             if (!mode_alpha_entry) {
@@ -1982,12 +2492,16 @@ void keydown_alpha_mode(int shift, int key) {
         }
     }
     if (flags.f.prgm_mode) {
-        if (!mode_alpha_entry)
+        if (!mode_alpha_entry) {
             if (!start_alpha_prgm_line()) {
-                display_error(ERR_PROGRAM_LOCKED);
+                if (!current_prgm.is_editable())
+                    display_error(ERR_RESTRICTED_OPERATION);
+                else
+                    display_error(ERR_PROGRAM_LOCKED);
                 redisplay();
                 return;
             }
+        }
         if (entered_string_length < 15)
             entered_string[entered_string_length++] = c;
     } else {
@@ -2054,21 +2568,23 @@ void keydown_alpha_mode(int shift, int key) {
             } else {
                 int4 line = pc2line(pc);
                 if (line != 0) {
-                    if (current_prgm == prgms_count - 1
-                            && prgms[current_prgm].is_end(pc)) {
+                    if (current_prgm.idx == dir_list[current_prgm.dir]->prgms_count - 1
+                            && dir_list[current_prgm.dir]->prgms[current_prgm.idx].is_end(pc)) {
                         // .END.
                         pc = line2pc(line - 1);
-                        prgm_highlight_row = 0;
-                    } else if (prgms[current_prgm].locked) {
+                        move_prgm_highlight(-1);
+                    } else if (!current_prgm.is_editable()) {
+                        display_error(ERR_RESTRICTED_OPERATION);
+                    } else if (current_prgm.is_locked()) {
                         display_error(ERR_PROGRAM_LOCKED);
-                    } else if (current_prgm < prgms_count - 1
-                            && prgms[current_prgm].is_end(pc)
-                            && prgms[current_prgm + 1].locked) {
+                    } else if (current_prgm.idx < dir_list[current_prgm.dir]->prgms_count - 1
+                            && dir_list[current_prgm.dir]->prgms[current_prgm.idx].is_end(pc)
+                            && dir_list[current_prgm.dir]->prgms[current_prgm.idx + 1].locked) {
                         display_error(ERR_NEXT_PROGRAM_LOCKED);
                     } else {
                         delete_command(pc);
                         pc = line2pc(line - 1);
-                        prgm_highlight_row = 0;
+                        move_prgm_highlight(-1);
                     }
                 }
                 if (mode_alphamenu != MENU_ALPHA1
@@ -2104,7 +2620,9 @@ void keydown_alpha_mode(int shift, int key) {
                 if (start_alpha_prgm_line()) {
                     entered_string[0] = 127;
                     entered_string_length = 1;
-                } else
+                } else if (!current_prgm.is_editable())
+                    display_error(ERR_RESTRICTED_OPERATION);
+                else
                     display_error(ERR_PROGRAM_LOCKED);
             }
         } else {
@@ -2123,8 +2641,10 @@ void keydown_alpha_mode(int shift, int key) {
     }
 
     if (key == 2048 + CMD_NULL) {
-        handle_dcm_xeq();
-        return;
+        int cmd = handle_dcm_xeq();
+        if (cmd == CMD_NONE)
+            return;
+        key = 2048 + cmd;
     }
 
     command = CMD_CANCELLED;
@@ -2138,7 +2658,7 @@ void keydown_alpha_mode(int shift, int key) {
     } else {
         switch (key) {
             case KEY_CHS: set_plainmenu(MENU_MODES1, "MODES", 5); break;
-            case KEY_E: set_plainmenu(MENU_DISP, "DISP", 4); break;
+            case KEY_E: set_plainmenu(MENU_DISP1, "DISP", 4); break;
             case KEY_BSP: set_plainmenu(MENU_CLEAR1, "CLEAR", 5); break;
             case KEY_7: set_solve_integ(1); break;
             case KEY_8: set_solve_integ(0); break;
@@ -2169,11 +2689,17 @@ void keydown_alpha_mode(int shift, int key) {
                         }
             case KEY_3: set_plainmenu(MENU_PGM_FCN1, "PGM.FCN", 7); break;
             case KEY_SUB: set_plainmenu(MENU_PRINT1, "PRINT", 5); break;
-            case KEY_0: set_plainmenu(MENU_TOP_FCN, "TOP.FCN", 7); break;
-            case KEY_DOT: show();
-                            pending_command = CMD_LINGER1;
-                            shell_request_timeout3(2000);
-                            return;
+            case KEY_0:
+                if ((skin_flags & 4) == 0)
+                    set_plainmenu(MENU_TOP_FCN, "TOP.FCN", 7);
+                else
+                    command = CMD_TVM;
+                break;
+            case KEY_DOT:
+                show();
+                pending_command = CMD_LINGER1;
+                shell_request_timeout3(2000);
+                return;
             case KEY_ADD: set_plainmenu(MENU_CATALOG, "CATALOG", 7); break;
             default: command = key >= 2048 ? key - 2048 : CMD_NONE; break;
         }
@@ -2201,6 +2727,25 @@ void keydown_alpha_mode(int shift, int key) {
         do_interactive(command);
 }
 
+static bool ref_action_possible(bool lists_allowed) {
+    if (flags.f.prgm_mode || sp < 0)
+        return false;
+    vartype *x = stack[sp];
+    if (x->type == TYPE_DIR_REF || x->type == TYPE_PGM_REF || x->type == TYPE_VAR_REF)
+        return true;
+    if (!lists_allowed || x->type != TYPE_LIST)
+        return false;
+    vartype_list *list = (vartype_list *) x;
+    if (list->size == 0)
+        return false;
+    for (int i = 0; i < list->size; i++) {
+        x = list->array->data[i];
+        if (x->type != TYPE_DIR_REF && x->type != TYPE_PGM_REF && x->type != TYPE_VAR_REF)
+            return false;
+    }
+    return true;
+}
+
 void keydown_normal_mode(int shift, int key) {
     int command;
 
@@ -2211,25 +2756,30 @@ void keydown_normal_mode(int shift, int key) {
         /* Entering number entry mode */
         if (deferred_print)
             print_command(CMD_NULL, NULL);
-        if (flags.f.prgm_mode && prgms[current_prgm].locked) {
-            display_error(ERR_PROGRAM_LOCKED);
-            redisplay();
-            return;
+        if (flags.f.prgm_mode) {
+            if (!current_prgm.is_editable()) {
+                display_error(ERR_RESTRICTED_OPERATION);
+                redisplay();
+                return;
+            }
+            if (current_prgm.is_locked()) {
+                display_error(ERR_PROGRAM_LOCKED);
+                redisplay();
+                return;
+            }
         }
         cmdline_length = 0;
-        if (get_front_menu() != MENU_NONE)
-            cmdline_row = 0;
-        else
-            cmdline_row = 1;
+        cmdline_unit = -1;
         mode_number_entry = !flags.f.prgm_mode && flags.f.big_stack && !flags.f.numeric_data_input ? 2 : 1;
         if (flags.f.prgm_mode) {
             if (pc == -1)
                 pc = 0;
-            else if (!prgms[current_prgm].is_end(pc))
+            else if (!dir_list[current_prgm.dir]->prgms[current_prgm.idx].is_end(pc))
                 pc += get_command_length(current_prgm, pc);
-            prgm_highlight_row = 1;
-            if (cmdline_row == 1)
-                display_prgm_line(0, -1);
+            move_prgm_highlight(1);
+//            if (get_front_menu() == MENU_NONE)
+//                display_prgm_line(0, -1);
+            redisplay();
         } else {
             if (!flags.f.stack_lift_disable) {
                 if (flags.f.big_stack) {
@@ -2247,12 +2797,7 @@ void keydown_normal_mode(int shift, int key) {
                 flags.f.stack_lift_disable = 0;
             flags.f.numeric_data_input = 1;
             mode_varmenu = false;
-            if (cmdline_row == 1)
-                display_y(0);
-            else
-                /* Force repaint of menu; it could be hidden due to a recent
-                 * two-line AVIEW command */
-                redisplay();
+            redisplay();
         }
         keydown_number_entry(shift, key);
         return;
@@ -2262,27 +2807,30 @@ void keydown_normal_mode(int shift, int key) {
         int4 line = pc2line(pc);
         if (line == 0)
             return;
-        if (current_prgm == prgms_count - 1
-                && prgms[current_prgm].is_end(pc)) {
+        if (current_prgm.idx == dir_list[current_prgm.dir]->prgms_count - 1
+                && dir_list[current_prgm.dir]->prgms[current_prgm.idx].is_end(pc)) {
             // .END.
             pc = line2pc(line - 1);
-            prgm_highlight_row = 0;
-        } else if (prgms[current_prgm].locked) {
+            move_prgm_highlight(-1);
+        } else if (!current_prgm.is_editable()) {
+            display_error(ERR_RESTRICTED_OPERATION);
+        } else if (current_prgm.is_locked()) {
             display_error(ERR_PROGRAM_LOCKED);
-        } else if (current_prgm < prgms_count - 1
-                && prgms[current_prgm].is_end(pc)
-                && prgms[current_prgm + 1].locked) {
+        } else if (current_prgm.idx < dir_list[current_prgm.dir]->prgms_count - 1
+                && dir_list[current_prgm.dir]->prgms[current_prgm.idx].is_end(pc)
+                && dir_list[current_prgm.dir]->prgms[current_prgm.idx + 1].locked) {
             display_error(ERR_NEXT_PROGRAM_LOCKED);
         } else {
             delete_command(pc);
             pc = line2pc(line - 1);
-            prgm_highlight_row = 0;
+            move_prgm_highlight(-1);
         }
         redisplay();
         return;
     }
 
     if ((mode_appmenu != MENU_NONE
+                || mode_auxmenu != MENU_NONE
                 || mode_plainmenu != MENU_NONE
                 || mode_transientmenu != MENU_NONE)
             && mode_alphamenu == MENU_NONE
@@ -2295,6 +2843,9 @@ void keydown_normal_mode(int shift, int key) {
         } else if (mode_plainmenu != MENU_NONE) {
             menu = mode_plainmenu;
             level = MENULEVEL_PLAIN;
+        } else if (mode_auxmenu != MENU_NONE) {
+            menu = mode_auxmenu;
+            level = MENULEVEL_AUX;
         } else {
             menu = mode_appmenu;
             level = MENULEVEL_APP;
@@ -2313,6 +2864,7 @@ void keydown_normal_mode(int shift, int key) {
                 }
             } else
                 goto notprogmenu;
+            flags.f.prev_progmenu = true;
             do_prgm_menu_key(keynum);
             return;
             notprogmenu:;
@@ -2320,7 +2872,22 @@ void keydown_normal_mode(int shift, int key) {
 
         if (menu == MENU_VARMENU) {
             if (menukey != -1) {
-                if (varmenu_labellength[menukey] == 0) {
+                if (varmenu_row == 0 && menukey == 0 &&
+                        (varmenu_eqn != NULL && varmenu_role == 1 && !is_equation(varmenu_eqn) || varmenu_role >= 4 && varmenu_role <= 6)) {
+                    /* Magic EVAL key */
+                    if (flags.f.prgm_mode) {
+                        squeak();
+                    } else if (varmenu_role >= 4 && varmenu_role <= 6) {
+                        pending_command_arg.type = ARGTYPE_STR;
+                        pending_command_arg.length = 0;
+                        pending_command = varmenu_role == 4 ? CMD_XAXIS : varmenu_role == 5 ? CMD_YAXIS : CMD_NULL /* ZAXIS */;
+                    } else {
+                        pending_command_arg.type = ARGTYPE_EQN;
+                        pending_command_arg.val.num = ((vartype_equation *) varmenu_eqn)->data->eqn_index;
+                        pending_command = CMD_EVALNi;
+                    }
+                    return;
+                } else if (varmenu_labellength[menukey] == 0) {
                     pending_command = CMD_NULL;
                 } else if (shift && !flags.f.prgm_mode) {
                     view(varmenu_labeltext[menukey],
@@ -2337,7 +2904,7 @@ void keydown_normal_mode(int shift, int key) {
                         pending_command = shift ? CMD_VIEW : CMD_STO;
                         store_command_after(&pc, pending_command,
                                                     &pending_command_arg, NULL);
-                        prgm_highlight_row = 1;
+                        move_prgm_highlight(1);
                         pending_command = CMD_NONE;
                         redisplay();
                     } else {
@@ -2370,6 +2937,19 @@ void keydown_normal_mode(int shift, int key) {
                                     return;
                                 } else
                                     pending_command = CMD_VMSTO;
+                                break;
+                            case 4: /* Axis selection */
+                                pending_command = CMD_XAXIS;
+                                break;
+                            case 5: /* Axis selection */
+                                pending_command = CMD_YAXIS;
+                                break;
+                            //case 6: /* Axis selection */
+                            //    pending_command = CMD_ZAXIS2;
+                            //    break;
+                            case 7: /* Plot parameters */
+                                pending_command = CMD_VMSTO;
+                                break;
                         }
                     }
                 }
@@ -2405,6 +2985,8 @@ void keydown_normal_mode(int shift, int key) {
             }
         }
 
+        std::string s;
+
         if (menukey != -1) {
             if (menu == MENU_CUSTOM1
                     || menu == MENU_CUSTOM2
@@ -2426,7 +3008,7 @@ void keydown_normal_mode(int shift, int key) {
                         if (flags.f.prgm_mode) {
                             store_command_after(&pc, pending_command,
                                                     &pending_command_arg, NULL);
-                            prgm_highlight_row = 1;
+                            move_prgm_highlight(1);
                             pending_command = CMD_NONE;
                             set_menu(MENULEVEL_COMMAND, MENU_NONE);
                             redisplay();
@@ -2438,77 +3020,96 @@ void keydown_normal_mode(int shift, int key) {
                     char name[7];
                     keynum = menukey + 6 * (menu - MENU_CUSTOM1) + 1;
                     get_custom_key(keynum, name, &length);
-                    if (length == 0)
+                    if (length == 0) {
                         squeak();
-                    else {
-                        int dummyprgm;
-                        int4 dummypc;
-                        int i;
-                        pending_command_arg.type = ARGTYPE_STR;
-                        pending_command_arg.length = length;
-                        for (i = 0; i < length; i++)
-                            pending_command_arg.val.text[i] = name[i];
-                        if (find_global_label(&pending_command_arg,
-                                                &dummyprgm, &dummypc))
-                            pending_command = CMD_XEQ;
-                        else if (lookup_var(name, length) != -1)
-                            pending_command = CMD_RCL;
-                        else {
-                            int cmd = find_builtin(name, length);
-                            if (cmd == -1)
-                                pending_command = CMD_XEQ;
-                            else if (cmd == CMD_CLALLa) {
-                                mode_clall = true;
-                                set_menu(MENULEVEL_ALPHA, MENU_NONE);
+                        return;
+                    }
+                    pgm_index dummyprgm;
+                    int4 dummypc;
+                    int i;
+                    pending_command_arg.type = ARGTYPE_STR;
+                    pending_command_arg.length = length;
+                    for (i = 0; i < length; i++)
+                        pending_command_arg.val.text[i] = name[i];
+                    if (find_global_label(&pending_command_arg,
+                                          &dummyprgm, &dummypc)) {
+                        pending_command = CMD_XEQ;
+                        goto send_it_off;
+                    }
+                    vloc idx = lookup_var(name, length);
+                    if (!idx.not_found()) {
+                        vartype *v = idx.value();
+                        if (v->type == TYPE_UNIT && sp >= 0 && (stack[sp]->type == TYPE_REAL || stack[sp]->type == TYPE_UNIT)) {
+                            s = std::string(name, length);
+                            goto apply_unit;
+                        }
+                        pending_command = CMD_RCL;
+                        goto send_it_off;
+                    }
+                    int cmd = find_builtin(name, length);
+                    if (cmd != -1) {
+                        if (cmd == CMD_CLALLa) {
+                            mode_clall = true;
+                            set_menu(MENULEVEL_ALPHA, MENU_NONE);
+                            pending_command = CMD_NONE;
+                            redisplay();
+                            return;
+                        } else if (cmd == CMD_CLV || cmd == CMD_PRV || cmd == CMD_LCLV) {
+                            if (!flags.f.prgm_mode && cwd->vars_count == 0) {
+                                display_error(ERR_NO_VARIABLES);
                                 pending_command = CMD_NONE;
                                 redisplay();
-                                return;
-                            } else if (cmd == CMD_CLV || cmd == CMD_PRV || cmd == CMD_LCLV) {
-                                if (!flags.f.prgm_mode && vars_count == 0) {
-                                    display_error(ERR_NO_VARIABLES);
-                                    pending_command = CMD_NONE;
-                                    redisplay();
-                                    return;
-                                }
-                                pending_command = CMD_NONE;
-                                do_interactive(cmd);
-                                return;
-                            } else if ((cmd == CMD_SST || cmd == CMD_SST_UP || cmd == CMD_SST_RT)
-                                    && flags.f.prgm_mode) {
-                                sst();
-                                pending_command = CMD_NONE;
-                                redisplay();
-                                repeating = 1;
-                                repeating_shift = 1;
-                                repeating_key = KEY_DOWN;
-                                return;
-                            } else if (cmd == CMD_BST) {
-                                bst();
-                                if (!flags.f.prgm_mode) {
-                                    flags.f.prgm_mode = 1;
-                                    redisplay();
-                                    flags.f.prgm_mode = 0;
-                                    pending_command = CMD_CANCELLED;
-                                } else {
-                                    redisplay();
-                                    pending_command = CMD_NONE;
-                                }
-                                repeating = 1;
-                                repeating_shift = 1;
-                                repeating_key = KEY_UP;
-                                return;
-                            } else if (cmd_array[cmd].argtype == ARG_NONE) {
-                                pending_command = cmd;
-                                pending_command_arg.type = ARGTYPE_NONE;
-                            } else {
-                                pending_command = CMD_NONE;
-                                do_interactive(cmd);
                                 return;
                             }
+                            pending_command = CMD_NONE;
+                            do_interactive(cmd);
+                            return;
+                        } else if ((cmd == CMD_SST || cmd == CMD_SST_UP || cmd == CMD_SST_RT)
+                                && flags.f.prgm_mode) {
+                            sst();
+                            pending_command = CMD_NONE;
+                            redisplay();
+                            repeating = 1;
+                            repeating_shift = 1;
+                            repeating_key = KEY_DOWN;
+                            return;
+                        } else if (cmd == CMD_BST) {
+                            bst();
+                            if (!flags.f.prgm_mode) {
+                                flags.f.prgm_mode = 1;
+                                redisplay();
+                                flags.f.prgm_mode = 0;
+                                pending_command = CMD_CANCELLED;
+                            } else {
+                                redisplay();
+                                pending_command = CMD_NONE;
+                            }
+                            repeating = 1;
+                            repeating_shift = 1;
+                            repeating_key = KEY_UP;
+                            return;
+                        } else if (cmd_array[cmd].argtype == ARG_NONE) {
+                            pending_command = cmd;
+                            pending_command_arg.type = ARGTYPE_NONE;
+                        } else {
+                            pending_command = CMD_NONE;
+                            do_interactive(cmd);
+                            return;
                         }
                         goto send_it_off;
                     }
-                    return;
+                    if (is_custom_menu_unit(name, length)) {
+                        if (sp >= 0 && (stack[sp]->type == TYPE_REAL || stack[sp]->type == TYPE_UNIT)) {
+                            s = std::string(name, length);
+                            goto apply_unit;
+                        } else {
+                            squeak();
+                            return;
+                        }
+                    }
+                    // Nothing found. Fall back on XEQ, which will result in Label Not Found
+                    pending_command = CMD_XEQ;
+                    goto send_it_off;
                 }
             } else if (menu == MENU_CATALOG) {
                 int catsect;
@@ -2516,8 +3117,13 @@ void keydown_normal_mode(int shift, int key) {
                 if (catsect == CATSECT_TOP) {
                     switch (menukey) {
                         case 0:
-                            print_menu_trace("FCN", 3);
-                            set_cat_section(CATSECT_FCN);
+                            if ((skin_flags & 1) == 0) {
+                                print_menu_trace("DIRS", 4);
+                                set_cat_section(CATSECT_DIRS);
+                            } else {
+                                print_menu_trace("FCN", 3);
+                                set_cat_section(CATSECT_FCN);
+                            }
                             move_cat_row(0);
                             break;
                         case 1:
@@ -2559,11 +3165,84 @@ void keydown_normal_mode(int shift, int key) {
                             }
                             break;
                         case 5:
-                            display_mem();
-                            pending_command = CMD_LINGER1;
-                            shell_request_timeout3(2000);
+                            if ((skin_flags & 2) != 0) {
+                                display_mem();
+                                pending_command = CMD_LINGER1;
+                                shell_request_timeout3(2000);
+                            } else {
+                                print_menu_trace("UNITS", 5);
+                                set_cat_section(CATSECT_UNITS_1);
+                                redisplay();
+                            }
                             return;
                     }
+                    redisplay();
+                    return;
+                } else if (catsect == CATSECT_MORE) {
+                    switch (menukey) {
+                        case 0:
+                            print_menu_trace("LIST", 4);
+                            if (vars_exist(CATSECT_LIST)) {
+                                set_cat_section(CATSECT_LIST);
+                            } else {
+                                display_error(ERR_NO_LIST_VARIABLES);
+                                flush_display();
+                                return;
+                            }
+                            break;
+                        case 1:
+                            print_menu_trace("EQN", 3);
+                            if (vars_exist(CATSECT_EQN)) {
+                                set_cat_section(CATSECT_EQN);
+                            } else {
+                                display_error(ERR_NO_EQUATION_VARIABLES);
+                                flush_display();
+                                return;
+                            }
+                            break;
+                        case 2:
+                            print_menu_trace("EQN:", 4);
+                            if (named_eqns_exist()) {
+                                set_cat_section(CATSECT_EQN_NAMED);
+                            } else {
+                                display_error(ERR_NO_NAMED_EQUATIONS);
+                                flush_display();
+                                return;
+                            }
+                            break;
+                        case 3:
+                            print_menu_trace("OTHER", 5);
+                            if (vars_exist(CATSECT_OTHER)) {
+                                set_cat_section(CATSECT_OTHER);
+                            } else {
+                                display_error(ERR_NO_OTHER_VARIABLES);
+                                flush_display();
+                                return;
+                            }
+                            break;
+                        case 4:
+                            if ((skin_flags & 1) != 0) {
+                                print_menu_trace("DIRS", 4);
+                                set_cat_section(CATSECT_DIRS);
+                            } else {
+                                print_menu_trace("FCN", 3);
+                                set_cat_section(CATSECT_FCN);
+                            }
+                            move_cat_row(0);
+                            break;
+                        case 5:
+                            if ((skin_flags & 2) == 0) {
+                                display_mem();
+                                pending_command = CMD_LINGER1;
+                                shell_request_timeout3(2000);
+                            } else {
+                                print_menu_trace("UNITS", 5);
+                                set_cat_section(CATSECT_UNITS_1);
+                                redisplay();
+                            }
+                            return;
+                    }
+                    move_cat_row(0);
                     redisplay();
                     return;
                 } else if (catsect == CATSECT_EXT_1) {
@@ -2599,29 +3278,44 @@ void keydown_normal_mode(int shift, int key) {
                 } else if (catsect == CATSECT_EXT_2) {
                     switch (menukey) {
                         case 0:
+                            print_menu_trace("EQNS", 4);
+                            set_cat_section(CATSECT_EXT_EQN);
+                            break;
+                        case 1:
+                            print_menu_trace("UNIT", 4);
+                            set_cat_section(CATSECT_EXT_UNIT);
+                            break;
+                        case 2:
                             print_menu_trace("STAT", 4);
                             set_cat_section(CATSECT_EXT_STAT);
                             break;
-                        case 1:
+                        case 3:
+                            print_menu_trace("DIR", 3);
+                            set_cat_section(CATSECT_EXT_DIR);
+                            break;
+                        case 4:
+                            print_menu_trace("DISP", 4);
+                            set_cat_section(CATSECT_EXT_DISP);
+                            break;
+                        case 5:
                             print_menu_trace("MISC", 4);
                             set_cat_section(CATSECT_EXT_MISC);
                             break;
-                        default:
-                            squeak();
-                            return;
                     }
                     move_cat_row(0);
                     redisplay();
                     return;
                 } else if (catsect == CATSECT_PGM
                             || catsect == CATSECT_PGM_ONLY) {
-                    int labelindex = get_cat_item(menukey);
-                    if (labelindex == -1) {
+                    int4 dir_id;
+                    int labelindex;
+                    if (!get_cat_item(menukey, &dir_id, &labelindex)) {
                         pending_command = CMD_NULL;
                         return;
                     }
+                    directory *dir = get_dir(dir_id);
                     if (flags.f.prgm_mode
-                                    && labels[labelindex].length == 0) {
+                                    && dir->labels[labelindex].length == 0) {
                         display_error(ERR_RESTRICTED_OPERATION);
                         flush_display();
                         pending_command = CMD_NONE;
@@ -2630,6 +3324,7 @@ void keydown_normal_mode(int shift, int key) {
                     pending_command = CMD_XEQ;
                     pending_command_arg.type = ARGTYPE_LBLINDEX;
                     pending_command_arg.val.num = labelindex;
+                    pending_command_arg.target = dir_id;
                     xeq_invisible = 1;
                     if (!flags.f.prgm_mode
                             && (level == MENULEVEL_TRANSIENT
@@ -2646,10 +3341,19 @@ void keydown_normal_mode(int shift, int key) {
                 } else if (catsect == CATSECT_PGM_SOLVE
                         || catsect == CATSECT_PGM_INTEG
                         || catsect == CATSECT_PGM_MENU) {
-                    int labelindex = get_cat_item(menukey);
-                    int i;
-                    if (labelindex == -1) {
+                    int4 dir_id;
+                    int labelindex;
+                    if (!get_cat_item(menukey, &dir_id, &labelindex)) {
                         pending_command = CMD_NULL;
+                        return;
+                    }
+                    int i;
+                    if (labelindex == -2) {
+                        int err = eqn_start(catsect);
+                        if (err != ERR_NONE) {
+                            display_error(err);
+                            flush_display();
+                        }
                         return;
                     }
                     if (catsect == CATSECT_PGM_SOLVE)
@@ -2661,15 +3365,16 @@ void keydown_normal_mode(int shift, int key) {
                     else
                         /* PGMMENU */
                         pending_command = CMD_PMEXEC;
+                    directory *dir = get_dir(dir_id);
                     pending_command_arg.type = ARGTYPE_STR;
-                    pending_command_arg.length = labels[labelindex].length;
+                    pending_command_arg.length = dir->labels[labelindex].length;
                     for (i = 0; i < pending_command_arg.length; i++)
                         pending_command_arg.val.text[i] =
-                                                labels[labelindex].name[i];
+                                                dir->labels[labelindex].name[i];
                 } else if (catsect == CATSECT_FCN
                         || catsect >= CATSECT_EXT_TIME && catsect <= CATSECT_EXT_X_CMP) {
-                    int cmd = get_cat_item(menukey);
-                    if (cmd == CMD_NULL) {
+                    int cmd;
+                    if (!get_cat_item(menukey, NULL, &cmd) || cmd == CMD_NULL) {
                         if (flags.f.prgm_mode) {
                             pending_command = CMD_NULL;
                             return;
@@ -2687,19 +3392,319 @@ void keydown_normal_mode(int shift, int key) {
                         set_menu(level, MENU_NONE);
                     do_interactive(cmd);
                     return;
+                } else if (catsect == CATSECT_EQN_NAMED) {
+                    int index = get_cat_row() * 6 + menukey;
+                    std::vector<int> indexes;
+                    try {
+                        indexes = get_equation_indexes();
+                    } catch (std::bad_alloc &) {
+                        pending_command = CMD_NULL;
+                        return;
+                    }
+                    if (index >= indexes.size()) {
+                        pending_command = CMD_NULL;
+                        return;
+                    }
+                    eqn_set_selected_row(indexes[index]);
+                    eqn_start(CATSECT_EQN_NAMED);
+                    return;
+                } else if (catsect >= CATSECT_UNITS_1 && catsect <= CATSECT_UNITS_3) {
+                    int new_sect = -1;
+                    switch (catsect) {
+                        case CATSECT_UNITS_1:
+                            switch (menukey) {
+                                case 0: new_sect = CATSECT_UNITS_LENG; break;
+                                case 1: new_sect = CATSECT_UNITS_AREA; break;
+                                case 2: new_sect = CATSECT_UNITS_VOL; break;
+                                case 3: new_sect = CATSECT_UNITS_TIME; break;
+                                case 4: new_sect = CATSECT_UNITS_SPEED; break;
+                                case 5: new_sect = CATSECT_UNITS_MASS; break;
+                            }
+                            break;
+                        case CATSECT_UNITS_2:
+                            switch (menukey) {
+                                case 0: new_sect = CATSECT_UNITS_FORCE; break;
+                                case 1: new_sect = CATSECT_UNITS_ENRG; break;
+                                case 2: new_sect = CATSECT_UNITS_POWR; break;
+                                case 3: new_sect = CATSECT_UNITS_PRESS; break;
+                                case 4: new_sect = CATSECT_UNITS_TEMP; break;
+                                case 5: new_sect = CATSECT_UNITS_ELEC; break;
+                            }
+                            break;
+                        case CATSECT_UNITS_3:
+                            switch (menukey) {
+                                case 0: new_sect = CATSECT_UNITS_ANGL; break;
+                                case 1: new_sect = CATSECT_UNITS_LIGHT; break;
+                                case 2: new_sect = CATSECT_UNITS_RAD; break;
+                                case 3: new_sect = CATSECT_UNITS_VISC; break;
+                                case 4: new_sect = -1; break;
+                                case 5: new_sect = -1; break;
+                            }
+                            break;
+                    }
+                    if (new_sect == -1) {
+                        squeak();
+                        return;
+                    } else {
+                        set_cat_section(new_sect);
+                        move_cat_row(0);
+                        redisplay();
+                        pending_command = CMD_NULL;
+                        return;
+                    }
+                } else if (catsect >= CATSECT_UNITS_LENG && catsect <= CATSECT_UNITS_VISC) {
+                    const char *text[6];
+                    int length[6];
+                    int row;
+                    row = get_cat_row();
+                    int rows;
+                    get_units_cat_row(catsect, text, length, &row, &rows);
+                    if (length[menukey] == 0) {
+                        unit_fail:
+                        squeak();
+                        return;
+                    }
+                    s = std::string(text[menukey], length[menukey]);
+                    apply_unit:
+                    if (flags.f.prgm_mode) {
+                        if (!current_prgm.is_editable())
+                            goto unit_fail;
+                        int4 pc2 = pc;
+                        int cmd;
+                        arg_struct arg;
+                        const char *num_str;
+                        get_next_command(&pc2, &cmd, &arg, 0, &num_str);
+                        if (cmd == CMD_NUMBER) {
+                            if (shift) {
+                                s = std::string("1/(", 3) + s + ")";
+                                if (!normalize_unit(s, &s))
+                                    goto unit_fail;
+                            }
+                        } else if (cmd == CMD_N_PLUS_U && arg.type != ARGTYPE_NONE) {
+                            std::string us(arg.val.xstr, arg.length);
+                            if (shift)
+                                us = us + "/(" + s +")";
+                            else
+                                us = us + "*" + s;
+                            if (!normalize_unit(us, &s))
+                                goto unit_fail;
+                        } else {
+                            goto unit_fail;
+                        }
+                        arg.type = ARGTYPE_DOUBLE;
+                        if (s == "")
+                            store_command(pc, CMD_NUMBER, &arg, num_str);
+                        else {
+                            if (num_str == NULL)
+                                s = std::string("_", 1) + s;
+                            else
+                                s = std::string(num_str, strlen(num_str)) + "_" + s;
+                            store_command(pc, CMD_NUMBER, &arg, s.c_str());
+                        }
+                        pc2 = pc + get_command_length(current_prgm, pc);
+                        delete_command(pc2);
+                        redisplay();
+                        return;
+                    } else {
+                        if (sp == -1)
+                            goto unit_fail;
+                        vartype *v = stack[sp];
+                        vartype *res = NULL;
+                        if (v->type == TYPE_REAL) {
+                            if (shift) {
+                                s = std::string("1/(", 3) + s + ")";
+                                normalize_unit(s, &s);
+                            }
+                            res = new_unit(((vartype_real *) v)->x, s.c_str(), (int) s.length());
+                            if (res == NULL)
+                                goto unit_fail;
+                            unit_success:
+                            free_vartype(stack[sp]);
+                            stack[sp] = res;
+                            flags.f.stack_lift_disable = 0;
+                            redisplay();
+                            pending_command = CMD_CANCELLED;
+                            if ((flags.f.trace_print || flags.f.normal_print)
+                                    && flags.f.printer_exists) {
+                                deferred_print = 0;
+                                docmd_prx(NULL);
+                            }
+                            return;
+                        } else if (v->type == TYPE_UNIT) {
+                            vartype_unit *u = (vartype_unit *) stack[sp];
+                            std::string us(u->text, u->length);
+                            if (shift)
+                                us = us + "/(" + s + ")";
+                            else
+                                us = us + "*" + s;
+                            if (!normalize_unit(us, &s))
+                                // should be impossible
+                                goto unit_fail;
+                            res = new_unit(u->x, s.c_str(), (int) s.length());
+                            if (res == NULL)
+                                goto unit_fail;
+                            goto unit_success;
+                        } else {
+                            goto unit_fail;
+                        }
+                    }
+                } else if (catsect == CATSECT_DIRS) {
+                    int row = get_cat_row();
+                    int ch = row * 6 + menukey;
+                    if (cwd != root)
+                        ch--;
+                    if (shift) {
+                        vartype *v = NULL;
+                        if (ch == -1)
+                            v = new_dir_ref(cwd->id);
+                        else if (ch < cwd->children_count)
+                            v = new_dir_ref(cwd->children[ch].dir->id);
+                        else {
+                            ch -= cwd->children_count;
+                            for (int i = cwd->labels_count - 1; i >= 0; i--) {
+                                if (cwd->labels[i].length == 0 && i > 0 && cwd->labels[i - 1].prgm == cwd->labels[i].prgm)
+                                    continue;
+                                if (ch == 0)
+                                    v = new_pgm_ref(cwd->id, cwd->labels[i].prgm);
+                                ch--;
+                            }
+                            if (ch >= 0 && ch < cwd->vars_count) {
+                                ch = cwd->vars_count - ch - 1;
+                                v = new_var_ref(cwd->id, cwd->vars[ch].name, cwd->vars[ch].length);
+                            }
+                        }
+                        if (v == NULL) {
+                            squeak();
+                            return;
+                        }
+                        if (sp >= 0 && (stack[sp]->type == TYPE_DIR_REF
+                                     || stack[sp]->type == TYPE_PGM_REF
+                                     || stack[sp]->type == TYPE_VAR_REF)) {
+                            if (vartype_equals(stack[sp], v)) {
+                                free_vartype(v);
+                                return;
+                            }
+                            vartype_list *list;
+                            list = (vartype_list *) new_list(2);
+                            if (list == NULL) {
+                                nomem:
+                                free_vartype(v);
+                                display_error(ERR_INSUFFICIENT_MEMORY);
+                                return;
+                            }
+                            list->array->data[0] = stack[sp];
+                            list->array->data[1] = v;
+                            stack[sp] = (vartype *) list;
+                            flags.f.stack_lift_disable = 0;
+                            redisplay();
+                            print_trace();
+                            return;
+                        }
+                        if (sp >= 0 && stack[sp]->type == TYPE_LIST) {
+                            vartype_list *list = (vartype_list *) stack[sp];
+                            for (int i = 0; i < list->size; i++) {
+                                int type = list->array->data[i]->type;
+                                if (type != TYPE_DIR_REF && type != TYPE_PGM_REF && type != TYPE_VAR_REF)
+                                    goto push_new;
+                            }
+                            if (!disentangle((vartype *) list))
+                                goto nomem;
+                            int pos = -1;
+                            while (++pos < list->size)
+                                if (vartype_equals(list->array->data[pos], v))
+                                    break;
+                            if (pos == list->size) {
+                                vartype **newdata = (vartype **) realloc(list->array->data, (list->size + 1) * sizeof(vartype *));
+                                if (newdata == NULL)
+                                    goto nomem;
+                                list->array->data = newdata;
+                                list->array->data[list->size++] = v;
+                            } else if (list->size == 2) {
+                                stack[sp] = list->array->data[1 - pos];
+                                list->array->data[1 - pos] = v;
+                                free_vartype((vartype *) list);
+                            } else {
+                                memmove(list->array->data + pos, list->array->data + pos + 1, (list->size - pos - 1) * sizeof(vartype *));
+                                list->size--;
+                                free_vartype(v);
+                            }
+                            flags.f.stack_lift_disable = 0;
+                            redisplay();
+                            print_trace();
+                            return;
+                        }
+
+                        push_new:
+                        if (recall_result(v) != ERR_NONE)
+                            goto nomem;
+                        flags.f.stack_lift_disable = 0;
+                        redisplay();
+                        return;
+                    } else {
+                        if (ch == -1) {
+                            pending_command = CMD_UPDIR;
+                            pending_command_arg.type = ARGTYPE_NONE;
+                            return;
+                        } else if (ch < cwd->children_count) {
+                            pending_command = CMD_CHDIR;
+                            pending_command_arg.type = ARGTYPE_STR;
+                            string_copy(pending_command_arg.val.text, &pending_command_arg.length,
+                                        cwd->children[ch].name, cwd->children[ch].length);
+                            return;
+                        } else {
+                            ch -= cwd->children_count;
+                            for (int i = cwd->labels_count - 1; i >= 0; i--) {
+                                if (cwd->labels[i].length == 0 && i > 0 && cwd->labels[i - 1].prgm == cwd->labels[i].prgm)
+                                    continue;
+                                if (ch == 0) {
+                                    if (flags.f.prgm_mode) {
+                                        if (cwd->labels[i].length == 0) {
+                                            squeak();
+                                            return;
+                                        }
+                                        pending_command = CMD_XEQ;
+                                        pending_command_arg.type = ARGTYPE_STR;
+                                        string_copy(pending_command_arg.val.text, &pending_command_arg.length,
+                                                    cwd->labels[i].name, cwd->labels[i].length);
+                                    } else {
+                                        pending_command = CMD_XEQ;
+                                        pending_command_arg.type = ARGTYPE_LBLINDEX;
+                                        pending_command_arg.target = cwd->id;
+                                        pending_command_arg.val.num = i;
+                                    }
+                                    goto send_it_off;
+                                }
+                                ch--;
+                            }
+                            if (ch >= 0 && ch < cwd->vars_count) {
+                                ch = cwd->vars_count - ch - 1;
+                                pending_command = CMD_RCL;
+                                pending_command_arg.type = ARGTYPE_STR;
+                                string_copy(pending_command_arg.val.text, &pending_command_arg.length,
+                                            cwd->vars[ch].name, cwd->vars[ch].length);
+                            } else {
+                                squeak();
+                                return;
+                            }
+                        }
+                    }
                 } else {
-                    int varindex = get_cat_item(menukey);
-                    int i;
-                    if (varindex == -1) {
+                    int4 dir_id;
+                    int varindex;
+                    if (!get_cat_item(menukey, &dir_id, &varindex)) {
                         pending_command = CMD_NULL;
                         return;
                     }
                     pending_command = CMD_RCL;
                     pending_command_arg.type = ARGTYPE_STR;
-                    pending_command_arg.length = vars[varindex].length;
-                    for (i = 0; i < pending_command_arg.length; i++)
-                        pending_command_arg.val.text[i] =
-                                                vars[varindex].name[i];
+                    var_struct *vs;
+                    if (dir_id == 0)
+                        vs = local_vars + varindex;
+                    else
+                        vs = get_dir(dir_id)->vars + varindex;
+                    int len;
+                    string_copy(pending_command_arg.val.text, &len, vs->name, vs->length);
+                    pending_command_arg.length = len;
                     if (level == MENULEVEL_TRANSIENT
                             || !mode_plainmenu_sticky)
                         set_menu(level, MENU_NONE);
@@ -2707,16 +3712,26 @@ void keydown_normal_mode(int shift, int key) {
                 send_it_off:
                 if (flags.f.prgm_mode &&
                         (cmd_array[pending_command].flags & FLAG_IMMED) == 0) {
+                    if (pending_command == CMD_EVAL) {
+                        int err = eqn_flip(pc);
+                        if (err != ERR_NONE) {
+                            if (err != ERR_YES)
+                                display_error(err);
+                            goto done;
+                        }
+                    }
                     store_command_after(&pc, pending_command,
                                             &pending_command_arg, NULL);
                     if (pending_command == CMD_END)
                         /* current_prgm was already incremented by store_command() */
                         pc = 0;
-                    prgm_highlight_row = 1;
+                    move_prgm_highlight(1);
+                    done:
                     pending_command = CMD_NONE;
                     if (level == MENULEVEL_TRANSIENT
                             || (level == MENULEVEL_PLAIN
-                                && !mode_plainmenu_sticky))
+                                && !mode_plainmenu_sticky
+                                && catsect != CATSECT_DIRS))
                         set_menu(level, MENU_NONE);
                     redisplay();
                 }
@@ -2742,7 +3757,7 @@ void keydown_normal_mode(int shift, int key) {
                             pending_command = shift ? CMD_VIEW : CMD_STO;
                             store_command_after(&pc, pending_command,
                                                     &pending_command_arg, NULL);
-                            prgm_highlight_row = 1;
+                            move_prgm_highlight(1);
                             pending_command = CMD_NONE;
                             redisplay();
                         } else {
@@ -2758,13 +3773,80 @@ void keydown_normal_mode(int shift, int key) {
                 } else
                     pending_command = CMD_NULL;
                 return;
+            } else if (menu == MENU_TVM_APP1 && menukey != 5) {
+                if (!shift && !flags.f.prgm_mode) {
+                    if (mode_varmenu) {
+                        switch (menukey) {
+                            case 0: pending_command = CMD_N; break;
+                            case 1: pending_command = CMD_I_PCT_YR; break;
+                            case 2: pending_command = CMD_PV; break;
+                            case 3: pending_command = CMD_PMT; break;
+                            case 4: pending_command = CMD_FV; break;
+                        }
+                        pending_command_arg.type = ARGTYPE_NONE;
+                        return;
+                    }
+                }
+                const char *name;
+                int length;
+                switch (menukey) {
+                    case 0: name = "N";    length = 1; break;
+                    case 1: name = "I%YR"; length = 4; break;
+                    case 2: name = "PV";   length = 2; break;
+                    case 3: name = "PMT";  length = 3; break;
+                    case 4: name = "FV";   length = 2; break;
+                }
+                if (shift && !flags.f.prgm_mode)
+                    view(name, length);
+                else {
+                    pending_command_arg.type = ARGTYPE_STR;
+                    string_copy(pending_command_arg.val.text, &pending_command_arg.length, name, length);
+                    if (flags.f.prgm_mode) {
+                        pending_command = shift ? CMD_VIEW : CMD_STO;
+                        store_command_after(&pc, pending_command,
+                                                &pending_command_arg, NULL);
+                        move_prgm_highlight(1);
+                        pending_command = CMD_NONE;
+                        redisplay();
+                    } else {
+                        pending_command = CMD_VMSTO;
+                    }
+                }
+                return;
+            } else if (menu == MENU_TVM_AMORT && menukey == 0 && shift) {
+                display_amort_status(0);
+                pending_command = CMD_NONE;
+                return;
+            } else if (menu == MENU_TVM_TABLE && menukey <= 2 && shift) {
+                display_amort_table_param(menukey);
+                pending_command = CMD_NONE;
+                return;
+            } else if (menu == MENU_GRAPH && menukey <= 4 && shift) {
+                display_plot_params(menukey);
+                pending_command = CMD_NONE;
+                return;
+            } else if (menu == MENU_GRAPH_AXES && menukey < 2 && !flags.f.prgm_mode) {
+                int err = start_graph_varmenu(menukey + 4, 7);
+                if (err != ERR_NONE)
+                    display_error(err);
+                redisplay();
+                return;
+            } else if (menu == MENU_GRAPH_VIEW && menukey <=4 && shift) {
+                display_view_param(menukey);
+                pending_command = CMD_NONE;
+                return;
             } else {
                 const menu_item_spec *mi = menus[menu].child + menukey;
                 int cmd_id = mi->menuid;
                 if ((cmd_id & 0x3000) == 0) {
-                    set_menu(level, cmd_id);
-                    print_menu_trace(mi->title, mi->title_length);
-                    redisplay();
+                    if (cmd_id == 1) {
+                        print_menu_trace("EQN", 3);
+                        eqn_start(menu == MENU_SOLVE ? CATSECT_PGM_SOLVE : CATSECT_PGM_INTEG);
+                    } else {
+                        print_menu_trace(mi->title, mi->title_length);
+                        set_menu(level, cmd_id);
+                        redisplay();
+                    }
                     return;
                 }
                 cmd_id &= 0xfff;
@@ -2833,23 +3915,43 @@ void keydown_normal_mode(int shift, int key) {
             print_menu_trace("EXIT", 4);
             if (menu == MENU_CATALOG) {
                 int catsect = get_cat_section();
-                if (catsect == CATSECT_FCN
-                        || catsect == CATSECT_PGM
+                if (catsect == CATSECT_PGM
                         || catsect == CATSECT_REAL
                         || catsect == CATSECT_CPX
                         || catsect == CATSECT_MAT)
                     set_cat_section(CATSECT_TOP);
+                else if (catsect == CATSECT_DIRS)
+                    set_cat_section((skin_flags & 1) == 0 ? CATSECT_TOP : CATSECT_MORE);
+                else if (catsect >= CATSECT_UNITS_1
+                            && catsect <= CATSECT_UNITS_3)
+                    set_cat_section((skin_flags & 2) == 0 ? CATSECT_TOP : CATSECT_MORE);
+                else if (catsect == CATSECT_LIST
+                        || catsect == CATSECT_EQN
+                        || catsect == CATSECT_EQN_NAMED
+                        || catsect == CATSECT_OTHER)
+                    set_cat_section(CATSECT_MORE);
+                else if (catsect == CATSECT_FCN)
+                    set_cat_section((skin_flags & 1) == 0 ? CATSECT_MORE : CATSECT_TOP);
                 else if (catsect >= CATSECT_EXT_TIME
                         && catsect <= CATSECT_EXT_STK)
                     set_cat_section(CATSECT_EXT_1);
-                else if (catsect == CATSECT_EXT_STAT
-                        || catsect == CATSECT_EXT_MISC)
+                else if (catsect >= CATSECT_EXT_EQN
+                        && catsect <= CATSECT_EXT_MISC)
                     set_cat_section(CATSECT_EXT_2);
                 else if (catsect == CATSECT_EXT_0_CMP
                         || catsect == CATSECT_EXT_X_CMP) {
                     set_cat_section(CATSECT_EXT_PRGM);
                     set_cat_row(3);
-                } else
+                } else if (catsect >= CATSECT_UNITS_LENG
+                        && catsect <= CATSECT_UNITS_MASS)
+                    set_cat_section(CATSECT_UNITS_1);
+                else if (catsect >= CATSECT_UNITS_FORCE
+                        && catsect <= CATSECT_UNITS_ELEC)
+                    set_cat_section(CATSECT_UNITS_2);
+                else if (catsect >= CATSECT_UNITS_ANGL
+                        && catsect <= CATSECT_UNITS_VISC)
+                    set_cat_section(CATSECT_UNITS_3);
+                else
                     set_menu(level, MENU_NONE);
             } else if ((menu == MENU_MATRIX_EDIT1
                        || menu == MENU_MATRIX_EDIT2)
@@ -2863,7 +3965,9 @@ void keydown_normal_mode(int shift, int key) {
                         return;
                     }
                 }
-                matedit_i = matedit_stack[--matedit_stack_depth];
+                matedit_stack_depth--;
+                matedit_i = matedit_stack[matedit_stack_depth].coord;
+                matedit_view_i = matedit_stack[matedit_stack_depth].anchor;
                 matedit_j = 0;
                 matedit_is_list = true;
                 if (sp != -1)
@@ -2911,8 +4015,10 @@ void keydown_normal_mode(int shift, int key) {
     }
 
     if (key == 2048 + CMD_NULL) {
-        handle_dcm_xeq();
-        return;
+        int cmd = handle_dcm_xeq();
+        if (cmd == CMD_NONE)
+            return;
+        key = 2048 + cmd;
     }
 
     if (!shift) {
@@ -2933,10 +4039,25 @@ void keydown_normal_mode(int shift, int key) {
             case KEY_SWAP: command = CMD_SWAP; break;
             case KEY_CHS: command = basekeys() ? CMD_BASECHS : CMD_CHS; break;
             case KEY_BSP: command = flags.f.big_stack ? CMD_DROP : CMD_CLX; break;
-            case KEY_DIV: command = basekeys() ? CMD_BASEDIV : CMD_DIV; break;
+            case KEY_DIV:
+                if (ref_action_possible(false))
+                    command = CMD_REFFIND;
+                else
+                    command = basekeys() ? CMD_BASEDIV : CMD_DIV;
+                break;
             case KEY_DOWN: command = CMD_SST; break;
-            case KEY_MUL: command = basekeys() ? CMD_BASEMUL : CMD_MUL; break;
-            case KEY_SUB: command = basekeys() ? CMD_BASESUB : CMD_SUB; break;
+            case KEY_MUL:
+                if (ref_action_possible(true))
+                    command = CMD_REFCOPY;
+                else
+                    command = basekeys() ? CMD_BASEMUL : CMD_MUL;
+                break;
+            case KEY_SUB:
+                if (ref_action_possible(true))
+                    command = CMD_REFMOVE;
+                else
+                    command = basekeys() ? CMD_BASESUB : CMD_SUB;
+                break;
             case KEY_EXIT:
                 print_menu_trace("EXIT", 4);
                 input_length = 0;
@@ -2967,27 +4088,30 @@ void keydown_normal_mode(int shift, int key) {
             case KEY_TAN: command = CMD_ATAN; break;
             case KEY_SWAP: command = CMD_LASTX; break;
             case KEY_CHS: set_plainmenu(MENU_MODES1, "MODES", 5); return;
-            case KEY_E: set_plainmenu(MENU_DISP, "DISP", 4); return;
+            case KEY_E: set_plainmenu(MENU_DISP1, "DISP", 4); return;
             case KEY_BSP: set_plainmenu(MENU_CLEAR1, "CLEAR", 5); return;
             case KEY_7: set_solve_integ(1); return;
             case KEY_8: set_solve_integ(0); return;
-            case KEY_9: print_menu_trace("MATRIX", 6);
-                        set_menu(MENULEVEL_APP, MENU_MATRIX1);
-                        redisplay();
-                        return;
-            case KEY_DIV: print_menu_trace("STAT", 4);
-                          set_menu(MENULEVEL_APP, MENU_STAT1);
-                          redisplay();
-                          return;
+            case KEY_9:
+                print_menu_trace("MATRIX", 6);
+                set_menu(MENULEVEL_APP, MENU_MATRIX1);
+                redisplay();
+                return;
+            case KEY_DIV:
+                print_menu_trace("STAT", 4);
+                set_menu(MENULEVEL_APP, MENU_STAT1);
+                redisplay();
+                return;
             case KEY_DOWN: command = CMD_SST; break;
-            case KEY_4: print_menu_trace("BASE", 4);
-                        set_menu(MENULEVEL_APP, MENU_BASE1);
-                        if (mode_appmenu == MENU_BASE1) {
-                            set_appmenu_exitcallback(2);
-                            baseapp = 1;
-                            redisplay();
-                        }
-                        return;
+            case KEY_4:
+                print_menu_trace("BASE", 4);
+                set_menu(MENULEVEL_APP, MENU_BASE1);
+                if (mode_appmenu == MENU_BASE1) {
+                    set_appmenu_exitcallback(2);
+                    baseapp = 1;
+                    redisplay();
+                }
+                return;
             case KEY_5: set_plainmenu(MENU_CONVERT1, "CONVERT", 7); return;
             case KEY_6: set_plainmenu(MENU_FLAGS, "FLAGS", 5); return;
             case KEY_MUL: set_plainmenu(MENU_PROB, "PROB", 4); return;
@@ -3001,11 +4125,19 @@ void keydown_normal_mode(int shift, int key) {
                         }
             case KEY_3: set_plainmenu(MENU_PGM_FCN1, "PGM.FCN", 7); return;
             case KEY_SUB: set_plainmenu(MENU_PRINT1, "PRINT", 5); return;
-            case KEY_DOT: show();
-                            pending_command = CMD_LINGER1;
-                            shell_request_timeout3(2000);
-                            return;
-            case KEY_0: set_plainmenu(MENU_TOP_FCN, "TOP.FCN", 7); return;
+            case KEY_DOT:
+                show();
+                pending_command = CMD_LINGER1;
+                shell_request_timeout3(2000);
+                return;
+            case KEY_0:
+                if ((skin_flags & 4) == 0) {
+                    set_plainmenu(MENU_TOP_FCN, "TOP.FCN", 7);
+                    return;
+                } else {
+                    command = CMD_TVM;
+                    break;
+                }
             case KEY_ADD: set_plainmenu(MENU_CATALOG, "CATALOG", 7); return;
             default: command = key >= 2048 ? key - 2048 : CMD_NONE; break;
         }

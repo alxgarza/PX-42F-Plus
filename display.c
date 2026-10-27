@@ -1,4 +1,5 @@
 #include "display.h"
+#include "display_fb.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -161,110 +162,11 @@ void display_attach(void) {
     setup_bus();
 }
 
-/* Canonical framebuffer: plain row-major 1bpp, hardware-independent. One
- * bit per pixel, MSB-first within each row byte, no relation to the
- * ST7305's tile memory layout -- that mapping lives entirely in
- * display_flush() (see pack_tile_byte() below), so drawing code here never
- * needs to know about it. This is what makes display_set_pixel() (and
- * everything built on it) work at any (x, y), not just positions aligned
- * to some hardware block size. */
-#define FB_SIZE (DISPLAY_HEIGHT * DISPLAY_STRIDE)
-
 /* In RAM that survives a deep power-off (retained.h): a wake just to
- * update the splash's clock redraws only that, over the image still here. */
-static uint8_t (*const disp_fb)[DISPLAY_STRIDE] = (uint8_t (*)[DISPLAY_STRIDE]) RETAINED_DISPLAY_FB;
+ * update the splash's clock redraws only that, over the image still here.
+ * The drawing into it is display_draw.c's. */
+uint8_t (*const display_fb)[DISPLAY_STRIDE] = (uint8_t (*)[DISPLAY_STRIDE]) RETAINED_DISPLAY_FB;
 _Static_assert(RETAINED_DISPLAY_FB + FB_SIZE <= RETAINED_RAMSTATE, "framebuffer overlaps the RAM state");
-
-void display_clear(void) {
-    memset(disp_fb, 0, FB_SIZE);
-}
-
-void display_copy(uint8_t *bits) {
-    memcpy(bits, disp_fb, FB_SIZE);
-}
-
-void display_set_pixel(uint8_t x, uint8_t y, bool on) {
-    if (x >= DISPLAY_WIDTH || y >= DISPLAY_HEIGHT)
-        return;
-    uint8_t mask = (uint8_t) (0x80 >> (x & 7));
-    if (on)
-        disp_fb[y][x >> 3] |= mask;
-    else
-        disp_fb[y][x >> 3] &= (uint8_t) ~mask;
-}
-
-void display_fill_rect(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, bool on) {
-    for (int y = y0; y <= (int) y1; y++)
-        for (int x = x0; x <= (int) x1; x++)
-            display_set_pixel((uint8_t) x, (uint8_t) y, on);
-}
-
-/* Bounds-checked read, used only by the flush-time tile conversion (rows/
- * columns near the panel's bottom/right edge legitimately fall outside the
- * buffer -- see pack_tile_byte()) -- reads as "off" rather than needing a
- * separate edge case there. */
-static bool display_get_pixel(int x, int y) {
-    if (x < 0 || x >= DISPLAY_WIDTH || y < 0 || y >= DISPLAY_HEIGHT)
-        return false;
-    return (disp_fb[y][x >> 3] & (0x80 >> (x & 7))) != 0;
-}
-
-uint8_t display_draw_char(const display_font_t *font, char c, uint8_t x, uint8_t y, uint8_t color) {
-    if ((uint8_t) c < font->first_char || (uint8_t) c > font->last_char)
-        return (uint8_t) (x + font->advance); /* not in the font -- skip but still advance */
-
-    const uint8_t *glyph = font->data + ((uint8_t) c - font->first_char) * font->bytes_per_char;
-    bool invert = color != 0;
-    int bit_index = 0;
-
-    for (uint8_t row = 0; row < font->height; row++) {
-        for (uint8_t col = 0; col < font->width; col++) {
-            uint8_t byte = glyph[bit_index >> 3];
-            bool set = ((byte >> (7 - (bit_index & 7))) & 1) != 0;
-            bit_index++;
-
-            /* Compute the target position in a wider type before handing
-             * it to display_set_pixel(): x/y are uint8_t, and near the
-             * right/bottom edge x + col can exceed 255 (e.g. x=249,
-             * col=15), which would silently wrap back on-screen instead
-             * of clipping if added directly in uint8_t. */
-            int px = (int) x + col;
-            int py = (int) y + row;
-            if (px >= 0 && px < DISPLAY_WIDTH && py >= 0 && py < DISPLAY_HEIGHT)
-                display_set_pixel((uint8_t) px, (uint8_t) py, set != invert);
-        }
-    }
-
-    return (uint8_t) (x + font->advance);
-}
-
-uint8_t display_draw_string(const display_font_t *font, const char *s, uint8_t x, uint8_t y, uint8_t color) {
-    while (*s)
-        x = display_draw_char(font, *s++, x, y, color);
-    return x;
-}
-
-uint8_t display_draw_chars(const display_font_t *font, const char *s, int len, uint8_t x, uint8_t y, uint8_t color) {
-    for (int i = 0; i < len; i++)
-        x = display_draw_char(font, s[i], x, y, color);
-    return x;
-}
-
-void display_draw_bitmap(const uint8_t *bits, int width, int height, int x, int y) {
-    int stride = (width + 7) / 8;
-    for (int row = 0; row < height; row++)
-        for (int col = 0; col < width; col++) {
-            int px = x + col, py = y + row;
-            if (px >= 0 && px < DISPLAY_WIDTH && py >= 0 && py < DISPLAY_HEIGHT)
-                display_set_pixel((uint8_t) px, (uint8_t) py,
-                                  (bits[row * stride + col / 8] & (0x80 >> (col & 7))) != 0);
-        }
-}
-
-void display_draw_dotted_hline(uint8_t x0, uint8_t x1, uint8_t y) {
-    for (int x = x0; x <= (int) x1; x += 2)
-        display_set_pixel((uint8_t) x, y, true);
-}
 
 /* The ST7305's "3 writes / 24 bit" GRAM format (see the Data Format Select
  * command in the init sequence) packs pixels into 2-column x 12-row tiles,

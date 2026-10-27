@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,58 +22,91 @@
 #include "core_phloat.h"
 #include "core_globals.h"
 
+extern int disp_r, disp_c, disp_w, disp_h;
+extern int requested_disp_r, requested_disp_c;
+
+/* Whether the header line (HEADER: the directory, HFLAGS, HPOLAR, the BASE
+ * and TVM status) is shown, and how many of the display's rows it takes.
+ * PX42: it's in the PX-42F's status bar (free42_app.cc), whatever the
+ * number of rows, and takes none. */
+#ifdef PX42
+#define HEADER_SHOWN mode_header
+#define HEADER_ROWS  0
+#else
+#define HEADER_SHOWN (mode_header && disp_r >= 4)
+#define HEADER_ROWS  (HEADER_SHOWN ? 1 : 0)
+#endif
+
+bool display_alloc(int rows, int cols);
+bool display_exists();
 bool persist_display();
-bool unpersist_display(int version);
+bool unpersist_display(int ver);
+void reset_display();
 void clear_display();
 void flush_display();
 void repaint_display();
 void draw_pixel(int x, int y);
+void draw_line(int x1, int y1, int x2, int y2);
 void draw_pattern(phloat dx, phloat dy, const char *pattern, int pattern_width);
+void move_crosshairs(int x, int y, bool show = true);
+void hide_crosshairs();
+bool get_crosshairs(int *x, int *y);
 void fly_goose();
+void move_prgm_highlight(int offset);
 
 void squeak();
 void tone(int n);
 void draw_char(int x, int y, char c);
+void draw_block(int x, int y);
 const unsigned char *get_char(char c);
 void draw_string(int x, int y, const char *s, int length);
+void draw_message(int y, const char *s, int length, bool flush = true);
+void draw_long_message(int y, const char *s, int length, bool flush = true);
+void clear_message();
+void fill_rect(int x, int y, int width, int height, int color);
+int draw_small_string(int x, int y, const char *s, int length, int max_width,
+                            bool right_align = false, bool left_trunc = false,
+                            bool reverse = false);
+int small_string_width(const char *s, int length);
+void draw_key(int n, int highlight, int hide_meta,
+                            const char *s, int length, bool reverse = false);
+bool should_highlight(int cmd);
 int special_menu_key(int which);
 void clear_row(int row);
-/* Pico port addition: the text last drawn on a row (0 or 1), not
- * NUL-terminated -- what a message (flags.f.message) says. */
-const char *display_row_text(int row, int *length);
-/* ... and of menu key n (0-5), with whether it's drawn highlighted. */
-const char *display_key_label(int n, int *length, bool *highlight);
+#ifdef PX42
+#include <string>
+/* PX-42F additions (see core_display.cc): what the screen shows, for the
+ * PX to draw with its own fonts. */
+int display_cell_char(int row, int col);
+bool display_key_label(int n, const char **text, int *length, bool *highlight, bool *reverse);
+void display_header_text(std::string *path, std::string *info);
+#endif
 
-void display_prgm_line(int row, int line_offset);
-void xlabel2buf(char *buf, int buflen, int *bufptr);
-void display_x(int row);
-void display_y(int row);
-void display_incomplete_command(int row);
 void display_error(int error);
-void display_command(int row);
+int display_command(int row, int available_lines);
+int start_varmenu_lbl(const char *name, int len, int role);
+int start_varmenu_eqn(vartype *eq, int role);
+void config_varmenu_lbl(const char *name, int len);
+void config_varmenu_eqn(vartype *eq);
+void config_varmenu_none();
 void draw_varmenu();
+bool show_nonlocal_vars(int catsect);
+int draw_eqn_catalog(int section, int row, int *item);
+void get_units_cat_row(int catsect, const char *text[6], int length[6], int *row, int *rows);
 void display_mem();
 void show();
-void redisplay();
+void redisplay(int mode = 0);
+bool display_header();
+int tvm_message(char *buf, int buflen);
 
-void print_display();
-int print_program(int prgm_index, int4 pc, int4 lines, bool normal);
-void print_program_line(int prgm_index, int4 pc);
+#if defined(ANDROID) || defined(IPHONE)
+void show_alpha_keyboard(bool show);
+#endif
+
+int print_display();
+int print_program(pgm_index prgm, int4 pc, int4 lines, bool normal);
+void print_program_line(pgm_index prgm, int4 pc);
 int command2buf(char *buf, int len, int cmd, const arg_struct *arg);
-
-/* Formats one program line (its "NNh" line-number-and-cursor prefix, or
- * the "{ NN-Byte Prgm }" line-0 header, or a live in-progress ALPHA entry)
- * into buf, the same way the real HP-42S/Free42 does for its own 1-2 line
- * program display (display_prgm_line() above) -- exposed (was static)
- * so a port with more display real estate, like free42_app.cc's
- * multi-line program listing, can lay out as many of these as it has
- * room for instead of being limited to display_prgm_line()'s fixed
- * row-count assumptions. */
-int prgmline2buf(char *buf, int len, int4 line, int highlight,
-                        int cmd, arg_struct *arg, const char *orig_num,
-                        bool shift_left = false,
-                        bool highlight_final_end = true,
-                        char **xstr = NULL);
 
 struct textbuf {
     char *buf;
@@ -86,18 +119,14 @@ void tb_write(textbuf *tb, const char *data, size_t size);
 void tb_write_null(textbuf *tb);
 void tb_indent(textbuf *tb, int indent);
 void tb_print_current_program(textbuf *tb);
+void tb_print_program_line(textbuf *tb, pgm_index prgm, int4 pc, int4 line);
 
 #define MENULEVEL_COMMAND   0
 #define MENULEVEL_ALPHA     1
 #define MENULEVEL_TRANSIENT 2
 #define MENULEVEL_PLAIN     3
-#define MENULEVEL_APP       4
-
-int appmenu_exitcallback_1(int menuid, bool exitall);
-int appmenu_exitcallback_2(int menuid, bool exitall);
-int appmenu_exitcallback_3(int menuid, bool exitall);
-int appmenu_exitcallback_4(int menuid, bool exitall);
-int appmenu_exitcallback_5(int menuid, bool exitall);
+#define MENULEVEL_AUX       4
+#define MENULEVEL_APP       5
 
 void set_menu(int level, int menuid);
 int set_menu_return_err(int level, int menuid, bool exitall);
@@ -106,11 +135,13 @@ void set_plainmenu(int menuid, const char *name, int length);
 void set_catalog_menu(int direction);
 int get_front_menu();
 void set_cat_section(int section);
+void set_cat_section_no_top(int section);
+void set_cat_section_using_units_key();
 int get_cat_section();
 void move_cat_row(int direction);
 void set_cat_row(int row);
 int get_cat_row();
-int get_cat_item(int menukey);
+bool get_cat_item(int menukey, int4 *dir, int *item);
 void update_catalog();
 
 void clear_custom_menu();

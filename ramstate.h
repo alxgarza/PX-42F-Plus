@@ -11,13 +11,13 @@ extern "C" {
 /* The calculator's memory while it's off: Free42's state, serialized into a
  * buffer in RAM that stays powered through the deep power-off (the top
  * 128KB, in SRAM bank 1, see power.c) and that the startup code doesn't
- * clear (it's outside everything the linker places). Free42 reads and writes it as an ordinary state file at
+ * clear (it's outside everything the linker places). Plus42 reads and writes it as an ordinary state file at
  * RAMSTATE_PATH -- statefs_fopen() hands out a memory FILE for any path
- * under /RAM/ -- so it's the same .f42 format as Save State, just never
+ * under /RAM/ -- so it's the same .p42 format as Save State, just never
  * touching flash. A magic number and checksum, written only once a save
  * has completed, tell a real saved state from leftover RAM contents. */
 
-#define RAMSTATE_PATH "/RAM/off.f42"
+#define RAMSTATE_PATH "/RAM/off.p42"
 
 /* True if path is under /RAM/ (statefs.c routes those here). */
 bool ramstate_path(const char *path);

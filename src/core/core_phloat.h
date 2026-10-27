@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -18,8 +18,6 @@
 #ifndef CORE_PHLOAT_H
 #define CORE_PHLOAT_H 1
 
-
-#include <stddef.h>
 
 #include "free42.h"
 #ifdef BCD_MATH
@@ -158,6 +156,7 @@ Phloat fmod(Phloat x, Phloat y);
 Phloat fabs(Phloat p);
 Phloat pow(Phloat x, Phloat y);
 Phloat floor(Phloat x);
+Phloat ceil(Phloat x);
 Phloat fma(Phloat x, Phloat y, Phloat z);
 Phloat nextafter(Phloat x, Phloat y);
 int ilogb(Phloat x);

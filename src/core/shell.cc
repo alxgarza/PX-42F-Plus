@@ -1,7 +1,7 @@
-/* The Free42 shell interface (shell.h) for the PX-42F: what the core asks
+/* The Plus42 shell interface (shell.h) for the PX-42F: what the core asks
  * of its host -- sounds, the clock, files on the drive, the printer, the
- * battery. The screen and keyboard are free42_app.cc's (this port draws
- * its own display from the calculator's state; shell_blitter() is unused).
+ * battery. The screen (shell_blitter(), shell_annunciators()...) and the
+ * keyboard are free42_app.cc's.
  */
 
 #include <stdio.h>
@@ -50,17 +50,10 @@ const char *shell_platform() {
     return "0.1 Pico2";
 }
 
-void shell_blitter(const char *bits, int bytesperline, int x, int y,
-                    int width, int height) {
-}
-
 /* 0-9 = TONE n (and BEEP), 10 = the error squeak: /SOUNDS/TONES/TONEn.wav,
  * ERROR.wav (or their built-ins -- sounds.h). */
 void shell_beeper(int tone) {
     sounds_play_tone(tone);
-}
-
-void shell_annunciators(int updn, int shf, int prt, int run, int g, int rad) {
 }
 
 /* Hands the CPU back to the main loop every time slice while a program

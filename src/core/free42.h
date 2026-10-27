@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -43,9 +43,9 @@
 #define F42_BIG_ENDIAN 1
 #endif
 
-/* Magic number "24kF" for the state file. */
-#define FREE42_MAGIC 0x466b3432
-#define FREE42_MAGIC_STR "24kF"
+/* Magic number "24lP" for the state file. */
+#define PLUS42_MAGIC 0x506c3432
+#define PLUS42_MAGIC_STR "24lP"
 
 
 #endif

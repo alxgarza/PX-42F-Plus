@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -106,6 +106,16 @@ void shell_delay(int duration);
  */
 void shell_request_timeout3(int delay);
 
+/* shell_request_display_size()
+ *
+ * Callback to ask the shell to change the display size to the given number
+ * of rows and columns. The core should not assume this request will be
+ * satisfied or even acknowledged in any manner; the shell will communicate
+ * the final size using core_repaint_display() and the core should adjust
+ * to whatever that size may be.
+ */
+void shell_request_display_size(int rows, int cols);
+
 /* shell_get_mem()
  *
  * Callback to get the amount of free memory in bytes.
@@ -163,6 +173,15 @@ uint4 shell_milliseconds();
  */
 const char *shell_number_format();
 
+/* shell_set_skin_mode()
+ *
+ * Instructs the shell which skin mode to use. Possible values are:
+ * 0: Normal
+ * 1: Equation Editor in RDX. mode
+ * 2: Equation Editor in RDX, mode
+ */
+void shell_set_skin_mode(int mode);
+
 /* shell_date_format()
  *
  * Returns 0 if the host's locale uses MDY date format;
@@ -194,7 +213,17 @@ void shell_print(const char *text, int length,
                  const char *bits, int bytesperline,
                  int x, int y, int width, int height);
 
+#if !defined(ANDROID) && !defined(IPHONE)
+#define shell_alpha_keyboard_enabled() (false)
+#endif
+
 #if defined(ANDROID) || defined(IPHONE)
+
+/* shell_alpha_keyboard_enabled()
+ *
+ * Checks whether the pop-up ALPHA keyboard is enabled.
+ */
+bool shell_alpha_keyboard_enabled();
 
 /* shell_show_alpha_keyboard()
  *

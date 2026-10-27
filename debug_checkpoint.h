@@ -30,9 +30,7 @@ enum {
     CKPT_KEY_TIMEOUT1,
     CKPT_KEY_TIMEOUT2,
     CKPT_KEY_UP,
-    CKPT_DISPLAY_STACK,
-    CKPT_DISPLAY_PRGM_LISTING,
-    CKPT_DISPLAY_PRGM_LISTING_MAX_AFTER,
+    CKPT_DISPLAY_BLIT,
     CKPT_DISPLAY_FLUSH,
     CKPT_MENU,
     CKPT_FS_INIT,
@@ -63,9 +61,7 @@ static inline const char *debug_checkpoint_name(uint32_t code) {
         case CKPT_KEY_TIMEOUT1: return "KEY_TIMEOUT1";
         case CKPT_KEY_TIMEOUT2: return "KEY_TIMEOUT2";
         case CKPT_KEY_UP: return "KEY_UP";
-        case CKPT_DISPLAY_STACK: return "DISPLAY_STACK";
-        case CKPT_DISPLAY_PRGM_LISTING: return "DISPLAY_PRGM_LISTING";
-        case CKPT_DISPLAY_PRGM_LISTING_MAX_AFTER: return "DISPLAY_PRGM_LISTING_MAX_AFTER";
+        case CKPT_DISPLAY_BLIT: return "DISPLAY_BLIT";
         case CKPT_DISPLAY_FLUSH: return "DISPLAY_FLUSH";
         case CKPT_MENU: return "MENU";
         case CKPT_FS_INIT: return "FS_INIT";

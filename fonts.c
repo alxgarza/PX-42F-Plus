@@ -6,6 +6,7 @@
 #include "hardware/watchdog.h"
 #include "font_8x12.h"
 #include "font_10x16.h"
+#include "font_6x8.h"
 #include "fontsheet.h"
 #include "settings.h"
 #include "statefs.h"
@@ -13,8 +14,9 @@
 /* A font from the drive lives here; the built-in ones stay in flash. */
 static uint8_t small_glyphs[FONT_SHEET_GLYPHS * 12];
 static uint8_t large_glyphs[FONT_SHEET_GLYPHS * 20];
+static uint8_t mini_glyphs[FONT_SHEET_GLYPHS * 6];
 
-display_font_t font_small, font_large;
+display_font_t font_small, font_large, font_mini;
 
 static const struct {
     display_font_t *font;
@@ -26,10 +28,12 @@ static const struct {
 } kinds[FONT_KINDS] = {
         [FONT_SMALL] = {&font_small, &font_8x12, small_glyphs, 0, FONTS_DIR "/SMALL", px_settings.small_font},
         [FONT_LARGE] = {&font_large, &font_10x16, large_glyphs, 1, FONTS_DIR "/LARGE", px_settings.large_font},
+        [FONT_MINI] = {&font_mini, &font_6x8, mini_glyphs, 0, FONTS_DIR "/MINI", px_settings.mini_font},
 };
 
 _Static_assert(sizeof(small_glyphs) == FONT_SHEET_GLYPHS * ((8 * 12 + 7) / 8), "small font: 8 x 12");
 _Static_assert(sizeof(large_glyphs) == FONT_SHEET_GLYPHS * ((10 * 16 + 7) / 8), "large font: 10 x 16");
+_Static_assert(sizeof(mini_glyphs) == FONT_SHEET_GLYPHS * ((6 * 8 + 7) / 8), "mini font: 6 x 8");
 
 static int file_read(void *ctx, uint8_t *buf, int len) {
     size_t n = fread(buf, 1, (size_t) len, (FILE *) ctx);

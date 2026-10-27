@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,6 +21,7 @@
 #include "core_commands2.h"
 #include "core_commands3.h"
 #include "core_commands4.h"
+#include "core_commands8.h"
 #include "core_display.h"
 #include "core_helpers.h"
 #include "core_linalg1.h"
@@ -293,11 +294,12 @@ int docmd_j_add(arg_struct *arg) {
             } else
                 return ERR_INVALID_TYPE;
         } else {
-            int4 *newstack = (int4 *) realloc(matedit_stack, (matedit_stack_depth + 1) * sizeof(int4));
+            matedit_stack_entry *newstack = (matedit_stack_entry *) realloc(matedit_stack,
+                                    (matedit_stack_depth + 1) * sizeof(matedit_stack_entry));
             if (newstack == NULL)
                 return ERR_INSUFFICIENT_MEMORY;
             matedit_stack = newstack;
-            matedit_stack[matedit_stack_depth++] = matedit_i;
+            matedit_stack[matedit_stack_depth++].set(matedit_i, matedit_view_i);
             matedit_i = matedit_j = 0;
             matedit_is_list = m2->type == TYPE_LIST;
             flags.f.matrix_edge_wrap = 0;
@@ -338,8 +340,10 @@ int docmd_j_sub(arg_struct *arg) {
     if (m->type == TYPE_LIST) {
         if (matedit_stack_depth > 0) {
             // Range check?
-            matedit_i = matedit_stack[--matedit_stack_depth];
-            matedit_stack = (int4 *) realloc(matedit_stack, matedit_stack_depth * sizeof(int4));
+            matedit_stack_depth--;
+            matedit_i = matedit_stack[matedit_stack_depth].coord;
+            matedit_view_i = matedit_stack[matedit_stack_depth].anchor;
+            matedit_stack = (matedit_stack_entry *) realloc(matedit_stack, matedit_stack_depth * sizeof(matedit_stack_entry));
             matedit_j = 0;
             matedit_is_list = true;
         }
@@ -713,8 +717,6 @@ int docmd_swap_r(arg_struct *arg) {
     int err = matedit_get(&m);
     if (err != ERR_NONE)
         return err;
-    if (m->type == TYPE_LIST)
-        return ERR_INVALID_TYPE;
 
     if (stack[sp]->type == TYPE_STRING)
         return ERR_ALPHA_DATA_IS_INVALID;
@@ -905,7 +907,7 @@ int docmd_stoij(arg_struct *arg) {
         vartype_complexmatrix *cm = (vartype_complexmatrix *) m;
         if (i >= cm->rows || j >= cm->columns)
             return ERR_DIMENSION_ERROR;
-    } else if (m->type == TYPE_LIST) {
+    } else {
         vartype_list *list = (vartype_list *) m;
         if (i >= list->size || j != 0)
             return ERR_DIMENSION_ERROR;
@@ -1026,7 +1028,7 @@ int docmd_wrap(arg_struct *arg) {
 
 int docmd_x_swap(arg_struct *arg) {
     vartype *v;
-    int err = generic_rcl(arg, &v);
+    int err = generic_rcl(arg, &v, true);
     if (err != ERR_NONE)
         return err;
     err = generic_sto(arg, 0);
@@ -1050,6 +1052,8 @@ static int matedit_move_list(vartype_list *list, int direction) {
     vartype *new_x = NULL;
     bool delete_old = false;
     int4 new_i = matedit_i;
+    int4 new_view_i = matedit_view_i;
+    bool edge_flag = false;
     bool end_flag = false;
 
     if (direction == DIR_LEFT && matedit_stack_depth == 0) {
@@ -1098,7 +1102,9 @@ static int matedit_move_list(vartype_list *list, int direction) {
             }
         }
     } else if (direction == DIR_LEFT) {
-        new_i = matedit_stack[--matedit_stack_depth];
+        matedit_stack_depth--;
+        new_i = matedit_stack[matedit_stack_depth].coord;
+        new_view_i = matedit_stack[matedit_stack_depth].anchor;
         vartype *m;
         // Ignoring error; can't fail, because us getting here means
         // that the matedit_get() in the caller succeeded, and that
@@ -1114,9 +1120,10 @@ static int matedit_move_list(vartype_list *list, int direction) {
         }
     } else { // DIR_RIGHT
         vartype *m;
-        m = sp != -1 ? stack[sp] : list->array->data[matedit_i];
+        m = new_x != NULL ? new_x : list->array->data[matedit_i];
         if (m->type == TYPE_REALMATRIX || m->type == TYPE_COMPLEXMATRIX || m->type == TYPE_LIST) {
-            int4 *newstack = (int4 *) realloc(matedit_stack, (matedit_stack_depth + 1) * sizeof(int4));
+            matedit_stack_entry *newstack = (matedit_stack_entry *) realloc(matedit_stack,
+                                (matedit_stack_depth + 1) * sizeof(matedit_stack_entry));
             if (newstack == NULL)
                 goto nomem;
             matedit_stack = newstack;
@@ -1148,7 +1155,7 @@ static int matedit_move_list(vartype_list *list, int direction) {
                 if (new_x == NULL)
                     goto nomem;
             }
-            matedit_stack[matedit_stack_depth++] = matedit_i;
+            matedit_stack[matedit_stack_depth++].set(matedit_i, matedit_view_i);
         } else if (matedit_i == list->size - 1 && flags.f.grow) {
             grow:
             vartype *zero1 = new_real(0);
@@ -1169,6 +1176,8 @@ static int matedit_move_list(vartype_list *list, int direction) {
             list->array->data = newdata;
             new_i = list->size++;
             new_x = zero2;
+            edge_flag = true;
+            end_flag = true;
         } else {
             if (!program_running())
                 squeak();
@@ -1190,7 +1199,8 @@ static int matedit_move_list(vartype_list *list, int direction) {
     }
 
     matedit_i = new_i;
-    flags.f.matrix_edge_wrap = false;
+    matedit_view_i = new_view_i;
+    flags.f.matrix_edge_wrap = edge_flag;
     flags.f.matrix_end_wrap = end_flag;
     mode_disable_stack_lift = true;
 
@@ -1401,8 +1411,10 @@ int docmd_percent_ch(arg_struct *arg) {
     phloat x, y, r;
     int inf;
     vartype *v;
-    x = ((vartype_real *) stack[sp])->x;
     y = ((vartype_real *) stack[sp - 1])->x;
+    int err = convert_helper(stack[sp - 1], stack[sp], &x);
+    if (err != ERR_NONE)
+        return err;
     if (y == 0)
         return ERR_DIVIDE_BY_0;
     r = (x - y) / y * 100;
@@ -1424,10 +1436,20 @@ static vartype *matx_v;
 
 static int matx_completion(int error, vartype *res) {
     if (error != ERR_NONE) {
+        fail:
         free_vartype(matx_v);
         return error;
     }
-    store_var("MATX", 4, res);
+    error = store_var("MATX", 4, res);
+    if (error != ERR_NONE)
+        goto fail;
+    /* The lookup_var() can't fail, right after a successful store_var().
+     * I'm calling it just to get the variable's location, which isn't a
+     * given: it could be a global, in the current directory, but it could
+     * also be a local, if one of the same name already existed and we
+     * just overwrote it.
+     */
+    vloc mi = lookup_var("MATX", 4, false, true);
     matedit_prev_appmenu = MENU_MATRIX_SIMQ;
     set_menu(MENULEVEL_APP, MENU_MATRIX_EDIT1);
     /* NOTE: no need to use set_menu_return_err() here, since the MAT[ABX]
@@ -1452,8 +1474,7 @@ static int matx_completion(int error, vartype *res) {
     stack[sp] = matx_v;
     matedit_mode = 3;
     string_copy(matedit_name, &matedit_length, "MATX", 4);
-    int mi = lookup_var(matedit_name, matedit_length);
-    matedit_level = vars[mi].level;
+    matedit_dir = mi.dir;
     matedit_i = 0;
     matedit_j = 0;
     if (flags.f.big_stack)
@@ -1466,17 +1487,21 @@ static int matx_completion(int error, vartype *res) {
 
 static int matabx(int which) {
     vartype *mat, *v;
+    vloc mi;
 
     switch (which) {
         case 0:
-            mat = recall_var("MATA", 4);
+            mi = lookup_var("MATA", 4);
             goto mat_a_or_b_check;
 
         case 1:
-            mat = recall_var("MATB", 4);
+            mi = lookup_var("MATB", 4);
             mat_a_or_b_check:
-            if (mat == NULL)
+            if (mi.not_found())
                 return ERR_NONEXISTENT;
+            if (!mi.writable())
+                return ERR_VARIABLE_NOT_WRITABLE;
+            mat = mi.value();
             if (mat->type == TYPE_STRING)
                 return ERR_ALPHA_DATA_IS_INVALID;
             if (mat->type != TYPE_REALMATRIX && mat->type != TYPE_COMPLEXMATRIX)
@@ -1544,8 +1569,7 @@ static int matabx(int which) {
     stack[sp] = v;
     matedit_mode = 3;
     string_copy(matedit_name, &matedit_length, which == 0 ? "MATA" : "MATB", 4);
-    int mi = lookup_var(matedit_name, matedit_length);
-    matedit_level = vars[mi].level;
+    matedit_dir = mi.dir;
     matedit_i = 0;
     matedit_j = 0;
     if (flags.f.big_stack)
@@ -1582,8 +1606,9 @@ int docmd_simq(arg_struct *arg) {
     if (!ensure_var_space(3))
         return ERR_INSUFFICIENT_MEMORY;
 
-    m = recall_var("MATA", 4);
-    if (m != NULL && (m->type == TYPE_REALMATRIX || m->type == TYPE_COMPLEXMATRIX)) {
+    bool writable;
+    m = recall_var("MATA", 4, &writable);
+    if (m != NULL && writable && (m->type == TYPE_REALMATRIX || m->type == TYPE_COMPLEXMATRIX)) {
         mata = dup_vartype(m);
         if (mata == NULL)
             return ERR_INSUFFICIENT_MEMORY;
@@ -1596,8 +1621,8 @@ int docmd_simq(arg_struct *arg) {
             return ERR_INSUFFICIENT_MEMORY;
     }
 
-    m = recall_var("MATB", 4);
-    if (m != NULL && (m->type == TYPE_REALMATRIX || m->type == TYPE_COMPLEXMATRIX)) {
+    m = recall_var("MATB", 4, &writable);
+    if (m != NULL && writable && (m->type == TYPE_REALMATRIX || m->type == TYPE_COMPLEXMATRIX)) {
         matb = dup_vartype(m);
         if (matb == NULL) {
             err = ERR_INSUFFICIENT_MEMORY;
@@ -1614,8 +1639,8 @@ int docmd_simq(arg_struct *arg) {
         }
     }
 
-    m = recall_var("MATX", 4);
-    if (m != NULL && (m->type == TYPE_REALMATRIX || m->type == TYPE_COMPLEXMATRIX)) {
+    m = recall_var("MATX", 4, &writable);
+    if (m != NULL && writable && (m->type == TYPE_REALMATRIX || m->type == TYPE_COMPLEXMATRIX)) {
         matx = dup_vartype(m);
         if (matx == NULL) {
             err = ERR_INSUFFICIENT_MEMORY;
@@ -1649,22 +1674,15 @@ int docmd_simq(arg_struct *arg) {
         return err;
     }
 
-    if (matedit_mode == 1 || matedit_mode == 3) {
-        // Note: matedit_mode cannot be EDITN at this point,
-        // because SIMQ is a non-programmable, non-assignable command
-        // that isn't reachable while the matrix editor is active.
-        // Still, we're following the 'better safe than sorry' dictum,
-        // as per the previous comment.
-        if (string_equals(matedit_name, matedit_length, "MATA", 4)
-                || string_equals(matedit_name, matedit_length, "MATB", 4)
-                || string_equals(matedit_name, matedit_length, "MATX", 4)) {
-            matedit_i = matedit_j = 0;
-        }
-    }
-
-    store_var("MATX", 4, matx);
-    store_var("MATB", 4, matb);
-    store_var("MATA", 4, mata);
+    err = store_var("MATX", 4, matx);
+    if (err != ERR_NONE)
+        goto abort_and_free_a_b_x;
+    err = store_var("MATB", 4, matb);
+    if (err != ERR_NONE)
+        goto abort_and_free_a_b;
+    err = store_var("MATA", 4, mata);
+    if (err != ERR_NONE)
+        goto abort_and_free_a;
     return ERR_NONE;
 }
 

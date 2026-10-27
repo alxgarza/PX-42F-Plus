@@ -38,6 +38,7 @@ typedef struct {
     /* The calculator screen's fonts (fonts.h); "" = the built-in font. */
     char small_font[FONT_SETTING_MAX + 1]; /* /FONTS/SMALL/<name>.png */
     char large_font[FONT_SETTING_MAX + 1]; /* /FONTS/LARGE/<name>.png */
+    char mini_font[FONT_SETTING_MAX + 1];  /* /FONTS/MINI/<name>.png */
 } px_settings_t;
 
 extern px_settings_t px_settings;

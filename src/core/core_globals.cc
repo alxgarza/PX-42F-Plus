@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -18,18 +18,24 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <stdint.h>
+#include <string>
 
 #include "core_globals.h"
 #include "core_commands2.h"
 #include "core_commands4.h"
 #include "core_commands7.h"
+#include "core_commandsa.h"
 #include "core_display.h"
+#include "core_equations.h"
 #include "core_helpers.h"
 #include "core_main.h"
 #include "core_math1.h"
+#include "core_parser.h"
 #include "core_tables.h"
 #include "core_variables.h"
 #include "shell.h"
+#include "shell_spool.h"
 
 #ifndef BCD_MATH
 // We need these locally for BID128->double conversion
@@ -54,6 +60,9 @@ const error_spec errors[] = {
     { /* TOO_FEW_ARGUMENTS */      "Too Few Arguments",       17 },
     { /* SIZE_ERROR */             "Size Error",              10 },
     { /* STACK_DEPTH_ERROR */      "Stack Depth Error",       17 },
+    { /* STAT_MATH_ERROR */        "Stat Math Error",         15 },
+    { /* INVALID_FORECAST_MODEL */ "Invalid Forecast Model",  22 },
+    { /* SINGULAR_MATRIX */        "Singular Matrix",         15 },
     { /* RESTRICTED_OPERATION */   "Restricted Operation",    20 },
     { /* YES */                    "Yes",                      3 },
     { /* NO */                     "No",                       2 },
@@ -62,10 +71,11 @@ const error_spec errors[] = {
     { /* NO_REAL_VARIABLES */      "No Real Variables",       17 },
     { /* NO_COMPLEX_VARIABLES */   "No Complex Variables",    20 },
     { /* NO_MATRIX_VARIABLES */    "No Matrix Variables",     19 },
+    { /* NO_LIST_VARIABLES */      "No List Variables",       17 },
+    { /* NO_EQUATION_VARIABLES */  "No Equation Variables",   21 },
+    { /* NO_NAMED_EQUATIONS */     "No Named Equations",      18 },
+    { /* NO_OTHER_VARIABLES */     "No Other Variables",      18 },
     { /* NO_MENU_VARIABLES */      "No Menu Variables",       17 },
-    { /* STAT_MATH_ERROR */        "Stat Math Error",         15 },
-    { /* INVALID_FORECAST_MODEL */ "Invalid Forecast Model",  22 },
-    { /* SINGULAR_MATRIX */        "Singular Matrix",         15 },
     { /* SOLVE_SOLVE */            "Solve(Solve)",            12 },
     { /* INTEG_INTEG */            "Integ(Integ)",            12 },
     { /* RUN */                    NULL,                       0 },
@@ -80,9 +90,17 @@ const error_spec errors[] = {
     { /* RTN_STACK_FULL */         "RTN Stack Full",          14 },
     { /* NUMBER_TOO_LARGE */       "Number Too Large",        16 },
     { /* NUMBER_TOO_SMALL */       "Number Too Small",        16 },
-    { /* BIG_STACK_DISABLED */     "Big Stack Disabled",      18 },
     { /* INVALID_CONTEXT */        "Invalid Context",         15 },
     { /* NAME_TOO_LONG */          "Name Too Long",           13 },
+    { /* PARSE_ERROR */            "Parse Error",             11 },
+    { /* INVALID_EQUATION */       "Invalid Equation",        16 },
+    { /* INCONSISTENT_UNITS */     "Inconsistent Units",      18 },
+    { /* INVALID_UNIT */           "Invalid Unit",            12 },
+    { /* VARIABLE_NOT_WRITABLE */  "Variable Not Writable",   21 },
+    { /* DIRECTORY_EXISTS */       "Directory Exists",        16 },
+    { /* VARIABLE_EXISTS */        "Variable Exists",         15 },
+    { /* TOO_MANY_ARGUMENTS */     "Too Many Arguments",      18 },
+    { /* NO_SOLUTION_FOUND */      "No Solution Found",       17 },
     { /* PROGRAM_LOCKED */         "Program Locked",          14 },
     { /* NEXT_PROGRAM_LOCKED */    "Next Program Locked",     19 },
 };
@@ -100,7 +118,7 @@ const menu_spec menus[] = {
                       { { MENU_ALPHA_PAREN, 5, "( [ {"   },
                         { MENU_ALPHA_ARROW, 3, "\20^\16" },
                         { MENU_ALPHA_COMP,  5, "< = >"   },
-                        { MENU_ALPHA_MATH,  4, "MATH"    },
+                        { MENU_ALPHA_MATH1, 4, "MATH"    },
                         { MENU_ALPHA_PUNC1, 4, "PUNC"    },
                         { MENU_ALPHA_MISC1, 4, "MISC"    } } },
     { /* MENU_ALPHA_ABCDE1 */ MENU_ALPHA1, MENU_ALPHA_ABCDE2, MENU_ALPHA_ABCDE2,
@@ -179,7 +197,7 @@ const menu_spec menus[] = {
                         { MENU_NONE, 1, "\16" },
                         { MENU_NONE, 1, "\17" },
                         { MENU_NONE, 1, " "   },
-                        { MENU_NONE, 1, " "   } } },
+                        { MENU_NONE, 1, "\36" } } },
     { /* MENU_ALPHA_COMP */ MENU_ALPHA2, MENU_NONE, MENU_NONE,
                       { { MENU_NONE, 1, "="   },
                         { MENU_NONE, 1, "\14" },
@@ -187,27 +205,41 @@ const menu_spec menus[] = {
                         { MENU_NONE, 1, ">"   },
                         { MENU_NONE, 1, "\11" },
                         { MENU_NONE, 1, "\13" } } },
-    { /* MENU_ALPHA_MATH */ MENU_ALPHA2, MENU_NONE, MENU_NONE,
+    { /* MENU_ALPHA_MATH1 */ MENU_ALPHA2, MENU_ALPHA_MATH2, MENU_ALPHA_MATH2,
                       { { MENU_NONE, 1, "\5"  },
                         { MENU_NONE, 1, "\3"  },
                         { MENU_NONE, 1, "\2"  },
                         { MENU_NONE, 1, "\27" },
                         { MENU_NONE, 1, "\23" },
                         { MENU_NONE, 1, "\21" } } },
-    { /* MENU_ALPHA_PUNC1 */ MENU_ALPHA2, MENU_ALPHA_PUNC2, MENU_ALPHA_PUNC2,
+    { /* MENU_ALPHA_MATH2 */ MENU_ALPHA2, MENU_ALPHA_MATH1, MENU_ALPHA_MATH1,
+                      { { MENU_NONE, 1, "\202" },
+                        { MENU_NONE, 1, "\7"   },
+                        { MENU_NONE, 1, " "    },
+                        { MENU_NONE, 1, " "    },
+                        { MENU_NONE, 1, " "    },
+                        { MENU_NONE, 1, " "    } } },
+    { /* MENU_ALPHA_PUNC1 */ MENU_ALPHA2, MENU_ALPHA_PUNC2, MENU_ALPHA_PUNC3,
                       { { MENU_NONE, 1, ","  },
                         { MENU_NONE, 1, ";"  },
                         { MENU_NONE, 1, ":"  },
                         { MENU_NONE, 1, "!"  },
                         { MENU_NONE, 1, "?"  },
                         { MENU_NONE, 1, "\"" } } },
-    { /* MENU_ALPHA_PUNC2 */ MENU_ALPHA2, MENU_ALPHA_PUNC1, MENU_ALPHA_PUNC1,
+    { /* MENU_ALPHA_PUNC2 */ MENU_ALPHA2, MENU_ALPHA_PUNC3, MENU_ALPHA_PUNC1,
                       { { MENU_NONE, 1, "\32" },
                         { MENU_NONE, 1, "_"   },
                         { MENU_NONE, 1, "`"   },
                         { MENU_NONE, 1, "'"   },
                         { MENU_NONE, 1, "\10" },
                         { MENU_NONE, 1, "\12" } } },
+    { /* MENU_ALPHA_PUNC3 */ MENU_ALPHA2, MENU_ALPHA_PUNC1, MENU_ALPHA_PUNC2,
+                      { { MENU_NONE, 1, "\210" },
+                        { MENU_NONE, 1, "\211" },
+                        { MENU_NONE, 1, " "    },
+                        { MENU_NONE, 1, " "    },
+                        { MENU_NONE, 1, " "    },
+                        { MENU_NONE, 1, " "    } } },
     { /* MENU_ALPHA_MISC1 */ MENU_ALPHA2, MENU_ALPHA_MISC2, MENU_ALPHA_MISC2,
                       { { MENU_NONE, 1, "$"   },
                         { MENU_NONE, 1, "*"   },
@@ -278,13 +310,34 @@ const menu_spec menus[] = {
                         { 0x2000 + CMD_DYNAMIC, 0, "" },
                         { 0x1000 + CMD_NULL,    0, "" },
                         { 0x1000 + CMD_NULL,    0, "" } } },
-    { /* MENU_DISP */ MENU_NONE, MENU_NONE, MENU_NONE,
+    { /* MENU_DISP1 */ MENU_NONE, MENU_DISP2, MENU_DISP4,
                       { { 0x2000 + CMD_FIX,      0, "" },
                         { 0x2000 + CMD_SCI,      0, "" },
                         { 0x2000 + CMD_ENG,      0, "" },
                         { 0x2000 + CMD_ALL,      0, "" },
                         { 0x2000 + CMD_RDXDOT,   0, "" },
                         { 0x2000 + CMD_RDXCOMMA, 0, "" } } },
+    { /* MENU_DISP2 */ MENU_NONE, MENU_DISP3, MENU_DISP1,
+                      { { 0x1000 + CMD_ROW_PLUS,  0, "" },
+                        { 0x1000 + CMD_ROW_MINUS, 0, "" },
+                        { 0x1000 + CMD_COL_PLUS,  0, "" },
+                        { 0x1000 + CMD_COL_MINUS, 0, "" },
+                        { 0x1000 + CMD_GETDS,     0, "" },
+                        { 0x1000 + CMD_SETDS,     0, "" } } },
+    { /* MENU_DISP3 */ MENU_NONE, MENU_DISP4, MENU_DISP2,
+                      { { 0x2000 + CMD_HEADER, 0, "" },
+                        { 0x2000 + CMD_HFLAGS, 0, "" },
+                        { 0x2000 + CMD_HPOLAR, 0, "" },
+                        { 0x1000 + CMD_NULL,   0, "" },
+                        { 0x2000 + CMD_LTOP,   0, "" },
+                        { 0x2000 + CMD_ATOP,   0, "" } } },
+    { /* MENU_DISP4 */ MENU_NONE, MENU_DISP1, MENU_DISP3,
+                      { { 0x2000 + CMD_1LINE,  0, "" },
+                        { 0x2000 + CMD_NLINE,  0, "" },
+                        { 0x1000 + CMD_NULL,   0, "" },
+                        { 0x1000 + CMD_WIDTH,  0, "" },
+                        { 0x1000 + CMD_HEIGHT, 0, "" },
+                        { 0x1000 + CMD_NULL,   0, "" } } },
     { /* MENU_CLEAR1 */ MENU_NONE, MENU_CLEAR2, MENU_CLEAR2,
                       { { 0x1000 + CMD_CLSIGMA, 0, "" },
                         { 0x1000 + CMD_CLP,     0, "" },
@@ -454,12 +507,12 @@ const menu_spec menus[] = {
                         { 0x1000 + CMD_SDEV,     0, ""     },
                         { MENU_STAT_CFIT,        4, "CFIT" } } },
     { /* MENU_STAT2 */ MENU_NONE, MENU_STAT1, MENU_STAT1,
-                      { { 0x2000 + CMD_ALLSIGMA,   0, "" },
-                        { 0x2000 + CMD_LINSIGMA,   0, "" },
-                        { 0x1000 + CMD_NULL,       0, "" },
+                      { { 0x2000 + CMD_ALLSIGMA,   0, ""   },
+                        { 0x2000 + CMD_LINSIGMA,   0, ""   },
+                        { 0x1000 + CMD_NULL,       0, ""   },
                         { MENU_STAT_SUMS1,         1, "\5" },
-                        { 0x1000 + CMD_SIGMAREG,   0, "" },
-                        { 0x1000 + CMD_SIGMAREG_T, 0, "" } } },
+                        { 0x1000 + CMD_SIGMAREG,   0, ""   },
+                        { 0x1000 + CMD_SIGMAREG_T, 0, ""   } } },
     { /* MENU_STAT_CFIT */ MENU_STAT1, MENU_NONE, MENU_NONE,
                       { { 0x1000 + CMD_FCSTX, 0, ""     },
                         { 0x1000 + CMD_FCSTY, 0, ""     },
@@ -534,7 +587,7 @@ const menu_spec menus[] = {
                       { { 0x1000 + CMD_INSR, 0, "" },
                         { 0x1000 + CMD_NULL, 0, "" },
                         { 0x1000 + CMD_DELR, 0, "" },
-                        { 0x1000 + CMD_NULL, 0, "" },
+                        { 0x2000 + CMD_STK,  0, "" },
                         { 0x2000 + CMD_WRAP, 0, "" },
                         { 0x2000 + CMD_GROW, 0, "" } } },
     { /* MENU_BASE1 */ MENU_NONE, MENU_BASE2, MENU_BASE5,
@@ -615,26 +668,138 @@ const menu_spec menus[] = {
                         { 0x2000 + CMD_OCTSEP, 0, "" },
                         { 0x2000 + CMD_BINSEP, 0, "" } } },
     { /* MENU_SOLVE */ MENU_NONE, MENU_NONE, MENU_NONE,
-                      { { 0x1000 + CMD_MVAR,   0, "" },
-                        { 0x1000 + CMD_NULL,   0, "" },
-                        { 0x1000 + CMD_NULL,   0, "" },
-                        { 0x1000 + CMD_NULL,   0, "" },
-                        { 0x1000 + CMD_PGMSLV, 0, "" },
-                        { 0x1000 + CMD_SOLVE,  0, "" } } },
+                      { { 1,                   1, "=" },
+                        { 0x1000 + CMD_MVAR,   0, ""  },
+                        { 0x1000 + CMD_NULL,   0, ""  },
+                        { 0x1000 + CMD_EQNSLV, 0, ""  },
+                        { 0x1000 + CMD_PGMSLV, 0, ""  },
+                        { 0x1000 + CMD_SOLVE,  0, ""  } } },
     { /* MENU_INTEG */ MENU_NONE, MENU_NONE, MENU_NONE,
-                      { { 0x1000 + CMD_MVAR,   0, "" },
-                        { 0x1000 + CMD_NULL,   0, "" },
-                        { 0x1000 + CMD_NULL,   0, "" },
-                        { 0x1000 + CMD_NULL,   0, "" },
-                        { 0x1000 + CMD_PGMINT, 0, "" },
-                        { 0x1000 + CMD_INTEG,  0, "" } } },
+                      { { 1,                   1, "=" },
+                        { 0x1000 + CMD_MVAR,   0, ""  },
+                        { 0x1000 + CMD_NULL,   0, ""  },
+                        { 0x1000 + CMD_EQNINT, 0, ""  },
+                        { 0x1000 + CMD_PGMINT, 0, ""  },
+                        { 0x1000 + CMD_INTEG,  0, ""  } } },
     { /* MENU_INTEG_PARAMS */ MENU_NONE, MENU_NONE, MENU_NONE,
                       { { 0,                 4, "LLIM" },
                         { 0,                 4, "ULIM" },
                         { 0,                 3, "ACC"  },
                         { 0x1000 + CMD_NULL, 0, ""     },
                         { 0x1000 + CMD_NULL, 0, ""     },
-                        { 0,                 1, "\3"   } } }
+                        { 0,                 1, "\3"   } } },
+    { /* MENU_DIR_FCN1 */ MENU_NONE, MENU_DIR_FCN2, MENU_DIR_FCN2,
+                      { { 0x1000 + CMD_CHDIR,  0, "" },
+                        { 0x1000 + CMD_UPDIR,  0, "" },
+                        { 0x1000 + CMD_HOME,   0, "" },
+                        { 0x1000 + CMD_PATH,   0, "" },
+                        { 0x1000 + CMD_CRDIR,  0, "" },
+                        { 0x1000 + CMD_RENAME, 0, "" } } },
+    { /* MENU_DIR_FCN2 */ MENU_NONE, MENU_DIR_FCN1, MENU_DIR_FCN1,
+                      { { 0x1000 + CMD_PGDIR,   0, "" },
+                        { 0x1000 + CMD_PRALL,   0, "" },
+                        { 0x1000 + CMD_NULL,    0, "" },
+                        { 0x1000 + CMD_REFCOPY, 0, "" },
+                        { 0x1000 + CMD_REFMOVE, 0, "" },
+                        { 0x1000 + CMD_REFFIND, 0, "" } } },
+    { /* MENU_UNIT_FCN1 */ MENU_NONE, MENU_UNIT_FCN2, MENU_UNIT_FCN2,
+                      { { 0x1000 + CMD_CONVERT,   0, "" },
+                        { 0x1000 + CMD_UBASE,     0, "" },
+                        { 0x1000 + CMD_UVAL,      0, "" },
+                        { 0x1000 + CMD_UFACT,     0, "" },
+                        { 0x1000 + CMD_TO_UNIT,   0, "" },
+                        { 0x1000 + CMD_FROM_UNIT, 0, "" } } },
+    { /* MENU_UNIT_FCN2 */ MENU_NONE, MENU_UNIT_FCN1, MENU_UNIT_FCN1,
+                      { { 0x1000 + CMD_UNIT_T, 0, "" },
+                        { 0x1000 + CMD_NULL,   0, "" },
+                        { 0x1000 + CMD_NULL,   0, "" },
+                        { 0x1000 + CMD_NULL,   0, "" },
+                        { 0x1000 + CMD_NULL,   0, "" },
+                        { 0x1000 + CMD_NULL,   0, "" } } },
+    { /* MENU_TVM_APP1 */ MENU_NONE, MENU_TVM_APP2, MENU_TVM_APP2,
+                      { { 0x1000 + CMD_N,        0, "" },
+                        { 0x1000 + CMD_I_PCT_YR, 0, "" },
+                        { 0x1000 + CMD_PV,       0, "" },
+                        { 0x1000 + CMD_PMT,      0, "" },
+                        { 0x1000 + CMD_FV,       0, "" },
+                        { 0x1000 + CMD_TCLEAR,   0, "" } } },
+    { /* MENU_TVM_APP2 */ MENU_NONE, MENU_TVM_APP1, MENU_TVM_APP1,
+                      { { 0x1000 + CMD_P_PER_YR, 0, "" },
+                        { 0x2000 + CMD_TBEGIN,   0, "" },
+                        { 0x2000 + CMD_TEND,     0, "" },
+                        { 0x1000 + CMD_TRESET,   0, "" },
+                        { 0x1000 + CMD_NULL,     0, "" },
+                        { 0x1000 + CMD_AMORT,    0, "" } } },
+    { /* MENU_TVM_AMORT */ MENU_TVM_APP2, MENU_NONE, MENU_NONE,
+                      { { 0x1000 + CMD_TNUM_P, 0, "" },
+                        { 0x1000 + CMD_TINT,   0, "" },
+                        { 0x1000 + CMD_TPRIN,  0, "" },
+                        { 0x1000 + CMD_TBAL,   0, "" },
+                        { 0x1000 + CMD_TNEXT,  0, "" },
+                        { MENU_TVM_TABLE,      5, "TABLE" } } },
+    { /* MENU_TVM_TABLE */ MENU_TVM_AMORT, MENU_NONE, MENU_NONE,
+                      { { 0x2000 + CMD_TFIRST, 0, "" },
+                        { 0x2000 + CMD_TLAST,  0, "" },
+                        { 0x2000 + CMD_TINCR,  0, "" },
+                        { 0x2000 + CMD_TGO,    0, "" },
+                        { 0x1000 + CMD_NULL,   0, "" },
+                        { 0x1000 + CMD_NULL,   0, "" } } },
+    { /* MENU_TVM_PARAMS */ MENU_NONE, MENU_NONE, MENU_NONE,
+                      { { 0x1000 + CMD_N,        0, "" },
+                        { 0x1000 + CMD_I_PCT_YR, 0, "" },
+                        { 0x1000 + CMD_PV,       0, "" },
+                        { 0x1000 + CMD_PMT,      0, "" },
+                        { 0x1000 + CMD_FV,       0, "" },
+                        { 0x1000 + CMD_P_PER_YR, 0, "" } } },
+    { /* MENU_TVM_PRGM1 */ MENU_NONE, MENU_TVM_PRGM2, MENU_TVM_PRGM2,
+                      { { 0x1000 + CMD_N,        0, "" },
+                        { 0x1000 + CMD_I_PCT_YR, 0, "" },
+                        { 0x1000 + CMD_PV,       0, "" },
+                        { 0x1000 + CMD_PMT,      0, "" },
+                        { 0x1000 + CMD_FV,       0, "" },
+                        { 0x1000 + CMD_NULL,     0, "" } } },
+    { /* MENU_TVM_PRGM2 */ MENU_NONE, MENU_TVM_PRGM1, MENU_TVM_PRGM1,
+                      { { 0x1000 + CMD_SPPV, 0, "" },
+                        { 0x1000 + CMD_SPFV, 0, "" },
+                        { 0x1000 + CMD_USPV, 0, "" },
+                        { 0x1000 + CMD_USFV, 0, "" },
+                        { 0x1000 + CMD_NULL, 0, "" },
+                        { 0x1000 + CMD_NULL, 0, "" } } },
+    { /* MENU_EQN_FCN1 */ MENU_NONE, MENU_EQN_FCN2, MENU_EQN_FCN2,
+                      { { 0x1000 + CMD_NEWEQN,  0, "" },
+                        { 0x1000 + CMD_EDITEQN, 0, "" },
+                        { 0x1000 + CMD_PARSE,   0, "" },
+                        { 0x1000 + CMD_UNPARSE, 0, "" },
+                        { 0x1000 + CMD_EVAL,    0, "" },
+                        { 0x1000 + CMD_EVALN,   0, "" } } },
+    { /* MENU_EQN_FCN2 */ MENU_NONE, MENU_EQN_FCN1, MENU_EQN_FCN1,
+                      { { 0x2000 + CMD_STD,     0, "" },
+                        { 0x2000 + CMD_COMP,    0, "" },
+                        { 0x2000 + CMD_DIRECT,  0, "" },
+                        { 0x2000 + CMD_NUMERIC, 0, "" },
+                        { 0x1000 + CMD_NULL,    0, "" },
+                        { 0x1000 + CMD_NULL,    0, "" } } },
+    { /* MENU_GRAPH */ MENU_NONE, MENU_NONE, MENU_NONE,
+                      { { 0x1000 + CMD_PGMPLOT, 0, "" },
+                        { 0x1000 + CMD_EQNPLOT, 0, "" },
+                        { 0x1000 + CMD_PARAM,   0, "" },
+                        { 0x1000 + CMD_CONST,   0, "" },
+                        { 0x1000 + CMD_VIEW_P,  0, "" },
+                        { 0x1000 + CMD_PLOT,    0, "" } } },
+    { /* MENU_GRAPH_AXES */ MENU_GRAPH, MENU_NONE, MENU_NONE,
+                      { { 0x1000 + CMD_XAXIS,  0, "" },
+                        { 0x1000 + CMD_YAXIS,  0, "" },
+                        { 0x1000 + CMD_NULL,   0, "" },
+                        { 0x1000 + CMD_NULL,   0, "" },
+                        { 0x1000 + CMD_NULL,   0, "" },
+                        { 0x1000 + CMD_NULL,   0, "" } } },
+    { /* MENU_GRAPH_VIEW */ MENU_GRAPH, MENU_NONE, MENU_NONE,
+                      { { 0x1000 + CMD_XMIN, 0, "" },
+                        { 0x1000 + CMD_XMAX, 0, "" },
+                        { 0x1000 + CMD_YMIN, 0, "" },
+                        { 0x1000 + CMD_YMAX, 0, "" },
+                        { 0x1000 + CMD_SCAN, 0, "" },
+                        { 0x1000 + CMD_PLOT, 0, "" } } },
 };
 
 
@@ -657,25 +822,182 @@ char reg_alpha[44];
 flags_struct flags;
 const char *virtual_flags =
     /* 00-49 */ "00000000000000000000000000010000000000000000111111"
-    /* 50-99 */ "00010000000000010000000001000000000000000000000000";
+    /* 50-99 */ "11010000000000010000000001000000000000000000000000";
 
-/* Variables */
-int vars_capacity = 0;
-int vars_count = 0;
-var_struct *vars = NULL;
+/* Local Variables (LSTO) */
+int local_vars_capacity = 0;
+int local_vars_count = 0;
+var_struct *local_vars = NULL;
+
+static bool dir_used(int id);
+
+/* Hierarchical storage */
+directory::directory(int id) {
+    this->id = id;
+    vars_capacity = 0;
+    vars_count = 0;
+    vars = NULL;
+    prgms_capacity = 0;
+    prgms_count = 0;
+    prgms = NULL;
+    labels_capacity = 0;
+    labels_count = 0;
+    labels = NULL;
+    children_capacity = 0;
+    children_count = 0;
+    children = NULL;
+    parent = NULL;
+}
+
+directory::~directory() {
+    if (cwd == this)
+        cwd = root;
+    if (dir_used(id)) {
+        set_running(false);
+        clear_all_rtns();
+        current_prgm.set(root->id, 0);
+        pc = -1;
+    }
+    if (matedit_mode == 3 && matedit_dir == id)
+        leave_matrix_editor();
+
+    if (this != eq_dir) {
+        // The equation directory contains no variables and no children.
+        // It does contain programs, but those are generated code, which
+        // gets cleaned up when the owning equation objects are deleted.
+        // Thus, none of the following cleanup logic should be executed
+        // for this particular directory.
+        for (int i = 0; i < vars_count; i++)
+            free_vartype(vars[i].value);
+        free(vars);
+        for (int i = 0; i < prgms_count; i++) {
+            count_embed_references(this, i, false);
+            delete prgms[i].eq_data;
+            free(prgms[i].text);
+        }
+        free(prgms);
+        free(labels);
+        for (int i = 0; i < children_count; i++)
+            delete children[i].dir;
+        free(children);
+    }
+    unmap_dir(id);
+}
+
+directory *directory::clone() {
+    int id = get_dir_id();
+    directory *res = new (std::nothrow) directory(id);
+    if (res == NULL)
+        return NULL;
+    map_dir(id, res);
+    if (false) {
+        error:
+        delete res;
+        return NULL;
+    }
+    res->vars = (var_struct *) malloc(vars_count * sizeof(var_struct));
+    if (res->vars == NULL && vars_count != 0)
+        goto error;
+    res->prgms = (prgm_struct *) malloc(prgms_count * sizeof(prgm_struct));
+    if (res->prgms == NULL && prgms_count != 0)
+        goto error;
+    res->labels = (label_struct *) malloc(labels_count * sizeof(label_struct));
+    if (res->labels == NULL && labels_count != 0)
+        goto error;
+    res->children = (subdir_struct *) malloc(children_count * sizeof(subdir_struct));
+    if (res->children == NULL && children_count != 0)
+        goto error;
+    res->vars_capacity = vars_count;
+    res->prgms_capacity = prgms_capacity;
+    res->labels_capacity = labels_capacity;
+    res->children_capacity = children_capacity;
+    for (int i = 0; i < vars_count; i++) {
+        res->vars[i] = vars[i];
+        res->vars[i].value = dup_vartype(vars[i].value);
+        if (res->vars[i].value == NULL)
+            goto error;
+        res->vars_count++;
+    }
+    for (int i = 0; i < prgms_count; i++) {
+        res->prgms[i] = prgms[i];
+        int newsize = prgms[i].size;
+        unsigned char *newtext = (unsigned char *) malloc(newsize);
+        if (newtext == NULL && newsize != 0)
+            goto error;
+        memcpy(newtext, prgms[i].text, newsize);
+        res->prgms[i].capacity = newsize;
+        res->prgms[i].text = newtext;
+        res->prgms_count++;
+    }
+    for (int i = 0; i < labels_count; i++)
+        res->labels[i] = labels[i];
+    res->labels_count = labels_count;
+    for (int i = 0; i < children_count; i++) {
+        res->children[i] = children[i];
+        res->children[i].dir = children[i].dir->clone();
+        if (res->children[i].dir == NULL)
+            goto error;
+        res->children[i].dir->parent = res;
+        res->children_count++;
+    }
+    return res;
+}
+
+directory *root = NULL;
+directory *cwd = NULL;
+directory *eq_dir = NULL;
+directory **dir_list = NULL;
+int dir_list_capacity = 0;
+
+int get_dir_id() {
+    // Numbers <= 0 are reserved for locals, with -n corresponding to subtroutine level n;
+    // 1 is reserved for the current directory; and everything >= 2 is available for
+    // actual directories. Note that the root directory id is not special; it can always
+    // be found since it's simply root->id.
+    for (int i = 2; i < dir_list_capacity; i++)
+        if (dir_list[i] == NULL)
+            return i;
+    return dir_list_capacity;
+}
+
+void map_dir(int id, directory *dir) {
+    if (id >= dir_list_capacity) {
+        int newcap = id + 11;
+        directory **new_dir_list = (directory **) realloc(dir_list, newcap * sizeof(directory *));
+        // TODO: Handle memory allocation failure
+        for (int i = dir_list_capacity; i < newcap; i++)
+            new_dir_list[i] = NULL;
+        dir_list = new_dir_list;
+        dir_list_capacity = newcap;
+    }
+    dir_list[id] = dir;
+}
+
+void unmap_dir(int id) {
+    dir_list[id] = NULL;
+}
+
+directory *get_dir(int id) {
+    if (id < dir_list_capacity)
+        return dir_list[id];
+    else
+        return NULL;
+}
+
+void dir_list_clear() {
+    free(dir_list);
+    dir_list = NULL;
+    dir_list_capacity = 0;
+}
+
 
 /* Programs */
-int prgms_capacity = 0;
-int prgms_count = 0;
-prgm_struct *prgms = NULL;
-int labels_capacity = 0;
-int labels_count = 0;
-label_struct *labels = NULL;
 
-int current_prgm = -1;
+pgm_index current_prgm;
 int4 pc;
 int prgm_highlight_row = 0;
 
+vartype *varmenu_eqn;
 int varmenu_length;
 char varmenu[7];
 int varmenu_rows;
@@ -685,6 +1007,7 @@ char varmenu_labeltext[6][7];
 int varmenu_role;
 
 bool mode_clall;
+int mode_message_lines;
 int (*mode_interruptible)(bool) = NULL;
 bool mode_stoppable;
 bool mode_command_entry;
@@ -692,6 +1015,7 @@ char mode_number_entry;
 bool mode_alpha_entry;
 bool mode_shift;
 int mode_appmenu;
+int mode_auxmenu;
 int mode_plainmenu;
 bool mode_plainmenu_sticky;
 int mode_transientmenu;
@@ -704,6 +1028,7 @@ bool mode_pause = false;
 bool mode_disable_stack_lift; /* transient */
 bool mode_caller_stack_lift_disabled;
 bool mode_varmenu;
+int mode_varmenu_whence;
 bool mode_updown;
 int4 mode_sigma_reg;
 int mode_goose;
@@ -721,6 +1046,19 @@ bool mode_menu_static;
 #if defined(ANDROID) || defined(IPHONE)
 bool mode_popup_unknown = true;
 #endif
+bool mode_header;
+int mode_amort_seq;
+bool mode_plot_viewer;
+int mode_plot_key;
+int mode_plot_sp;
+vartype *mode_plot_inv;
+int mode_plot_result_width;
+bool mode_multi_line;
+bool mode_lastx_top;
+bool mode_alpha_top;
+bool mode_header_flags;
+bool mode_header_polar;
+bool mode_matedit_stk;
 
 phloat entered_number;
 int entered_string_length;
@@ -739,27 +1077,29 @@ int incomplete_length;
 int incomplete_maxdigits;
 int incomplete_argtype;
 int incomplete_num;
-char incomplete_str[22];
+char incomplete_str[50];
 int4 incomplete_saved_pc;
 int4 incomplete_saved_highlight_row;
 
 /* Command line handling temporaries */
 char cmdline[100];
 int cmdline_length;
-int cmdline_row;
+int cmdline_unit;
 
 /* Matrix editor / matrix indexing */
 int matedit_mode; /* 0=off, 1=index, 2=edit, 3=editn */
-int matedit_level;
+int4 matedit_dir; /* dir <= 0 is local at level -dir */
 char matedit_name[7];
 int matedit_length;
 vartype *matedit_x;
 int4 matedit_i;
 int4 matedit_j;
 int matedit_prev_appmenu;
-int4 *matedit_stack = NULL;
+matedit_stack_entry *matedit_stack = NULL;
 int matedit_stack_depth = 0;
 bool matedit_is_list;
+int4 matedit_view_i;
+int4 matedit_view_j;
 
 /* INPUT */
 char input_name[11];
@@ -805,39 +1145,66 @@ bool no_keystrokes_yet;
 
 /* Version number for the state file.
  * State file versions correspond to application releases as follows:
- * (Versions before 26 (2.5) are no longer supported.)
  *
- * Version 26: 2.5    Separate and portable core state file
- * Version 27: 2.5.2  Recovery mode for corrupt 2.5 state files
- * Version 28: 2.5.3  Recording platform name and app version in state file
- * Version 29: 2.5.7  SOLVE: Tracking second best guess in order to be able to
- *                    report it accurately in Y, and to provide additional data
- *                    points for distinguishing between zeroes and poles.
- * Version 30: 2.5.23 Private local variables
- * Version 31: 2.5.24 Merge RTN and FRT functionality
- * Version 32: 2.5.24 Replace FUNC[012] with FUNC [0-4][0-4]
- * Version 33: 3.0    Big stack; parameterized RTNERR
- * Version 34: 3.0    Long strings
- * Version 35: 3.0    Changing 'int' to 'bool' where appropriate
- * Version 36-38:     Plus42 stuff
- * Version 39: 3.0.3  ERRMSG/ERRNO
- * Version 40: 3.0.3  Longer incomplete_str buffer
- * Version 41: 3.0.3  Plus42 stuff
- * Version 42: 3.0.6  CAPS/Mixed for menus
- * Version 43: 3.0.7  Plus42 stuff
- * Version 44: 3.0.8  cursor left, cursor right, del key handling
- * Version 45: 3.0.12 SOLVE secant impatience
- * Version 46: 3.1    CSLD?
- * Version 47: 3.1    Back-port of Plus42 RTN stack; FUNC stack hiding
- * Version 48: 3.1    Matrix editor nested lists
- * Version 49: 3.1.13 Program locking
- * Version 50: 3.3    Move BASE settings from MODES to BASE
- * Version 51: 3.3    BASE enhancements (menu additions)
- * Version 52: 3.3    BASE enhancements (carry; display modes)
- * Version 53: 3.3.3  STATIC/DYNAMIC for menus
- * Version 54: 3.3.11 Statistics sums menu
+ * Version  0: 1.0    First alpha release
+ * Version  1: 1.0    Cursor left, cursor right, del key handling
+ * Version  2: 1.0    Return to user code after interactive EVAL
+ * Version  3: 1.0    Save T during SOLVE and INTEG
+ * Version  4: 1.0    Catalog improvements in equation editor
+ * Version  5: 1.0    MODES & DISP in equation editor
+ * Version  6: 1.0    Attached units
+ * Version  7: 1.0    New format, because of too many problems with the old one
+ * Version  8: 1.0    SOLVE and INTEG unit support
+ * Version  9: 1.0    Directories
+ * Version 10: 1.0    Directory and program references
+ * Version 11: 1.0    Non-local items in catalogs
+ * Version 12: 1.0    More robust EDITN and INDEX target tracking
+ * Version 13: 1.0    Big display
+ * Version 14: 1.0    Catalog no TOP
+ * Version 15: 1.0    Skin flags
+ * Version 16: 1.0    MENULEVEL_AUX
+ * Version 17: 1.0    Persistent requested display size
+ * Version 18: 1.0    AMORT sequence
+ * Version 19: 1.0    VARMENU whence
+ * Version 20: 1.0    Plot mode
+ * Version 21: 1.0    Plot number width; direct solver flag
+ * Version 22: 1.0    UNITS skip-top in equation editor
+ * Version 23: 1.0    Interactive XSTR max length raised to 50
+ * Version 24: 1.0.3  SOLVE secant impatience
+ * Version 25: 1.0.20 Saved equation error position
+ * Version 26: 1.0.20 Second row for UNIT.FCN menu
+ * Version 27: 1.0.20 1LINE/NLINE
+ * Version 28: 1.1    CSLD?
+ * Version 29: 1.1    LTOP
+ * Version 30: 1.1    ATOP
+ * Version 31: 1.1    Flags & Polar header indicators
+ * Version 32: 1.1    FSTACK replacing FDEPTH/FLASTX; requires eqn reparse
+ * Version 33: 1.1    Matrix editor nested lists
+ * Version 34: 1.1    No more redundant FUNC 01 and LNSTK in generated code
+ * Version 35: 1.1    FSTART; requires eqn reparse
+ * Version 36: 1.1    Matrix editor full screen: save offsets
+ * Version 37: 1.1    Matrix editor full screen: globals for offsets
+ * Version 38: 1.1    Matrix editor full screen: STK toggle
+ * Version 39: 1.1.5  Code mapping fix for N+U; requires eqn reparse
+ * Version 40: 1.1.11 Use local var for Integ() param; requires eqn reparse
+ * Version 41: 1.1.15 Global visibility fix for VIEW(); requires eqn reparse
+ * Version 42: 1.1.17a Remember cat position for UNITS key in ASSIGN
+ * Version 43: 1.1.18 Program locking
+ * Version 44: 1.2.3  Switching character codes 30 and 94
+ * Version 45: 1.2.4  Added guillemets to ALPHA menu
+ * Version 46: 1.2.4  No more lazy equation saving
+ * Version 47: 1.2.5  Fixed EQN mode exit behavior
+ * Version 48: 1.2.6  EQN no-arg eval error reporting
+ * Version 49: 1.2.6  EQN PRGM mode handling
+ * Version 50: 1.2.7  Stand-alone equation editing
+ * Version 51: 1.2.8  Move BASE settings from MODES to BASE
+ * Version 52: 1.3    BASE enhancements (menu additions)
+ * Version 53: 1.3    BASE enhancements (carry; display modes)
+ * Version 54: 1.3.3  CAPS/Mixed and STATIC/DYNAMIC for menus
+ * Version 55: 1.4    Error trapping
+ * Version 56: 1.4    Error trapping: stack trace
  */
-#define FREE42_VERSION 54
+#define PLUS42_VERSION 56
 
 
 /*******************/
@@ -845,16 +1212,17 @@ bool no_keystrokes_yet;
 /*******************/
 
 struct rtn_stack_entry {
+    int4 dir;
     int4 prgm;
     int4 pc;
     int4 get_prgm() {
-        int4 p = prgm & 0x1fffffff;
-        if ((p & 0x10000000) != 0)
-            p |= 0xe0000000;
+        int4 p = prgm & 0x0fffffff;
+        if ((p & 0x08000000) != 0)
+            p |= 0xf0000000;
         return p;
     }
     void set_prgm(int4 prgm) {
-        this->prgm = prgm & 0x1fffffff;
+        this->prgm = prgm & 0x0fffffff;
     }
     bool has_matrix() {
         return (prgm & 0x80000000) != 0;
@@ -883,6 +1251,18 @@ struct rtn_stack_entry {
         else
             prgm &= 0xdfffffff;
     }
+    bool has_trap() {
+        return (prgm & 0x10000000) != 0;
+    }
+    void set_has_trap(bool state) {
+        if (state)
+            prgm |= 0x10000000;
+        else
+            prgm &= 0xefffffff;
+    }
+    bool is_special() {
+        return (prgm & 0x08000000) != 0;
+    }
 };
 
 #define MAX_RTN_LEVEL 1024
@@ -891,9 +1271,19 @@ static rtn_stack_entry *rtn_stack = NULL;
 static int rtn_level = 0;
 static bool rtn_level_0_has_matrix_entry;
 static bool rtn_level_0_has_func_state;
+static int4 rtn_after_last_rtn_dir = -1;
+static int4 rtn_after_last_rtn_prgm = -1;
+static int4 rtn_after_last_rtn_pc = -1;
 static int rtn_stop_level = -1;
 static bool rtn_solve_active = false;
 static bool rtn_integ_active = false;
+static bool rtn_plot_active = false;
+
+static int4 trap_flags = 0;
+static int4 trap_level = 0;
+static int4 trap_deeper_flags = 0;
+static bool trap_caught = false;
+static vartype *trap_trace = NULL;
 
 #ifdef IPHONE
 /* For iPhone, we disable OFF by default, to satisfy App Store
@@ -909,17 +1299,15 @@ struct matrix_persister {
     int4 columns;
 };
 
-static int array_count;
-static int array_list_capacity;
-static void **array_list;
+static int shared_data_count;
+static int shared_data_capacity;
+static void **shared_data;
 
 
-static bool array_list_grow();
-static int array_list_search(void *array);
-static bool persist_vartype(vartype *v);
-static bool unpersist_vartype(vartype **v);
-static void update_label_table(int prgm, int4 pc, int inserted);
-static void invalidate_lclbls(int prgm_index, bool force);
+static bool shared_data_grow();
+static int shared_data_search(void *data);
+static void update_label_table(pgm_index prgm, int4 pc, int inserted);
+static void invalidate_lclbls(pgm_index idx, bool force);
 static int pc_line_convert(int4 loc, int loc_is_pc);
 
 #ifdef BCD_MATH
@@ -942,26 +1330,26 @@ void vartype_string::trim1() {
     }
 }
 
-static bool array_list_grow() {
-    if (array_count < array_list_capacity)
+static bool shared_data_grow() {
+    if (shared_data_count < shared_data_capacity)
         return true;
-    array_list_capacity += 10;
-    void **p = (void **) realloc(array_list,
-                                 array_list_capacity * sizeof(void *));
+    shared_data_capacity += 10;
+    void **p = (void **) realloc(shared_data,
+                                 shared_data_capacity * sizeof(void *));
     if (p == NULL)
         return false;
-    array_list = p;
+    shared_data = p;
     return true;
 }
 
-static int array_list_search(void *array) {
-    for (int i = 0; i < array_count; i++)
-        if (array_list[i] == array)
+static int shared_data_search(void *data) {
+    for (int i = 0; i < shared_data_count; i++)
+        if (shared_data[i] == data)
             return i;
     return -1;
 }
 
-static bool persist_vartype(vartype *v) {
+bool persist_vartype(vartype *v) {
     if (v == NULL)
         return write_char(TYPE_NULL);
     if (!write_char(v->type))
@@ -986,13 +1374,13 @@ static bool persist_vartype(vartype *v) {
             int4 columns = rm->columns;
             bool must_write = true;
             if (rm->array->refcount > 1) {
-                int n = array_list_search(rm->array);
+                int n = shared_data_search(rm->array);
                 if (n == -1) {
                     // A negative row count signals a new shared matrix
                     rows = -rows;
-                    if (!array_list_grow())
+                    if (!shared_data_grow())
                         return false;
-                    array_list[array_count++] = rm->array;
+                    shared_data[shared_data_count++] = rm->array;
                 } else {
                     // A zero row count means this matrix shares its data
                     // with a previously written matrix
@@ -1030,13 +1418,13 @@ static bool persist_vartype(vartype *v) {
             int4 columns = cm->columns;
             bool must_write = true;
             if (cm->array->refcount > 1) {
-                int n = array_list_search(cm->array);
+                int n = shared_data_search(cm->array);
                 if (n == -1) {
                     // A negative row count signals a new shared matrix
                     rows = -rows;
-                    if (!array_list_grow())
+                    if (!shared_data_grow())
                         return false;
-                    array_list[array_count++] = cm->array;
+                    shared_data[shared_data_count++] = cm->array;
                 } else {
                     // A zero row count means this matrix shares its data
                     // with a previously written matrix
@@ -1061,13 +1449,13 @@ static bool persist_vartype(vartype *v) {
             int data_index = -1;
             bool must_write = true;
             if (list->array->refcount > 1) {
-                int n = array_list_search(list->array);
+                int n = shared_data_search(list->array);
                 if (n == -1) {
                     // data_index == -2 indicates a new shared list
                     data_index = -2;
-                    if (!array_list_grow())
+                    if (!shared_data_grow())
                         return false;
-                    array_list[array_count++] = list->array;
+                    shared_data[shared_data_count++] = list->array;
                 } else {
                     // data_index >= 0 refers to a previously shared list
                     data_index = n;
@@ -1083,6 +1471,33 @@ static bool persist_vartype(vartype *v) {
             }
             return true;
         }
+        case TYPE_EQUATION: {
+            vartype_equation *eq = (vartype_equation *) v;
+            return write_int4(eq->data->eqn_index);
+        }
+        case TYPE_UNIT: {
+            vartype_unit *u = (vartype_unit *) v;
+            if (!write_phloat(u->x))
+                return false;
+            return write_int4(u->length)
+                && fwrite(u->text, 1, u->length, gfile) == u->length;
+        }
+        case TYPE_DIR_REF: {
+            vartype_dir_ref *r = (vartype_dir_ref *) v;
+            return write_int4(r->dir);
+        }
+        case TYPE_PGM_REF: {
+            vartype_pgm_ref *r = (vartype_pgm_ref *) v;
+            return write_int4(r->dir) && write_int4(r->pgm);
+        }
+        case TYPE_VAR_REF: {
+            vartype_var_ref *r = (vartype_var_ref *) v;
+            if (!write_int4(r->dir))
+                return false;
+            if (!write_char(r->length))
+                return false;
+            return fwrite(r->name, 1, r->length, gfile) == r->length;
+        }
         default:
             /* Should not happen */
             return false;
@@ -1090,34 +1505,100 @@ static bool persist_vartype(vartype *v) {
 }
 
 
-// A few declarations to help unpersist_vartype get the offsets right,
-// in the case it needs to convert the state file.
-
-struct fake_bcd {
-    char data[16];
-};
-
-struct old_vartype_string {
-    int type;
-    int length;
-    char text[6];
-};
-
-// For coping with bad 2.5 state files. 0 means don't do anything special;
-// 1 means check for bad string lengths in real matrices; 2 is bug-
-// compatibility mode; and 3 is a signal to switch from mode 1 to mode 2.
-// When a bad string length is found in mode 1, this function will switch
-// the mode to mode 3 and return false, indicating an error; the caller
-// should then clean up what has already been read, rewind the state file,
-// and try again in mode 2.
-
-int bug_mode;
-
-// Using a global for 'ver' so we don't have to pass it around all the time
+// Using global for 'ver' so we don't have to pass it around all the time
 
 int4 ver;
 
-static bool unpersist_vartype(vartype **v) {
+static equation_data *unpersist_equation_data() {
+    int4 eqn_index;
+    directory *saved_cwd = cwd;
+    pgm_index saved_prgm = current_prgm;
+    int4 saved_pc = pc;
+    cwd = eq_dir;
+    current_prgm.set(1, 0);
+    core_import_programs(1, NULL);
+    cwd = saved_cwd;
+    current_prgm = saved_prgm;
+    pc = saved_pc;
+    if (!read_int4(&eqn_index))
+        return NULL;
+    /* The equation code was loaded as the last program in the eq_dir
+     * directory, which means its effective equation index is now
+     * prgms_count - 1. If that happens to match the saved equation id,
+     * great; if not, we'll have to rearrange things to make the program
+     * index agree with the equation id.
+     */
+    if (eqn_index < eq_dir->prgms_count - 1) {
+        prgm_struct *lprgm = eq_dir->prgms + --(eq_dir->prgms_count);
+        eq_dir->prgms[eqn_index] = *lprgm;
+        lprgm->text = NULL;
+        lprgm->eq_data = NULL;
+    } else if (eqn_index > eq_dir->prgms_count - 1) {
+        if (eqn_index + 1 > eq_dir->prgms_capacity) {
+            int oc = eq_dir->prgms_capacity;
+            int nc = eqn_index + 11;
+            prgm_struct *newprgms = (prgm_struct *) realloc(eq_dir->prgms, nc * sizeof(prgm_struct));
+            if (newprgms == NULL)
+                return NULL;
+            eq_dir->prgms = newprgms;
+            eq_dir->prgms_capacity = nc;
+            for (int i = oc; i < eq_dir->prgms_capacity; i++) {
+                eq_dir->prgms[i].text = NULL;
+                eq_dir->prgms[i].eq_data = NULL;
+            }
+        }
+        prgm_struct *lprgm = eq_dir->prgms + (eq_dir->prgms_count - 1);
+        eq_dir->prgms_count = eqn_index + 1;
+        eq_dir->prgms[eqn_index] = *lprgm;
+        lprgm->text = NULL;
+        lprgm->eq_data = NULL;
+    }
+    equation_data *eqd = new (std::nothrow) equation_data;
+    if (eqd == NULL)
+        return NULL;
+    eqd->refcount = 0;
+    eqd->eqn_index = eqn_index;
+    if (!read_int4(&eqd->length)) {
+        eq_fail:
+        delete eqd;
+        return NULL;
+    }
+    if (eqd->length > 0) {
+        eqd->text = (char *) malloc(eqd->length);
+        if (eqd->text == NULL)
+            goto eq_fail;
+        if (fread(eqd->text, 1, eqd->length, gfile) != eqd->length)
+            goto eq_fail;
+        if (ver < 44)
+            switch_30_and_94(eqd->text, eqd->length);
+    }
+    int cmsize;
+    if (!read_int(&cmsize))
+        goto eq_fail;
+    if (cmsize > 0) {
+        char *cmdata = (char *) malloc(cmsize);
+        if (cmdata == NULL)
+            goto eq_fail;
+        if (fread(cmdata, 1, cmsize, gfile) != cmsize) {
+            cm_fail:
+            free(cmdata);
+            goto eq_fail;
+        }
+        eqd->map = new (std::nothrow) CodeMap(cmdata, cmsize);
+        if (eqd->map == NULL)
+            goto cm_fail;
+    }
+    if (!read_bool(&eqd->compatMode))
+        goto eq_fail;
+    eq_dir->prgms[eqn_index].eq_data = eqd;
+    if (eqd->length > 0) {
+        int errpos;
+        eqd->ev = Parser::parse(std::string(eqd->text, eqd->length), &eqd->compatMode, &eqd->compatModeEmbedded, &errpos);
+    }
+    return eqd;
+}
+
+bool unpersist_vartype(vartype **v) {
     char type;
     if (!read_char(&type))
         return false;
@@ -1150,15 +1631,8 @@ static bool unpersist_vartype(vartype **v) {
         }
         case TYPE_STRING: {
             int4 len;
-            if (ver < 34) {
-                char c;
-                if (!read_char(&c))
-                    return false;
-                len = c;
-            } else {
-                if (!read_int4(&len))
-                    return false;
-            }
+            if (!read_int4(&len))
+                return false;
             vartype_string *s = (vartype_string *) new_string(NULL, len);
             if (s == NULL)
                 return false;
@@ -1166,6 +1640,8 @@ static bool unpersist_vartype(vartype **v) {
                 free_vartype((vartype *) s);
                 return false;
             }
+            if (ver < 44)
+                switch_30_and_94(s->txt(), len);
             *v = (vartype *) s;
             return true;
         }
@@ -1175,7 +1651,7 @@ static bool unpersist_vartype(vartype **v) {
                 return false;
             if (rows == 0) {
                 // Shared matrix
-                vartype *m = dup_vartype((vartype *) array_list[columns]);
+                vartype *m = dup_vartype((vartype *) shared_data[columns]);
                 if (m == NULL)
                     return false;
                 else {
@@ -1203,66 +1679,30 @@ static bool unpersist_vartype(vartype **v) {
                         break;
                 } else {
                     rm->array->is_string[i] = 1;
-                    if (bug_mode == 0) {
-                        if (ver < 34) {
-                            // 6 bytes of text followed by length byte
-                            char *t = (char *) &rm->array->data[i];
-                            if (fread(t + 1, 1, 7, gfile) != 7)
-                                break;
-                            t[0] = t[7];
-                        } else {
-                            // 4-byte length followed by n bytes of text
-                            int4 len;
-                            if (!read_int4(&len))
-                                break;
-                            if (len > SSLENM) {
-                                int4 *p = (int4 *) malloc(len + 4);
-                                if (p == NULL)
-                                    break;
-                                if (fread(p + 1, 1, len, gfile) != len) {
-                                    free(p);
-                                    break;
-                                }
-                                *p = len;
-                                *(int4 **) &rm->array->data[i] = p;
-                                rm->array->is_string[i] = 2;
-                            } else {
-                                char *t = (char *) &rm->array->data[i];
-                                *t = len;
-                                if (fread(t + 1, 1, len, gfile) != len)
-                                    break;
-                            }
-                        }
-                    } else if (bug_mode == 1) {
-                        // Could be as above, or could be length-prefixed.
-                        // Read 7 bytes, and if byte 7 looks plausible,
-                        // carry on; otherwise, set bug_mode to 3, signalling
-                        // we should start over in bug-compatibility mode.
-                        char *t = (char *) &rm->array->data[i];
-                        if (fread(t + 1, 1, 7, gfile) != 7)
+                    // 4-byte length followed by n bytes of text
+                    int4 len;
+                    if (!read_int4(&len))
+                        break;
+                    if (len > SSLENM) {
+                        int4 *p = (int4 *) malloc(len + 4);
+                        if (p == NULL)
                             break;
-                        if (t[7] < 0 || t[7] > 6) {
-                            bug_mode = 3;
+                        if (fread(p + 1, 1, len, gfile) != len) {
+                            free(p);
                             break;
                         }
-                        t[0] = t[7];
+                        if (ver < 44)
+                            switch_30_and_94((char *) (p + 1), len);
+                        *p = len;
+                        *(int4 **) &rm->array->data[i] = p;
+                        rm->array->is_string[i] = 2;
                     } else {
-                        // bug_mode == 2, means this has to be a file with
-                        // length-prefixed strings in matrices. Bear in
-                        // mind that the prefixes are bogus, so for reading,
-                        // clamp them to the 0..6 range, but for advancing
-                        // in the file, take them at face value.
-                        unsigned char len;
-                        if (fread(&len, 1, 1, gfile) != 1)
-                            break;
-                        unsigned char reallen = len > 6 ? 6 : len;
                         char *t = (char *) &rm->array->data[i];
-                        if (fread(t + 1, 1, reallen, gfile) != reallen)
+                        *t = len;
+                        if (fread(t + 1, 1, len, gfile) != len)
                             break;
-                        t[0] = reallen;
-                        len -= reallen;
-                        if (len > 0 && fseek(gfile, len, SEEK_CUR) != 0)
-                            break;
+                        if (ver < 44)
+                            switch_30_and_94(t + 1, len);
                     }
                 }
                 success = true;
@@ -1273,11 +1713,11 @@ static bool unpersist_vartype(vartype **v) {
                 return false;
             }
             if (shared) {
-                if (!array_list_grow()) {
+                if (!shared_data_grow()) {
                     free_vartype((vartype *) rm);
                     return false;
                 }
-                array_list[array_count++] = rm;
+                shared_data[shared_data_count++] = rm;
             }
             *v = (vartype *) rm;
             return true;
@@ -1288,7 +1728,7 @@ static bool unpersist_vartype(vartype **v) {
                 return false;
             if (rows == 0) {
                 // Shared matrix
-                vartype *m = dup_vartype((vartype *) array_list[columns]);
+                vartype *m = dup_vartype((vartype *) shared_data[columns]);
                 if (m == NULL)
                     return false;
                 else {
@@ -1310,11 +1750,11 @@ static bool unpersist_vartype(vartype **v) {
                 }
             }
             if (shared) {
-                if (!array_list_grow()) {
+                if (!shared_data_grow()) {
                     free_vartype((vartype *) cm);
                     return false;
                 }
-                array_list[array_count++] = cm;
+                shared_data[shared_data_count++] = cm;
             }
             *v = (vartype *) cm;
             return true;
@@ -1326,7 +1766,7 @@ static bool unpersist_vartype(vartype **v) {
                 return false;
             if (data_index >= 0) {
                 // Shared list
-                vartype *m = dup_vartype((vartype *) array_list[data_index]);
+                vartype *m = dup_vartype((vartype *) shared_data[data_index]);
                 if (m == NULL)
                     return false;
                 else {
@@ -1339,11 +1779,11 @@ static bool unpersist_vartype(vartype **v) {
             if (list == NULL)
                 return false;
             if (shared) {
-                if (!array_list_grow()) {
+                if (!shared_data_grow()) {
                     free_vartype((vartype *) list);
                     return false;
                 }
-                array_list[array_count++] = list;
+                shared_data[shared_data_count++] = list;
             }
             for (int4 i = 0; i < size; i++) {
                 if (!unpersist_vartype(&list->array->data[i])) {
@@ -1354,25 +1794,269 @@ static bool unpersist_vartype(vartype **v) {
             *v = (vartype *) list;
             return true;
         }
+        case TYPE_EQUATION: {
+            if (ver >= 46) {
+                int4 id;
+                if (!read_int4(&id))
+                    return false;
+                equation_data *eqd;
+                if (id >= eq_dir->prgms_count || (eqd = eq_dir->prgms[id].eq_data) == NULL)
+                    *v = new_string("<Missing Equation>", 18);
+                else if (eqd->length > 0 && eqd->ev == NULL)
+                    *v = new_string(eqd->text, eqd->length);
+                else
+                    *v = new_equation(eqd);
+                return *v != NULL;
+            }
+
+            int data_index;
+            if (!read_int(&data_index))
+                return false;
+            if (data_index >= 0) {
+                // Shared equation
+                vartype *m = dup_vartype((vartype *) shared_data[data_index]);
+                if (m == NULL)
+                    return false;
+                else {
+                    *v = m;
+                    return true;
+                }
+            }
+            equation_data *eqd = unpersist_equation_data();
+            if (eqd == NULL)
+                return false;
+            if (eqd->length > 0 && eqd->ev == NULL) {
+                // Parse error while everything else looked OK; this is
+                // probably an equation that was valid at some point but
+                // no longer is, because of a parser change. In a perfect
+                // world, that would never happen, but sometimes, bug fixes
+                // break equations that relied on those bugs.
+                // When this happens, we return a string object instead,
+                // and hope for the best. It's better than the dreaded
+                // State File Corrupt, anyway.
+                *v = new_string(eqd->text, eqd->length);
+            } else
+                *v = new_equation(eqd);
+            if (*v == NULL)
+                return false;
+
+            bool shared = data_index == -2;
+            if (shared) {
+                if (!shared_data_grow()) {
+                    free_vartype(*v);
+                    return false;
+                }
+                shared_data[shared_data_count++] = *v;
+            }
+            return true;
+        }
+        case TYPE_UNIT: {
+            vartype_unit *u = (vartype_unit *) malloc(sizeof(vartype_unit));
+            if (u == NULL)
+                return false;
+            if (!read_phloat(&u->x)) {
+                unit_fail:
+                free_vartype((vartype *) u);
+                return false;
+            }
+            int4 len;
+            if (!read_int4(&len))
+                goto unit_fail;
+            u->text = (char *) malloc(len);
+            if (u->text == NULL && len != 0)
+                goto unit_fail;
+            if (fread(u->text, 1, len, gfile) != len) {
+                free(u->text);
+                goto unit_fail;
+            }
+            if (ver < 44)
+                switch_30_and_94(u->text, len);
+            u->type = TYPE_UNIT;
+            u->length = len;
+            *v = (vartype *) u;
+            return true;
+        }
+        case TYPE_DIR_REF: {
+            int4 dir;
+            if (!read_int4(&dir))
+                return false;
+            *v = new_dir_ref(dir);
+            return *v != NULL;
+        }
+        case TYPE_PGM_REF: {
+            int4 dir, pgm;
+            if (!read_int4(&dir))
+                return false;
+            if (!read_int4(&pgm))
+                return false;
+            *v = new_pgm_ref(dir, pgm);
+            return *v != NULL;
+        }
+        case TYPE_VAR_REF: {
+            int4 dir;
+            if (!read_int4(&dir))
+                return false;
+            char length;
+            if (!read_char(&length))
+                return false;
+            char name[7];
+            if (fread(name, 1, length, gfile) != length)
+                return false;
+            if (ver < 44)
+                switch_30_and_94(name, length);
+            *v = new_var_ref(dir, name, length);
+            return *v != NULL;
+        }
         default:
             return false;
     }
 }
 
+static bool persist_directory(directory *dir) {
+    bool success = false;
+    directory *oldcwd = cwd;
+    cwd = dir;
+    if (!write_int(dir->id))
+        goto fail;
+    if (!write_int(dir->vars_count))
+        goto fail;
+    for (int i = 0; i < dir->vars_count; i++) {
+        if (!write_char(dir->vars[i].length))
+            goto fail;
+        if (fwrite(dir->vars[i].name, 1, dir->vars[i].length, gfile) != dir->vars[i].length)
+            goto fail;
+        if (!persist_vartype(dir->vars[i].value))
+            goto fail;
+    }
+    if (!write_int(dir->prgms_count))
+        goto fail;
+    for (int i = 0; i < dir->prgms_count; i++)
+        core_export_programs(1, &i, NULL);
+    for (int i = 0; i < dir->prgms_count; i++)
+        if (!write_bool(dir->prgms[i].locked))
+            goto fail;
+    if (!write_int(dir->children_count))
+        goto fail;
+    for (int i = 0; i < dir->children_count; i++) {
+        if (!write_char(dir->children[i].length))
+            goto fail;
+        if (fwrite(dir->children[i].name, 1, dir->children[i].length, gfile) != dir->children[i].length)
+            goto fail;
+        if (!persist_directory(dir->children[i].dir))
+            goto fail;
+    }
+    success = true;
+    fail:
+    cwd = oldcwd;
+    return success;
+}
+
+static bool unpersist_directory(directory **d) {
+    directory *dir = new (std::nothrow) directory(0);
+    directory *oldcwd = cwd;
+    cwd = dir;
+    if (dir == NULL) {
+        fail:
+        delete dir;
+        *d = NULL;
+        cwd = oldcwd;
+        return false;
+    }
+    if (ver >= 9) {
+        if (!read_int(&dir->id))
+            goto fail;
+    } else {
+        dir->id = 2;
+    }
+    map_dir(dir->id, dir);
+    int vc;
+    if (!read_int(&vc))
+        goto fail;
+    dir->vars = (var_struct *) malloc(vc * sizeof(var_struct));
+    if (dir->vars == NULL && vc != 0)
+        goto fail;
+    dir->vars_capacity = vc;
+    dir->vars_count = 0;
+    for (int i = 0; i < vc; i++) {
+        var_struct vs;
+        if (!read_char((char *) &vs.length))
+            goto fail;
+        if (fread(vs.name, 1, vs.length, gfile) != vs.length)
+            goto fail;
+        if (ver < 44)
+            switch_30_and_94(vs.name, vs.length);
+        if (ver < 9) {
+            if (!read_int2(&vs.level))
+                goto fail;
+            if (!read_int2(&vs.flags))
+                goto fail;
+            if (ver < 9)
+                /* The 'hidden' and 'hiding' flags were made obsolete
+                 * by the introduction of directories. A local that hides
+                 * a global when it is created may no longer be hiding
+                 * anything if the current directory is subsequently
+                 * changed. So this neat trick is no longer usable.
+                 */
+                vs.flags &= ~(VAR_HIDDEN | VAR_HIDING);
+        } else
+            vs.flags = 0;
+        if (!unpersist_vartype(&vs.value))
+            goto fail;
+        dir->vars[dir->vars_count++] = vs;
+    }
+
+    if (ver >= 9) {
+        cwd = dir;
+        int nprogs;
+        if (!read_int(&nprogs))
+            goto fail;
+        core_import_programs(nprogs, NULL);
+        rebuild_label_table();
+        if (ver >= 43) {
+            for (int i = 0; i < dir->prgms_count; i++)
+                if (!read_bool(&dir->prgms[i].locked))
+                    goto fail;
+        } else {
+            for (int i = 0; i < dir->prgms_count; i++)
+                dir->prgms[i].locked = false;
+        }
+    }
+
+    if (ver >= 9) {
+        int nc;
+        if (!read_int(&nc))
+            goto fail;
+        dir->children = (subdir_struct *) malloc(nc * sizeof(subdir_struct));
+        if (dir->children == NULL && nc != 0)
+            goto fail;
+        dir->children_capacity = nc;
+        dir->children_count = 0;
+        for (int i = 0; i < nc; i++) {
+            if (!read_char((char *) &dir->children[i].length))
+                goto fail;
+            if (fread(dir->children[i].name, 1, dir->children[i].length, gfile) != dir->children[i].length)
+                goto fail;
+            if (ver < 44)
+                switch_30_and_94(dir->children[i].name, dir->children[i].length);
+            directory *child;
+            if (!unpersist_directory(&child))
+                goto fail;
+            child->parent = dir;
+            dir->children[i].dir = child;
+            dir->children_count = i + 1;
+        }
+    }
+
+    *d = dir;
+    cwd = oldcwd;
+    return true;
+}
+
 static bool persist_globals() {
     int i;
-    array_count = 0;
-    array_list_capacity = 0;
-    array_list = NULL;
     bool ret = false;
+    pgm_index saved_prgm;
 
-    if (!write_int(sp))
-        goto done;
-    for (int i = 0; i <= sp; i++)
-        if (!persist_vartype(stack[i]))
-            goto done;
-    if (!persist_vartype(lastx))
-        goto done;
     if (!write_int(reg_alpha_length))
         goto done;
     if (fwrite(reg_alpha, 1, 44, gfile) != 44)
@@ -1403,31 +2087,98 @@ static bool persist_globals() {
         goto done;
     if (!write_bool(mode_menu_static))
         goto done;
+    if (!write_bool(mode_header))
+        goto done;
+    if (!write_int(mode_amort_seq))
+        goto done;
     if (fwrite(&flags, 1, sizeof(flags_struct), gfile) != sizeof(flags_struct))
         goto done;
-    if (!write_int(prgms_count))
+    if (!write_int(mode_message_lines))
         goto done;
-    for (i = 0; i < prgms_count; i++)
-        core_export_programs(1, &i, NULL);
-    for (i = 0; i < prgms_count; i++)
-        if (!write_bool(prgms[i].locked))
+
+    {
+        int n_eq = 0;
+        for (int i = 0; i < eq_dir->prgms_count; i++)
+            if (eq_dir->prgms[i].eq_data != NULL)
+                n_eq++;
+        if (!write_int(n_eq))
             goto done;
-    if (!write_int(current_prgm))
+        for (int i = 0; i < eq_dir->prgms_count; i++) {
+            equation_data *eqd = eq_dir->prgms[i].eq_data;
+            if (eqd == NULL)
+                continue;
+            directory *saved_cwd = cwd;
+            cwd = eq_dir;
+            core_export_programs(1, &i, NULL);
+            cwd = saved_cwd;
+            if (!write_int(eqd->eqn_index))
+                return false;
+            if (!write_int4(eqd->length))
+                return false;
+            if (fwrite(eqd->text, 1, eqd->length, gfile) != eqd->length)
+                return false;
+            int cmsize = eqd->map == NULL ? 0 : eqd->map->getSize();
+            if (!write_int(cmsize))
+                return false;
+            if (cmsize > 0)
+                if (fwrite(eqd->map->getData(), 1, cmsize, gfile) != cmsize)
+                    return false;
+            if (!write_bool(eqd->compatMode))
+                return false;
+        }
+    }
+
+    if (!write_int(sp))
+        goto done;
+    for (int i = 0; i <= sp; i++)
+        if (!persist_vartype(stack[i]))
+            goto done;
+    if (!persist_vartype(lastx))
+        goto done;
+    if (!write_int4(current_prgm.dir))
+        goto done;
+    if (!write_int4(current_prgm.idx))
         goto done;
     if (!write_int4(pc2line(pc)))
         goto done;
     if (!write_int(prgm_highlight_row))
         goto done;
-    if (!write_int(vars_count))
+    if (!persist_directory(root))
         goto done;
-    for (i = 0; i < vars_count; i++) {
-        if (!write_char(vars[i].length)
-            || fwrite(vars[i].name, 1, vars[i].length, gfile) != vars[i].length
-            || !write_int2(vars[i].level)
-            || !write_int2(vars[i].flags)
-            || !persist_vartype(vars[i].value))
+    if (!write_int(local_vars_count))
+        goto done;
+    for (i = 0; i < local_vars_count; i++) {
+        if (!write_char(local_vars[i].length)
+            || fwrite(local_vars[i].name, 1, local_vars[i].length, gfile) != local_vars[i].length
+            || !write_int2(local_vars[i].level)
+            || !write_int2(local_vars[i].flags)
+            || !persist_vartype(local_vars[i].value))
             goto done;
     }
+    if (!write_bool(mode_plot_viewer))
+        goto done;
+    if (!write_int(mode_plot_key))
+        goto done;
+    if (!write_int(mode_plot_sp))
+        goto done;
+    if (!persist_vartype(mode_plot_inv))
+        goto done;
+    if (!write_int(mode_plot_result_width))
+        goto done;
+    if (!write_bool(mode_multi_line))
+        goto done;
+    if (!write_bool(mode_lastx_top))
+        goto done;
+    if (!write_bool(mode_alpha_top))
+        goto done;
+    if (!write_bool(mode_header_flags))
+        goto done;
+    if (!write_bool(mode_header_polar))
+        goto done;
+    if (!write_bool(mode_matedit_stk))
+        goto done;
+    if (!persist_vartype(varmenu_eqn))
+        goto done;
     if (!write_int(varmenu_length))
         goto done;
     if (fwrite(varmenu, 1, 7, gfile) != 7)
@@ -1448,14 +2199,21 @@ static bool persist_globals() {
         goto done;
     if (!write_bool(rtn_level_0_has_func_state))
         goto done;
-    int saved_prgm;
+    if (!write_int4(rtn_after_last_rtn_dir))
+        goto done;
+    if (!write_int4(rtn_after_last_rtn_prgm))
+        goto done;
+    if (!write_int4(rtn_after_last_rtn_pc))
+        goto done;
     saved_prgm = current_prgm;
     for (i = rtn_level - 1; i >= 0; i--) {
-        current_prgm = rtn_stack[i].get_prgm();
+        current_prgm.set(rtn_stack[i].dir, rtn_stack[i].get_prgm());
         int4 line = rtn_stack[i].pc;
-        if (current_prgm >= 0)
+        if (current_prgm.idx >= 0)
             line = pc2line(line);
-        if (!write_int4(rtn_stack[i].prgm) || !write_int4(line))
+        if (!write_int4(rtn_stack[i].dir)
+                || !write_int4(rtn_stack[i].prgm)
+                || !write_int4(line))
             goto done;
     }
     current_prgm = saved_prgm;
@@ -1463,63 +2221,33 @@ static bool persist_globals() {
         goto done;
     if (!write_bool(rtn_integ_active))
         goto done;
+    if (!write_bool(rtn_plot_active))
+        goto done;
+    if (!write_int4(trap_flags))
+        goto done;
+    if (!write_int4(trap_level))
+        goto done;
+    if (!write_int4(trap_deeper_flags))
+        goto done;
+    if (!write_bool(trap_caught))
+        goto done;
+    if (!persist_vartype(trap_trace))
+        goto done;
+    if (!write_int4(cwd->id))
+        goto done;
+
     ret = true;
 
     done:
-    free(array_list);
     return ret;
 }
 
 bool loading_state = false;
+bool saving_state = false;
 
 static bool unpersist_globals() {
     int i;
-    array_count = 0;
-    array_list_capacity = 0;
-    array_list = NULL;
     bool ret = false;
-    char tmp_dmy = 2;
-
-    if (ver < 33) {
-        sp = 3;
-    } else {
-        if (!read_int(&sp)) {
-            sp = -1;
-            goto done;
-        }
-    }
-    stack_capacity = sp + 1;
-    if (stack_capacity < 4)
-        stack_capacity = 4;
-    stack = (vartype **) malloc(stack_capacity * sizeof(vartype *));
-    if (stack == NULL) {
-        stack_capacity = 0;
-        sp = -1;
-        goto done;
-    }
-    for (int i = 0; i <= sp; i++) {
-        if (!unpersist_vartype(&stack[i]) || stack[i] == NULL) {
-            for (int j = 0; j < i; j++)
-                free_vartype(stack[j]);
-            free(stack);
-            stack = NULL;
-            sp = -1;
-            stack_capacity = 0;
-            goto done;
-        }
-    }
-    if (ver < 33) {
-        vartype *tmp = stack[REG_X];
-        stack[REG_X] = stack[REG_T];
-        stack[REG_T] = tmp;
-        tmp = stack[REG_Y];
-        stack[REG_Y] = stack[REG_Z];
-        stack[REG_Z] = tmp;
-    }
-
-    free_vartype(lastx);
-    if (!unpersist_vartype(&lastx))
-        goto done;
 
     if (!read_int(&reg_alpha_length)) {
         reg_alpha_length = 0;
@@ -1529,6 +2257,8 @@ static bool unpersist_globals() {
         reg_alpha_length = 0;
         goto done;
     }
+    if (ver < 44)
+        switch_30_and_94(reg_alpha, reg_alpha_length);
     if (!read_int4(&mode_sigma_reg)) {
         mode_sigma_reg = 11;
         goto done;
@@ -1550,7 +2280,7 @@ static bool unpersist_globals() {
         goto done;
     }
     mode_carry = mode_dec_int = mode_bin_sep = mode_oct_sep = mode_dec_sep = mode_hex_sep = false;
-    if (ver >= 52) {
+    if (ver >= 53) {
         if (!read_bool(&mode_carry)) goto done;
         if (!read_bool(&mode_dec_int)) goto done;
         if (!read_bool(&mode_bin_sep)) goto done;
@@ -1558,116 +2288,286 @@ static bool unpersist_globals() {
         if (!read_bool(&mode_dec_sep)) goto done;
         if (!read_bool(&mode_hex_sep)) goto done;
     }
-    if (ver >= 42) {
+    if (ver >= 54) {
         if (!read_bool(&mode_menu_caps)) {
             mode_menu_caps = false;
             goto done;
         }
-    } else
-        mode_menu_caps = false;
-    if (ver >= 53) {
         if (!read_bool(&mode_menu_static)) {
             mode_menu_static = false;
             goto done;
         }
-    } else
+    } else {
+        mode_menu_caps = false;
         mode_menu_static = false;
+    }
+    if (ver >= 13) {
+        if (!read_bool(&mode_header)) {
+            mode_header = true;
+            goto done;
+        }
+    } else
+        mode_header = true;
+    if (ver >= 18) {
+        if (!read_int(&mode_amort_seq)) {
+            mode_amort_seq = 0;
+            goto done;
+        }
+    } else
+        mode_amort_seq = 0;
+    if (ver < 12) {
+        bool dummy;
+        if (!read_bool(&dummy))
+            goto done;
+    }
     if (fread(&flags, 1, sizeof(flags_struct), gfile)
             != sizeof(flags_struct))
         goto done;
-    if (tmp_dmy != 2)
-        flags.f.dmy = tmp_dmy;
-    if (ver < 33)
-        flags.f.big_stack = 0;
 
-    prgms_count = 0;
-    prgms_capacity = 0;
-    if (prgms != NULL) {
-        free(prgms);
-        prgms = NULL;
+    if (ver < 21)
+        flags.f.direct_solver = 1;
+
+    if (ver < 13) {
+        mode_message_lines = flags.farray[51] ? 2 : flags.farray[50] ? 1 : 0;
+        flags.farray[50] = flags.farray[51] = 0;
+    } else {
+        if (!read_int(&mode_message_lines))
+            goto done;
     }
-    int nprogs;
-    if (!read_int(&nprogs)) {
-        goto done;
+
+    if (ver < 9) {
+        int nprogs;
+        if (!read_int(&nprogs))
+            goto done;
+        root = new directory(0);
+        map_dir(0, root);
+        cwd = root;
+        core_import_programs(nprogs, NULL);
+        rebuild_label_table();
     }
-    loading_state = true;
-    core_import_programs(nprogs, NULL);
-    loading_state = false;
-    if (ver >= 49)
-        for (i = 0; i < nprogs; i++)
-            if (!read_bool(&prgms[i].locked))
+
+    dir_list_clear();
+    eq_dir = new directory(1);
+    map_dir(1, eq_dir);
+
+    if (ver >= 46) {
+        int n_eq;
+        if (!read_int(&n_eq))
+            goto done;
+        for (int i = 0; i < n_eq; i++)
+            if (unpersist_equation_data() == NULL)
                 goto done;
-    if (!read_int(&current_prgm)) {
-        current_prgm = 0;
+    }
+
+    if (!read_int(&sp)) {
+        sp = -1;
         goto done;
     }
-    if (!read_int4(&pc)) {
+    stack_capacity = sp + 1;
+    if (stack_capacity < 4)
+        stack_capacity = 4;
+    stack = (vartype **) malloc(stack_capacity * sizeof(vartype *));
+    if (stack == NULL) {
+        stack_capacity = 0;
+        sp = -1;
+        goto done;
+    }
+    for (int i = 0; i <= sp; i++) {
+        if (!unpersist_vartype(&stack[i]) || stack[i] == NULL) {
+            for (int j = 0; j < i; j++)
+                free_vartype(stack[j]);
+            free(stack);
+            stack = NULL;
+            sp = -1;
+            stack_capacity = 0;
+            goto done;
+        }
+    }
+
+    if (!unpersist_vartype(&lastx)) {
+        lastx = NULL;
+        goto done;
+    }
+
+    int4 currdir, currprgm, currpc;
+    if (ver >= 9) {
+        if (!read_int4(&currdir)) {
+            current_prgm.set(-1, 0);
+            goto done;
+        }
+    }
+    if (!read_int4(&currprgm)) {
+        current_prgm.set(-1, 0);
+        goto done;
+    }
+    if (!read_int4(&currpc)) {
         pc = -1;
         goto done;
     }
-    pc = line2pc(pc);
-    incomplete_saved_pc = line2pc(incomplete_saved_pc);
     if (!read_int(&prgm_highlight_row)) {
         prgm_highlight_row = 0;
         goto done;
     }
 
-    vars_capacity = 0;
-    if (vars != NULL) {
-        free(vars);
-        vars = NULL;
-    }
-    if (!read_int(&vars_count)) {
-        vars_count = 0;
+    directory *r;
+    if (!unpersist_directory(&r))
         goto done;
+    if (ver >= 9) {
+        root = r;
+    } else {
+        free(r->prgms);
+        r->prgms = root->prgms;
+        r->prgms_count = root->prgms_count;
+        r->prgms_capacity = root->prgms_capacity;
+        root->prgms = NULL;
+        root->prgms_count = 0;
+        delete root;
+        root = r;
     }
-    vars = (var_struct *) malloc(vars_count * sizeof(var_struct));
-    if (vars == NULL) {
-        vars_count = 0;
-        goto done;
+
+    if (local_vars != NULL) {
+        free(local_vars);
+        local_vars = NULL;
     }
-    for (i = 0; i < vars_count; i++) {
-        if (!read_char((char *) &vars[i].length))
-            goto vars_fail;
-        if (fread(vars[i].name, 1, vars[i].length, gfile) != vars[i].length)
-            goto vars_fail;
-        if (!read_int2(&vars[i].level))
-            goto vars_fail;
-        if (ver < 30) {
-            bool hidden, hiding;
-            if (!read_bool(&hidden) || !read_bool(&hiding))
-                goto vars_fail;
-            vars[i].flags = (hidden ? VAR_HIDDEN : 0)
-                            | (hiding ? VAR_HIDING : 0);
-        } else {
-            if (!read_int2(&vars[i].flags))
-                goto vars_fail;
+    local_vars_count = 0;
+    local_vars_capacity = 0;
+
+    if (ver >= 9) {
+        int lc;
+        if (!read_int(&lc))
+            goto done;
+        local_vars = (var_struct *) malloc(lc * sizeof(var_struct));
+        if (local_vars == NULL && lc != 0)
+            goto done;
+        local_vars_capacity = lc;
+        for (int i = 0; i < lc; i++) {
+            if (!read_char((char *) &local_vars[i].length))
+                goto done;
+            if (fread(local_vars[i].name, 1, local_vars[i].length, gfile) != local_vars[i].length)
+                goto done;
+            if (ver < 44)
+                switch_30_and_94(local_vars[i].name, local_vars[i].length);
+            if (!read_int2(&local_vars[i].level))
+                goto done;
+            if (!read_int2(&local_vars[i].flags))
+                goto done;
+            if (!unpersist_vartype(&local_vars[i].value))
+                goto done;
+            local_vars_count++;
         }
-        if (!unpersist_vartype(&vars[i].value)) {
-            vars_fail:
-            for (int j = 0; j < i; j++)
-                free_vartype(vars[j].value);
-            free(vars);
-            vars = NULL;
-            vars_count = 0;
+        // Just to have something valid for now; we'll set cwd properly at the end.
+        cwd = root;
+    } else {
+        // Separate locals from the globals
+        local_vars = (var_struct *) malloc(root->vars_count * sizeof(var_struct));
+        if (local_vars == NULL && root->vars_count != 0)
+            goto done;
+        local_vars_capacity = root->vars_count;
+        int gi = 0, li = 0;
+        for (int i = 0; i < root->vars_count; i++) {
+            if (root->vars[i].level == -1)
+                root->vars[gi++] = root->vars[i];
+            else
+                local_vars[li++] = root->vars[i];
+        }
+        root->vars_count = gi;
+        local_vars_count = li;
+        cwd = root;
+    }
+
+    if (ver >= 20) {
+        if (!read_bool(&mode_plot_viewer)) {
+            mode_plot_viewer = false;
             goto done;
         }
+        if (!read_int(&mode_plot_key)) {
+            mode_plot_key = 0;
+            goto done;
+        }
+        if (!read_int(&mode_plot_sp)) {
+            mode_plot_sp = 0;
+            goto done;
+        }
+        if (!unpersist_vartype(&mode_plot_inv)) {
+            mode_plot_inv = NULL;
+            goto done;
+        }
+    } else {
+        mode_plot_viewer = false;
+        mode_plot_key = 0;
+        mode_plot_sp = 0;
+        mode_plot_inv = NULL;
     }
-    vars_capacity = vars_count;
 
-    if (!read_int(&varmenu_length)) {
-        varmenu_length = 0;
+    if (ver >= 21) {
+        if (!read_int(&mode_plot_result_width)) {
+            mode_plot_result_width = 0;
+            goto done;
+        }
+    } else {
+        mode_plot_result_width = 0;
+    }
+
+    if (ver >= 27) {
+        if (!read_bool(&mode_multi_line)) {
+            mode_multi_line = true;
+            goto done;
+        }
+    } else {
+        mode_multi_line = true;
+    }
+
+    if (ver >= 29) {
+        if (!read_bool(&mode_lastx_top)) {
+            mode_lastx_top = false;
+            goto done;
+        }
+    } else {
+        mode_lastx_top = false;
+    }
+
+    if (ver >= 30) {
+        if (!read_bool(&mode_alpha_top)) {
+            mode_alpha_top = false;
+            goto done;
+        }
+    } else {
+        mode_alpha_top = false;
+    }
+
+    if (ver >= 31) {
+        if (!read_bool(&mode_header_flags) || !read_bool(&mode_header_polar)) {
+            mode_header_flags = false;
+            mode_header_polar = false;
+            goto done;
+        }
+    } else {
+        mode_header_flags = false;
+        mode_header_polar = false;
+    }
+
+    if (ver >= 38) {
+        if (!read_bool(&mode_matedit_stk)) return false;
+    } else {
+        mode_matedit_stk = false;
+    }
+
+    if (!unpersist_vartype(&varmenu_eqn)) {
+        varmenu_eqn = NULL;
         goto done;
     }
-    if (fread(varmenu, 1, 7, gfile) != 7) {
-        varmenu_length = 0;
-        goto done;
-    }
-    if (!read_int(&varmenu_rows)) {
-        varmenu_length = 0;
-        goto done;
-    }
+    if (!read_int(&varmenu_length))
+        goto varmenu_fail;
+    if (fread(varmenu, 1, 7, gfile) != 7)
+        goto varmenu_fail;
+    if (ver < 44)
+        switch_30_and_94(varmenu, varmenu_length);
+    if (!read_int(&varmenu_rows))
+        goto varmenu_fail;
     if (!read_int(&varmenu_row)) {
+        varmenu_fail:
+        free_vartype(varmenu_eqn);
+        varmenu_eqn = NULL;
         varmenu_length = 0;
         goto done;
     }
@@ -1677,11 +2577,13 @@ static bool unpersist_globals() {
                 || fread(varmenu_labeltext[i], 1, c, gfile) != c)
             goto done;
         varmenu_labellength[i] = c;
+        if (ver < 44)
+            switch_30_and_94(varmenu_labeltext[i], varmenu_labellength[i]);
     }
     if (!read_int(&varmenu_role))
         goto done;
-    if (ver < 47) {
-        // rtn_sp; obsolete
+    if (ver < 9) {
+        // rtn_sp, obsolete
         int dummy;
         if (!read_int(&dummy))
             goto done;
@@ -1690,185 +2592,274 @@ static bool unpersist_globals() {
         goto done;
     if (!read_bool(&rtn_level_0_has_matrix_entry))
         goto done;
-    if (ver >= 31) {
-        if (!read_bool(&rtn_level_0_has_func_state))
-            goto done;
+    if (!read_bool(&rtn_level_0_has_func_state))
+        goto done;
+    if (ver < 9) {
+        rtn_after_last_rtn_dir = cwd->id;
     } else {
-        rtn_level_0_has_func_state = false;
+        if (!read_int4(&rtn_after_last_rtn_dir))
+            goto done;
     }
+    if (!read_int4(&rtn_after_last_rtn_prgm))
+        goto done;
+    if (!read_int4(&rtn_after_last_rtn_pc))
+        goto done;
     rtn_stack_capacity = 16;
     while (rtn_level > rtn_stack_capacity)
         rtn_stack_capacity <<= 1;
     rtn_stack = (rtn_stack_entry *) realloc(rtn_stack, rtn_stack_capacity * sizeof(rtn_stack_entry));
-    if (ver >= 47) {
-        int saved_prgm = current_prgm;
+    if (ver >= 9) {
         for (i = rtn_level - 1; i >= 0; i--) {
             int4 line;
+            if (!read_int4(&rtn_stack[i].dir)) goto done;
             if (!read_int4(&rtn_stack[i].prgm)) goto done;
             if (!read_int4(&line)) goto done;
-            current_prgm = rtn_stack[i].get_prgm();
-            if (current_prgm >= 0)
+            current_prgm.set(rtn_stack[i].dir, rtn_stack[i].get_prgm());
+            if (current_prgm.idx >= 0)
                 line = line2pc(line);
             rtn_stack[i].pc = line;
         }
-        current_prgm = saved_prgm;
     } else {
-        int saved_prgm = current_prgm;
-        for (int lvl = rtn_level - 1; lvl >= -1; lvl--) {
+        for (i = rtn_level - 1; i >= 0; i--) {
             bool matrix_entry_follows;
-            if (lvl == -1) {
+            if (i == 0) {
                 matrix_entry_follows = rtn_level_0_has_matrix_entry;
             } else {
                 int4 prgm, line;
                 if (!read_int4(&prgm) || !read_int4(&line))
                     goto done;
-                rtn_stack[lvl].prgm = prgm;
-                matrix_entry_follows = rtn_stack[lvl].has_matrix();
-                current_prgm = rtn_stack[lvl].get_prgm();
-                if (current_prgm >= 0)
+                if (prgm >= root->prgms_count) {
+                    rtn_stack[i].dir = eq_dir->id;
+                    rtn_stack[i].prgm = prgm - root->prgms_count;
+                } else {
+                    rtn_stack[i].dir = root->id;
+                    rtn_stack[i].prgm = prgm;
+                }
+                matrix_entry_follows = rtn_stack[i].has_matrix();
+                current_prgm.set(rtn_stack[i].dir, rtn_stack[i].get_prgm());
+                if (current_prgm.idx >= 0)
                     line = line2pc(line);
-                rtn_stack[lvl].pc = line;
+                rtn_stack[i].pc = line;
             }
             if (matrix_entry_follows) {
-                char m_len;
-                char m_name[7];
-                int4 m_i, m_j;
-                if (!read_char(&m_len)
-                        || fread(m_name, 1, m_len, gfile) != m_len
-                        || !read_int4(&m_i)
-                        || !read_int4(&m_j))
+                char dummy1;
+                char dummy2[7];
+                int4 dummy3, dummy4;
+                if (!read_char(&dummy1)
+                        || fread(dummy2, 1, dummy1, gfile) != dummy1
+                        || !read_int4(&dummy3)
+                        || !read_int4(&dummy4))
                     goto done;
-                vartype_list *list = (vartype_list *) new_list(4);
-                if (list == NULL)
-                    goto done;
-                list->array->data[0] = new_string(m_name, m_len);
-                list->array->data[1] = new_real(0);
-                list->array->data[2] = new_real(m_i);
-                list->array->data[3] = new_real(m_j);
-                for (int i = 0; i < 4; i++)
-                    if (list->array->data[i] == NULL) {
-                        free_vartype((vartype *) list);
-                        goto done;
-                    }
-                int pos = vars_count - 1;
-                int m_lvl = -2;
-                for (; pos >= 0; pos--) {
-                    var_struct *vs = vars + pos;
-                    if (vs->level < lvl + 1 && string_equals(vs->name, vs->length, m_name, m_len)) {
-                        m_lvl = vs->level;
-                        break;
-                    }
-                }
-                if (m_lvl == -2) {
-                    // shouldn't happen
-                    free_vartype((vartype *) list);
-                    goto done;
-                }
-                ((vartype_real *) list->array->data[1])->x = m_lvl;
-                for (pos = 0; pos < vars_count; pos++)
-                    if (vars[pos].level >= lvl + 1)
-                        break;
-                if (vars_count == vars_capacity) {
-                    int newcap = vars_capacity + 8;
-                    var_struct *newvars = (var_struct *) realloc(vars, newcap * sizeof(var_struct));
-                    if (newvars == NULL) {
-                        free_vartype((vartype *) list);
-                        goto done;
-                    }
-                    vars = newvars;
-                    vars_capacity = newcap;
-                }
-                memmove(vars + pos + 1, vars + pos, (vars_count - pos) * sizeof(var_struct));
-                memcpy(vars[pos].name, "MAT", 3);
-                vars[pos].length = 3;
-                vars[pos].level = lvl + 1;
-                vars[pos].flags = VAR_PRIVATE;
-                vars[pos].value = (vartype *) list;
-                vars_count++;
+                // Not doing anything with these old matrix stack entries,
+                // since they don't contain the directory id / stack level.
+                // Without that information, we can't reliably use them.
             }
         }
-        current_prgm = saved_prgm;
     }
     if (!read_bool(&rtn_solve_active))
         goto done;
     if (!read_bool(&rtn_integ_active))
         goto done;
+    if (ver >= 20) {
+        if (!read_bool(&rtn_plot_active))
+            goto done;
+    } else
+        rtn_plot_active = false;
+    if (ver >= 55) {
+        if (!read_int4(&trap_flags))
+            goto done;
+        if (!read_int4(&trap_level))
+            goto done;
+        if (!read_int4(&trap_deeper_flags))
+            goto done;
+        if (!read_bool(&trap_caught))
+            goto done;
+    } else {
+        trap_flags = 0;
+        trap_level = 0;
+        trap_deeper_flags = 0;
+        trap_caught = false;
+    }
+    if (ver >= 56) {
+        if (!unpersist_vartype(&trap_trace))
+            goto done;
+    } else
+        trap_trace = NULL;
+    if (ver >= 9) {
+        int4 cwd_id;
+        if (!read_int4(&cwd_id))
+            goto done;
+        cwd = dir_list[cwd_id];
+    } else {
+        cwd = root;
+    }
+
+    if (ver < 9) {
+        if (currprgm >= root->prgms_count)
+            current_prgm.set(eq_dir->id, currprgm - root->prgms_count);
+        else
+            current_prgm.set(root->id, currprgm);
+    } else {
+        current_prgm.set(currdir, currprgm);
+    }
+    pc = currpc;
+
+    // Deferring the line2pc() conversion for pc and incomplete_saved_pc.
+    // It is possible that the current program is generated code that is
+    // referenced only by private SOLVE or INTEG variables, in which case
+    // it hasn't been loaded yet. So, to be safe, these conversions must
+    // be performed after unpersist_math().
 
     ret = true;
 
     done:
-    free(array_list);
     return ret;
 }
 
-void clear_all_prgms() {
-    if (prgms != NULL) {
-        int i;
-        for (i = 0; i < prgms_count; i++)
-            if (prgms[i].text != NULL)
-                free(prgms[i].text);
-        free(prgms);
-    }
-    prgms = NULL;
-    prgms_capacity = 0;
-    prgms_count = 0;
-    if (labels != NULL)
-        free(labels);
-    labels = NULL;
-    labels_capacity = 0;
-    labels_count = 0;
+void clean_state() {
+    reset_math();
+    reset_eqn();
+    reset_display();
+
+    free_vartype(varmenu_eqn);
+    varmenu_eqn = NULL;
+    matedit_mode = 0;
+    matedit_stack_depth = 0;
+    free(matedit_stack);
+    matedit_stack = NULL;
+    free_vartype(matedit_x);
+    matedit_x = NULL;
+
+    for (int i = 0; i <= sp; i++)
+        free_vartype(stack[i]);
+    sp = -1;
+    free(stack);
+    stack = NULL;
+    stack_capacity = 0;
+    free_vartype(lastx);
+    lastx = NULL;
+    reg_alpha_length = 0;
+
+    current_prgm.set(root->id, 0);
+    clear_rtns_vars_and_prgms();
+    free(rtn_stack);
+    rtn_stack = NULL;
+    rtn_stack_capacity = 0;
+    rtn_stop_level = -1;
+    rtn_solve_active = false;
+    rtn_integ_active = false;
+    rtn_plot_active = false;
+    clean_vartype_pools();
+
+    trap_flags = 0;
+    trap_level = 0;
+    trap_deeper_flags = 0;
+    trap_caught = false;
+    free_vartype(trap_trace);
+    trap_trace = NULL;
 }
 
+static bool make_prgm_space(directory *dir, int n) {
+    if (dir->prgms_count + n <= dir->prgms_capacity)
+        return true;
+    int new_prgms_capacity = dir->prgms_capacity + n + 10;
+    prgm_struct *new_prgms = (prgm_struct *) realloc(dir->prgms, new_prgms_capacity * sizeof(prgm_struct));
+    if (new_prgms == NULL)
+        return false;
+    for (int i = dir->prgms_capacity; i < new_prgms_capacity; i++) {
+        new_prgms[i].text = NULL;
+        new_prgms[i].eq_data = NULL;
+        new_prgms[i].locked = false;
+    }
+    dir->prgms = new_prgms;
+    dir->prgms_capacity = new_prgms_capacity;
+    return true;
+}
+
+int4 new_eqn_idx() {
+    for (int4 i = 0; i < eq_dir->prgms_capacity; i++) {
+        if (eq_dir->prgms[i].text == NULL) {
+            if (i + 1 > eq_dir->prgms_count)
+                eq_dir->prgms_count = i + 1;
+            return i;
+        }
+    }
+    if (!make_prgm_space(eq_dir, 1))
+        return -1;
+    return eq_dir->prgms_count++;
+}
+
+void clear_rtns_vars_and_prgms() {
+    clear_all_rtns();
+    current_prgm.set(-1, 0);
+
+    delete root;
+    root = NULL;
+    cwd = NULL;
+    delete eq_dir;
+    eq_dir = NULL;
+    dir_list_clear();
+}
+
+static int clear_prgm_by_index(pgm_index prgm);
+
 int clear_prgm(const arg_struct *arg) {
-    int prgm_index;
-    if (arg->type == ARGTYPE_LBLINDEX)
-        prgm_index = labels[arg->val.num].prgm;
-    else { // arg->type == ARGTYPE_STR
+    pgm_index prgm;
+    if (arg->type == ARGTYPE_LBLINDEX) {
+        directory *dir = get_dir(arg->target);
+        prgm.set(dir->id, dir->labels[arg->val.num].prgm);
+    } else { // arg->type == ARGTYPE_STR
         if (arg->length == 0) {
-            if (current_prgm < 0 || current_prgm >= prgms_count)
+            if (current_prgm.idx < 0)
                 return ERR_INTERNAL_ERROR;
-            prgm_index = current_prgm;
+            if (!current_prgm.is_editable())
+                return ERR_RESTRICTED_OPERATION;
+            prgm = current_prgm;
         } else {
             int i;
-            for (i = labels_count - 1; i >= 0; i--)
+            for (i = cwd->labels_count - 1; i >= 0; i--)
                 if (string_equals(arg->val.text, arg->length,
-                                 labels[i].name, labels[i].length))
+                                  cwd->labels[i].name, cwd->labels[i].length))
                     goto found;
             return ERR_LABEL_NOT_FOUND;
             found:
-            prgm_index = labels[i].prgm;
+            prgm.set(cwd->id, cwd->labels[i].prgm);
         }
     }
-    return clear_prgm_by_index(prgm_index);
+    return clear_prgm_by_index(prgm);
 }
 
-int clear_prgm_by_index(int prgm_index) {
+static int clear_prgm_by_index(pgm_index prgm) {
     int i, j;
-    if (prgm_index < 0 || prgm_index >= prgms_count)
+    if (prgm.dir == eq_dir->id || prgm.idx < 0)
         return ERR_LABEL_NOT_FOUND;
     clear_all_rtns();
-    if (prgm_index == current_prgm)
+    directory *dir = dir_list[prgm.dir];
+    count_embed_references(dir, prgm.idx, false);
+    if (prgm == current_prgm)
         pc = -1;
-    else if (current_prgm > prgm_index)
-        current_prgm--;
-    free(prgms[prgm_index].text);
-    for (i = prgm_index; i < prgms_count - 1; i++)
-        prgms[i] = prgms[i + 1];
-    prgms_count--;
+    else if (current_prgm.dir == prgm.dir && current_prgm.idx > prgm.idx)
+        current_prgm.set(current_prgm.dir, current_prgm.idx - 1);
+
+    free(dir->prgms[prgm.idx].text);
+    for (i = prgm.idx; i < dir->prgms_count - 1; i++)
+        dir->prgms[i] = dir->prgms[i + 1];
+    dir->prgms[dir->prgms_count - 1].text = NULL;
+    dir->prgms_count--;
     i = j = 0;
-    while (j < labels_count) {
+    while (j < dir->labels_count) {
         if (j > i)
-            labels[i] = labels[j];
+            dir->labels[i] = dir->labels[j];
         j++;
-        if (labels[i].prgm > prgm_index) {
-            labels[i].prgm--;
+        if (dir->labels[i].prgm > prgm.idx) {
+            dir->labels[i].prgm--;
             i++;
-        } else if (labels[i].prgm < prgm_index)
+        } else if (dir->labels[i].prgm < prgm.idx)
             i++;
     }
-    labels_count = i;
-    if (prgms_count == 0 || prgm_index == prgms_count) {
-        int saved_prgm = current_prgm;
+    dir->labels_count = i;
+    if (dir->prgms_count == 0 || prgm.idx == dir->prgms_count) {
+        pgm_index saved_prgm = current_prgm;
         int saved_pc = pc;
         goto_dot_dot(false);
         current_prgm = saved_prgm;
@@ -1876,6 +2867,12 @@ int clear_prgm_by_index(int prgm_index) {
     }
     update_catalog();
     return ERR_NONE;
+}
+
+int clear_prgm_by_int_index(int prgm) {
+    pgm_index idx;
+    idx.set(cwd->id, prgm);
+    return clear_prgm_by_index(idx);
 }
 
 void clear_prgm_lines(int4 count) {
@@ -1891,43 +2888,56 @@ void clear_prgm_lines(int4 count) {
             pc -= 2;
             break;
         }
+        if (command == CMD_EMBED)
+            remove_equation_reference(arg.val.num);
         count--;
     }
     deleted = pc - frompc;
 
-    for (i = pc; i < prgms[current_prgm].size; i++)
-        prgms[current_prgm].text[i - deleted] = prgms[current_prgm].text[i];
-    prgms[current_prgm].size -= deleted;
+    int4 idx = current_prgm.idx;
+    for (i = pc; i < cwd->prgms[idx].size; i++)
+        cwd->prgms[idx].text[i - deleted] = cwd->prgms[idx].text[i];
+    cwd->prgms[idx].size -= deleted;
     pc = frompc;
 
     i = j = 0;
-    while (j < labels_count) {
+    while (j < cwd->labels_count) {
         if (j > i)
-            labels[i] = labels[j];
+            cwd->labels[i] = cwd->labels[j];
         j++;
-        if (labels[i].prgm == current_prgm) {
-            if (labels[i].pc < frompc)
+        if (cwd->labels[i].prgm == current_prgm.idx) {
+            if (cwd->labels[i].pc < frompc)
                 i++;
-            else if (labels[i].pc >= frompc + deleted) {
-                labels[i].pc -= deleted;
+            else if (cwd->labels[i].pc >= frompc + deleted) {
+                cwd->labels[i].pc -= deleted;
                 i++;
             }
         } else
             i++;
     }
-    labels_count = i;
+    cwd->labels_count = i;
 
     invalidate_lclbls(current_prgm, false);
     clear_all_rtns();
 }
 
 bool goto_dot_dot(bool force_new) {
+    if (!loading_state) {
+        clear_all_rtns();
+        if (flags.f.prgm_mode && current_prgm.dir != eq_dir->id && current_prgm.dir != cwd->id) {
+            directory *dir = get_dir(current_prgm.dir);
+            if (dir != NULL) {
+                cwd = dir;
+                return true;
+            }
+        }
+    }
     int command;
     arg_struct arg;
-    if (prgms_count != 0 && !force_new) {
+    if (cwd->prgms_count != 0 && !force_new) {
         /* Check if last program is empty */
         pc = 0;
-        current_prgm = prgms_count - 1;
+        current_prgm.set(cwd->id, cwd->prgms_count - 1);
         get_next_command(&pc, &command, &arg, 0, NULL);
         if (command == CMD_END) {
             pc = -1;
@@ -1938,28 +2948,33 @@ bool goto_dot_dot(bool force_new) {
     unsigned char *new_prgm_text = (unsigned char *) malloc(new_prgm_capacity);
     if (new_prgm_text == NULL)
         return false;
-    if (prgms_count == prgms_capacity) {
+    if (cwd->prgms_count == cwd->prgms_capacity) {
         prgm_struct *newprgms;
         int i;
-        int new_prgms_capacity = prgms_capacity + 10;
+        int new_prgms_capacity = cwd->prgms_capacity + 10;
         newprgms = (prgm_struct *) malloc(new_prgms_capacity * sizeof(prgm_struct));
         if (newprgms == NULL) {
             free(new_prgm_text);
             return false;
         }
-        for (i = 0; i < prgms_count; i++)
-            newprgms[i] = prgms[i];
-        if (prgms != NULL)
-            free(prgms);
-        prgms = newprgms;
-        prgms_capacity = new_prgms_capacity;
+        for (i = cwd->prgms_capacity; i < new_prgms_capacity; i++) {
+            newprgms[i].text = NULL;
+            newprgms[i].eq_data = NULL;
+        }
+        for (i = 0; i < cwd->prgms_capacity; i++)
+            newprgms[i] = cwd->prgms[i];
+        if (cwd->prgms != NULL)
+            free(cwd->prgms);
+        cwd->prgms = newprgms;
+        cwd->prgms_capacity = new_prgms_capacity;
     }
-    current_prgm = prgms_count++;
-    prgms[current_prgm].capacity = new_prgm_capacity;
-    prgms[current_prgm].size = 0;
-    prgms[current_prgm].lclbl_invalid = true;
-    prgms[current_prgm].locked = false;
-    prgms[current_prgm].text = new_prgm_text;
+    int4 idx = cwd->prgms_count++;
+    current_prgm.set(cwd->id, idx);
+    cwd->prgms[idx].capacity = new_prgm_capacity;
+    cwd->prgms[idx].size = 0;
+    cwd->prgms[idx].lclbl_invalid = true;
+    cwd->prgms[idx].locked = false;
+    cwd->prgms[idx].text = new_prgm_text;
     command = CMD_END;
     arg.type = ARGTYPE_NONE;
     store_command(0, command, &arg, NULL);
@@ -1967,32 +2982,54 @@ bool goto_dot_dot(bool force_new) {
     return true;
 }
 
-bool mvar_prgms_exist() {
-    int i;
-    for (i = 0; i < labels_count; i++)
-        if (label_has_mvar(i))
+static bool mvar_prgms_exist(directory *dir) {
+    for (int i = 0; i < dir->labels_count; i++)
+        if (label_has_mvar(dir->id, i))
             return true;
     return false;
 }
 
-bool label_has_mvar(int lblindex) {
-    int saved_prgm;
-    int4 pc;
+bool mvar_prgms_exist() {
+    directory *dir = cwd;
+    while (true) {
+        if (mvar_prgms_exist(dir))
+            return true;
+        if (dir == root)
+            break;
+        dir = dir->parent;
+    }
+    vartype_list *path = get_path();
+    if (path == NULL)
+        return false;
+    for (int i = 0; i < path->size; i++) {
+        vartype *v = path->array->data[i];
+        if (v->type != TYPE_DIR_REF)
+            continue;
+        vartype_dir_ref *r = (vartype_dir_ref *) v;
+        dir = get_dir(r->dir);
+        if (dir != NULL && mvar_prgms_exist(dir))
+            return true;
+    }
+    return false;
+}
+
+bool label_has_mvar(int4 dir_id, int lblindex) {
+    directory *dir = dir_list[dir_id];
+    if (dir->labels[lblindex].length == 0)
+        return false;
+    pgm_index saved_prgm = current_prgm;
+    current_prgm.set(dir->id, dir->labels[lblindex].prgm);
+    int4 pc = dir->labels[lblindex].pc;
+    pc += get_command_length(current_prgm, pc);
     int command;
     arg_struct arg;
-    if (labels[lblindex].length == 0)
-        return false;
-    saved_prgm = current_prgm;
-    current_prgm = labels[lblindex].prgm;
-    pc = labels[lblindex].pc;
-    pc += get_command_length(current_prgm, pc);
     get_next_command(&pc, &command, &arg, 0, NULL);
     current_prgm = saved_prgm;
     return command == CMD_MVAR;
 }
 
-int get_command_length(int prgm_index, int4 pc) {
-    prgm_struct *prgm = prgms + prgm_index;
+int get_command_length(pgm_index idx, int4 pc) {
+    prgm_struct *prgm = dir_list[idx.dir]->prgms + idx.idx;
     int4 pc2 = pc;
     int command = prgm->text[pc2++];
     int argtype = prgm->text[pc2++];
@@ -2002,7 +3039,8 @@ int get_command_length(int prgm_index, int4 pc) {
 
     if ((command == CMD_GTO || command == CMD_XEQ)
             && (argtype == ARGTYPE_NUM || argtype == ARGTYPE_STK
-                                       || argtype == ARGTYPE_LCLBL))
+                                       || argtype == ARGTYPE_LCLBL)
+            || command == CMD_GTOL || command == CMD_XEQL)
         pc2 += 4;
     switch (argtype) {
         case ARGTYPE_NUM:
@@ -2013,7 +3051,6 @@ int get_command_length(int prgm_index, int4 pc) {
         }
         case ARGTYPE_STK:
         case ARGTYPE_IND_STK:
-        case ARGTYPE_COMMAND:
         case ARGTYPE_LCLBL:
             pc2++;
             break;
@@ -2034,11 +3071,28 @@ int get_command_length(int prgm_index, int4 pc) {
     }
     if (have_orig_num)
         while (prgm->text[pc2++]);
+    if (command == CMD_N_PLUS_U) {
+        /* We don't just blindly get the lengths of the next two commands;
+         * we check what they are, because we want to be robust in case N+U is
+         * *not* followed by a NUMBER and an XSTR.
+         */
+        arg_struct arg;
+        int4 pc3 = pc2;
+        pgm_index saved_prgm = current_prgm;
+        current_prgm = idx;
+        get_next_command(&pc3, &command, &arg, 0, NULL);
+        if (command == CMD_NUMBER) {
+            get_next_command(&pc3, &command, &arg, 0, NULL);
+            if (command == CMD_XSTR)
+                pc2 = pc3;
+        }
+        current_prgm = saved_prgm;
+    }
     return pc2 - pc;
 }
 
 void get_next_command(int4 *pc, int *command, arg_struct *arg, int find_target, const char **num_str) {
-    prgm_struct *prgm = prgms + current_prgm;
+    prgm_struct *prgm = dir_list[current_prgm.dir]->prgms + current_prgm.idx;
     int i;
     int4 target_pc;
     int4 orig_pc = *pc;
@@ -2049,10 +3103,38 @@ void get_next_command(int4 *pc, int *command, arg_struct *arg, int find_target, 
     bool have_orig_num = *command == CMD_NUMBER && (arg->type & 128) != 0;
     arg->type &= 15;
 
+    if (*command == CMD_N_PLUS_U) {
+        /* N+U should always be followed by NUMBER and XSTR.
+         * But we try to be nice about it if it isn't...
+         */
+        int4 pc2 = *pc;
+        int command2;
+        get_next_command(&pc2, &command2, arg, false, num_str);
+        if (command2 != CMD_NUMBER) {
+            no_unit:
+            arg->type = ARGTYPE_NONE;
+            return;
+        }
+        phloat ph = arg->val_d;
+        get_next_command(&pc2, &command2, arg, false, NULL);
+        if (command2 != CMD_XSTR) {
+            *num_str = NULL;
+            goto no_unit;
+        }
+        arg->val_d = ph;
+        *pc = pc2;
+        /* Returning the number *and* unit in one arg_struct.
+         * Note that type == ARGTYPE_XSTR at this point.
+         * Don't try this at home...
+         */
+        return;
+    }
+
     if ((*command == CMD_GTO || *command == CMD_XEQ)
             && (arg->type == ARGTYPE_NUM
                 || arg->type == ARGTYPE_LCLBL
-                || arg->type == ARGTYPE_STK)) {
+                || arg->type == ARGTYPE_STK)
+            || *command == CMD_GTOL || *command == CMD_XEQL) {
         if (find_target) {
             target_pc = 0;
             for (i = 0; i < 4; i++)
@@ -2088,9 +3170,6 @@ void get_next_command(int4 *pc, int *command, arg_struct *arg, int find_target, 
         case ARGTYPE_STK:
         case ARGTYPE_IND_STK:
             arg->val.stk = prgm->text[(*pc)++];
-            break;
-        case ARGTYPE_COMMAND:
-            arg->val.cmd = prgm->text[(*pc)++];
             break;
         case ARGTYPE_LCLBL:
             arg->val.lclbl = prgm->text[(*pc)++];
@@ -2148,7 +3227,10 @@ void get_next_command(int4 *pc, int *command, arg_struct *arg, int find_target, 
     }
 
     if (find_target) {
-        target_pc = find_local_label(arg);
+        if (*command == CMD_GTOL || *command == CMD_XEQL)
+            target_pc = line2pc(arg->val.num);
+        else
+            target_pc = find_local_label(arg);
         arg->target = target_pc;
         for (i = 5; i >= 2; i--) {
             prgm->text[orig_pc + i] = target_pc;
@@ -2166,9 +3248,9 @@ void rebuild_label_table() {
      */
     int prgm_index;
     int4 pc;
-    labels_count = 0;
-    for (prgm_index = 0; prgm_index < prgms_count; prgm_index++) {
-        prgm_struct *prgm = prgms + prgm_index;
+    cwd->labels_count = 0;
+    for (prgm_index = 0; prgm_index < cwd->prgms_count; prgm_index++) {
+        prgm_struct *prgm = cwd->prgms + prgm_index;
         pc = 0;
         while (pc < prgm->size) {
             int command = prgm->text[pc];
@@ -2179,20 +3261,20 @@ void rebuild_label_table() {
             if (command == CMD_END
                         || (command == CMD_LBL && argtype == ARGTYPE_STR)) {
                 label_struct *newlabel;
-                if (labels_count == labels_capacity) {
+                if (cwd->labels_count == cwd->labels_capacity) {
                     label_struct *newlabels;
                     int i;
-                    labels_capacity += 50;
+                    cwd->labels_capacity += 50;
                     newlabels = (label_struct *)
-                                malloc(labels_capacity * sizeof(label_struct));
+                                malloc(cwd->labels_capacity * sizeof(label_struct));
                     // TODO - handle memory allocation failure
-                    for (i = 0; i < labels_count; i++)
-                        newlabels[i] = labels[i];
-                    if (labels != NULL)
-                        free(labels);
-                    labels = newlabels;
+                    for (i = 0; i < cwd->labels_count; i++)
+                        newlabels[i] = cwd->labels[i];
+                    if (cwd->labels != NULL)
+                        free(cwd->labels);
+                    cwd->labels = newlabels;
                 }
-                newlabel = labels + labels_count++;
+                newlabel = cwd->labels + cwd->labels_count++;
                 if (command == CMD_END)
                     newlabel->length = 0;
                 else {
@@ -2204,23 +3286,25 @@ void rebuild_label_table() {
                 newlabel->prgm = prgm_index;
                 newlabel->pc = pc;
             }
-            pc += get_command_length(prgm_index, pc);
+            pgm_index idx;
+            idx.set(cwd->id, prgm_index);
+            pc += get_command_length(idx, pc);
         }
     }
 }
 
-static void update_label_table(int prgm, int4 pc, int inserted) {
-    int i;
-    for (i = 0; i < labels_count; i++) {
-        if (labels[i].prgm > prgm)
+static void update_label_table(pgm_index prgm, int4 pc, int inserted) {
+    directory *dir = dir_list[prgm.dir];
+    for (int i = 0; i < dir->labels_count; i++) {
+        if (dir->labels[i].prgm > prgm.idx)
             return;
-        if (labels[i].prgm == prgm && labels[i].pc >= pc)
-            labels[i].pc += inserted;
+        if (dir->labels[i].prgm == prgm.idx && dir->labels[i].pc >= pc)
+            dir->labels[i].pc += inserted;
     }
 }
 
-static void invalidate_lclbls(int prgm_index, bool force) {
-    prgm_struct *prgm = prgms + prgm_index;
+static void invalidate_lclbls(pgm_index idx, bool force) {
+    prgm_struct *prgm = dir_list[idx.dir]->prgms + idx.idx;
     if (force || !prgm->lclbl_invalid) {
         int4 pc2 = 0;
         while (pc2 < prgm->size) {
@@ -2230,7 +3314,8 @@ static void invalidate_lclbls(int prgm_index, bool force) {
             argtype &= 15;
             if ((command == CMD_GTO || command == CMD_XEQ)
                     && (argtype == ARGTYPE_NUM || argtype == ARGTYPE_STK
-                                               || argtype == ARGTYPE_LCLBL)) {
+                                               || argtype == ARGTYPE_LCLBL)
+                    || command == CMD_GTOL || command == CMD_XEQL) {
                 /* A dest_pc value of -1 signals 'unknown',
                  * -2 means 'nonexistent', and anything else is
                  * the pc where the destination label is found.
@@ -2239,14 +3324,50 @@ static void invalidate_lclbls(int prgm_index, bool force) {
                 for (pos = pc2 + 2; pos < pc2 + 6; pos++)
                     prgm->text[pos] = 255;
             }
-            pc2 += get_command_length(prgm_index, pc2);
+            pc2 += get_command_length(idx, pc2);
         }
         prgm->lclbl_invalid = true;
     }
 }
 
+void count_embed_references(directory *dir, int prgm, bool up) {
+    int4 pc = 0;
+    int command;
+    arg_struct arg;
+    
+    if (dir->prgms[prgm].text == NULL)
+        return;
+
+    while (true) {
+        pgm_index saved_prgm = current_prgm;
+        current_prgm.set(dir->id, prgm);
+        get_next_command(&pc, &command, &arg, 0, NULL);
+        current_prgm = saved_prgm;
+
+        if (command == CMD_END)
+            break;
+        if (command == CMD_EMBED) {
+            int4 id = arg.val.num;
+            equation_data *eqd = eq_dir->prgms[id].eq_data;
+            if (up)
+                eqd->refcount++;
+            else
+                remove_equation_reference(id);
+        }
+    }
+}
+
+static void count_embed_references(directory *dir, bool up) {
+    for (int i = 0; i < dir->children_count; i++)
+        count_embed_references(dir->children[i].dir, up);
+
+    for (int i = 0; i < dir->prgms_count; i++)
+        count_embed_references(dir, i, up);
+}
+
 void delete_command(int4 pc) {
-    prgm_struct *prgm = prgms + current_prgm;
+    directory *dir = dir_list[current_prgm.dir];
+    prgm_struct *prgm = dir->prgms + current_prgm.idx;
     int command = prgm->text[pc];
     int argtype = prgm->text[pc + 1];
     int length = get_command_length(current_prgm, pc);
@@ -2258,7 +3379,7 @@ void delete_command(int4 pc) {
     if (command == CMD_END) {
         int4 newsize;
         prgm_struct *nextprgm;
-        if (current_prgm == prgms_count - 1)
+        if (current_prgm.idx == dir->prgms_count - 1)
             /* Don't allow deletion of last program's END. */
             return;
         nextprgm = prgm + 1;
@@ -2277,14 +3398,23 @@ void delete_command(int4 pc) {
         for (pos = 0; pos < nextprgm->size; pos++)
             prgm->text[prgm->size++] = nextprgm->text[pos];
         free(nextprgm->text);
-        for (pos = current_prgm + 1; pos < prgms_count - 1; pos++)
-            prgms[pos] = prgms[pos + 1];
-        prgms_count--;
+        clear_all_rtns();
+        for (pos = current_prgm.idx + 1; pos < dir->prgms_count - 1; pos++)
+            dir->prgms[pos] = dir->prgms[pos + 1];
+        dir->prgms[dir->prgms_count - 1].text = NULL;
+        dir->prgms[dir->prgms_count - 1].eq_data = NULL;
+        dir->prgms_count--;
         rebuild_label_table();
         invalidate_lclbls(current_prgm, true);
-        clear_all_rtns();
         draw_varmenu();
         return;
+    }
+
+    if (command == CMD_EMBED) {
+        int4 pc2 = pc;
+        arg_struct arg;
+        get_next_command(&pc2, &command, &arg, 0, NULL);
+        remove_equation_reference(arg.val.num);
     }
 
     for (pos = pc; pos < prgm->size - length; pos++)
@@ -2299,17 +3429,42 @@ void delete_command(int4 pc) {
     draw_varmenu();
 }
 
+int eqn_flip(int4 pc) {
+    if (!current_prgm.is_editable())
+        return ERR_RESTRICTED_OPERATION;
+    if (current_prgm.is_locked())
+        return ERR_PROGRAM_LOCKED;
+    int4 pc2 = pc;
+    int cmd;
+    arg_struct arg;
+    get_next_command(&pc2, &cmd, &arg, 0, NULL);
+    if (cmd == CMD_EMBED) {
+        directory *dir = dir_list[current_prgm.dir];
+        prgm_struct *prgm = dir->prgms + current_prgm.idx;
+        prgm->text[pc + 1] ^= 4;
+        return ERR_YES;
+    } else
+        return ERR_NONE;
+}
+
 bool store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
     unsigned char buf[100];
     int bufptr = 0;
     int xstr_len;
     int i;
     int4 pos;
-    prgm_struct *prgm = prgms + current_prgm;
+    directory *dir = dir_list[current_prgm.dir];
+    prgm_struct *prgm = dir->prgms + current_prgm.idx;
 
-    if (flags.f.prgm_mode && prgm->locked) {
-        display_error(ERR_PROGRAM_LOCKED);
-        return false;
+    if (flags.f.prgm_mode) {
+        if (!current_prgm.is_editable()) {
+            display_error(ERR_RESTRICTED_OPERATION);
+            return false;
+        }
+        if (current_prgm.is_locked()) {
+            display_error(ERR_PROGRAM_LOCKED);
+            return false;
+        }
     }
 
     /* We should never be called with pc = -1, but just to be safe... */
@@ -2324,6 +3479,40 @@ bool store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
          * the canonical representation, or unless the number is zero.
          */
         if (num_str != NULL) {
+            /* If num_str contains an underscore, it's a number with a unit.
+             * In that case, we store an N+U instruction first, then the number
+             * but with the unit removed, and finally an XSTR with the unit.
+             */
+            int u = 0;
+            while (num_str[u] != 0 && num_str[u] != '_')
+                u++;
+            if (num_str[u] == '_') {
+                bool saved_norm = flags.f.normal_print;
+                bool saved_trace = flags.f.trace_print;
+                flags.f.normal_print = false;
+                flags.f.trace_print = false;
+                if (u == 0) {
+                    store_command(pc, CMD_NUMBER, arg, NULL);
+                } else {
+                    char *n = (char *) malloc(u + 1);
+                    memcpy(n, num_str, u);
+                    n[u] = 0;
+                    store_command(pc, CMD_NUMBER, arg, n);
+                    free(n);
+                }
+                int4 pc2 = pc;
+                arg_struct arg2;
+                arg2.type = ARGTYPE_XSTR;
+                arg2.length = (unsigned short) strlen(num_str + u + 1);
+                arg2.val.xstr = num_str + u + 1;
+                store_command_after(&pc2, CMD_XSTR, &arg2, NULL);
+                /* Store N+U last, because of its wacky side effects */
+                flags.f.normal_print = saved_norm;
+                flags.f.trace_print = saved_trace;
+                arg2.type = ARGTYPE_NONE;
+                store_command(pc, CMD_N_PLUS_U, &arg2, NULL);
+                return true;
+            }
             if (arg->val_d == 0) {
                 num_str = NULL;
             } else {
@@ -2374,9 +3563,10 @@ bool store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
         }
     } else if (arg->type == ARGTYPE_LBLINDEX) {
         int li = arg->val.num;
-        arg->length = labels[li].length;
+        directory *d = get_dir(arg->target);
+        arg->length = d->labels[li].length;
         for (i = 0; i < arg->length; i++)
-            arg->val.text[i] = labels[li].name[i];
+            arg->val.text[i] = d->labels[li].name[i];
         arg->type = ARGTYPE_STR;
     }
 
@@ -2395,9 +3585,9 @@ bool store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
             display_error(ERR_INSUFFICIENT_MEMORY);
             return false;
         }
-        if (prgms_count == prgms_capacity) {
-            int i;
-            int new_prgms_capacity = prgms_capacity + 10;
+        if (dir->prgms_count == dir->prgms_capacity) {
+            int4 i;
+            int new_prgms_capacity = dir->prgms_capacity = 10;
             prgm_struct *new_prgms = (prgm_struct *)
                             malloc(new_prgms_capacity * sizeof(prgm_struct));
             if (new_prgms == NULL) {
@@ -2405,27 +3595,33 @@ bool store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
                 display_error(ERR_INSUFFICIENT_MEMORY);
                 return false;
             }
-            for (i = 0; i <= current_prgm; i++)
-                new_prgms[i] = prgms[i];
-            for (i = current_prgm + 1; i < prgms_count; i++)
-                new_prgms[i + 1] = prgms[i];
-            free(prgms);
-            prgms = new_prgms;
-            prgms_capacity = new_prgms_capacity;
-            prgm = prgms + current_prgm;
+            for (i = dir->prgms_capacity; i < new_prgms_capacity; i++) {
+                new_prgms[i].text = NULL;
+                new_prgms[i].eq_data = NULL;
+            }
+            int4 cp = current_prgm.idx;
+            for (i = 0; i <= cp; i++)
+                new_prgms[i] = dir->prgms[i];
+            for (i = cp + 1; i < dir->prgms_capacity; i++)
+                new_prgms[i + 1] = dir->prgms[i];
+            free(dir->prgms);
+            dir->prgms = new_prgms;
+            dir->prgms_capacity = new_prgms_capacity;
+            prgm = dir->prgms + cp;
         } else {
-            for (i = prgms_count - 1; i > current_prgm; i--)
-                prgms[i + 1] = prgms[i];
+            for (i = dir->prgms_count - 1; i > current_prgm.idx; i--)
+                dir->prgms[i + 1] = dir->prgms[i];
         }
-        prgms_count++;
+        dir->prgms_count++;
         prgm_struct *new_prgm = prgm + 1;
         new_prgm->size = new_prgm_size;
         new_prgm->capacity = new_prgm_capacity;
         new_prgm->locked = false;
         new_prgm->text = new_prgm_text;
+        new_prgm->eq_data = NULL;
         for (i = pc; i < prgm->size; i++)
             new_prgm->text[i - pc] = prgm->text[i];
-        current_prgm++;
+        current_prgm.set(current_prgm.dir, current_prgm.idx + 1);
 
         /* Truncate the previously 'current' program and append an END.
          * No need to check the size against the capacity and grow the
@@ -2435,12 +3631,14 @@ bool store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
         prgm->size = pc;
         prgm->text[prgm->size++] = CMD_END;
         prgm->text[prgm->size++] = ARGTYPE_NONE;
+        pgm_index before;
+        before.set(current_prgm.dir, current_prgm.idx - 1);
         if (flags.f.printer_exists && (flags.f.trace_print || flags.f.normal_print))
-            print_program_line(current_prgm - 1, pc);
+            print_program_line(before, pc);
 
         rebuild_label_table();
         invalidate_lclbls(current_prgm, true);
-        invalidate_lclbls(current_prgm - 1, true);
+        invalidate_lclbls(before, true);
         clear_all_rtns();
         draw_varmenu();
         return true;
@@ -2448,7 +3646,8 @@ bool store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
 
     if ((command == CMD_GTO || command == CMD_XEQ)
             && (arg->type == ARGTYPE_NUM || arg->type == ARGTYPE_STK
-                                         || arg->type == ARGTYPE_LCLBL))
+                                         || arg->type == ARGTYPE_LCLBL)
+            || command == CMD_GTOL || command == CMD_XEQL)
         for (i = 0; i < 4; i++)
             buf[bufptr++] = 255;
     switch (arg->type) {
@@ -2544,27 +3743,40 @@ bool store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
     } else {
         memcpy(prgm->text + pc, buf, bufptr);
     }
+    if (command == CMD_EMBED && !loading_state)
+        eq_dir->prgms[arg->val.num].eq_data->refcount++;
     prgm->size += bufptr;
     if (command != CMD_END && flags.f.printer_exists && (flags.f.trace_print || flags.f.normal_print))
         print_program_line(current_prgm, pc);
 
-    if (command == CMD_END ||
-            (command == CMD_LBL && arg->type == ARGTYPE_STR))
-        rebuild_label_table();
-    else
-        update_label_table(current_prgm, pc, bufptr);
-    invalidate_lclbls(current_prgm, false);
-    clear_all_rtns();
-    if (!loading_state)
+    if (dir != eq_dir) {
+        /* No labels in generated code, and also, all those
+         * gaps in the prgms array, where we make sure the unused
+         * entries have text == NULL, but don't really care about
+         * the other prgm_struct members... rebuild_label_table()
+         * does not react well to those.
+         */
+        if (command == CMD_END ||
+                (command == CMD_LBL && arg->type == ARGTYPE_STR))
+            rebuild_label_table();
+        else
+            update_label_table(current_prgm, pc, bufptr);
+    }
+
+    if (!loading_state) {
+        invalidate_lclbls(current_prgm, false);
+        clear_all_rtns();
         draw_varmenu();
+    }
     return true;
 }
 
 bool store_command_after(int4 *pc, int command, arg_struct *arg, const char *num_str) {
     int4 oldpc = *pc;
+    directory *dir = dir_list[current_prgm.dir];
     if (*pc == -1)
         *pc = 0;
-    else if (!prgms[current_prgm].is_end(*pc))
+    else if (!dir->prgms[current_prgm.idx].is_end(*pc))
         *pc += get_command_length(current_prgm, *pc);
     bool success = store_command(*pc, command, arg, num_str);
     if (!success)
@@ -2573,7 +3785,8 @@ bool store_command_after(int4 *pc, int command, arg_struct *arg, const char *num
 }
 
 static bool ensure_prgm_space(int n) {
-    prgm_struct *prgm = prgms + current_prgm;
+    directory *dir = dir_list[current_prgm.dir];
+    prgm_struct *prgm = dir->prgms + current_prgm.idx;
     if (prgm->size + n <= prgm->capacity)
         return true;
     int4 newcapacity = prgm->size + n;
@@ -2586,7 +3799,9 @@ static bool ensure_prgm_space(int n) {
 }
 
 int x2line() {
-    if (prgms[current_prgm].locked)
+    if (!current_prgm.is_editable())
+        return ERR_RESTRICTED_OPERATION;
+    if (current_prgm.is_locked())
         return ERR_PROGRAM_LOCKED;
     switch (stack[sp]->type) {
         case TYPE_REAL: {
@@ -2628,13 +3843,45 @@ int x2line() {
             store_command_after(&pc, CMD_XSTR, &arg, NULL);
             return ERR_NONE;
         }
+        case TYPE_EQUATION: {
+            if (!ensure_prgm_space(7))
+                return ERR_INSUFFICIENT_MEMORY;
+            vartype_equation *eq = (vartype_equation *) stack[sp];
+            arg_struct arg;
+            arg.type = ARGTYPE_NUM;
+            arg.val.num = eq->data->eqn_index;
+            store_command_after(&pc, CMD_EMBED, &arg, NULL);
+            return ERR_NONE;
+        }
+        case TYPE_UNIT: {
+            vartype_unit *u = (vartype_unit *) stack[sp];
+            int len = u->length;
+            if (len > 65535)
+                len = 65535;
+            if (!ensure_prgm_space(6 + sizeof(phloat) + len))
+                return ERR_INSUFFICIENT_MEMORY;
+            char *ub = (char *) malloc(u->length + 2);
+            if (ub == NULL)
+                return ERR_INSUFFICIENT_MEMORY;
+            ub[0] = '_';
+            memcpy(ub + 1, u->text, u->length);
+            ub[u->length + 1] = 0;
+            arg_struct arg;
+            arg.type = ARGTYPE_DOUBLE;
+            arg.val_d = u->x;
+            store_command_after(&pc, CMD_NUMBER, &arg, ub);
+            free(ub);
+            return ERR_NONE;
+        }
         default:
             return ERR_INTERNAL_ERROR;
     }
 }
 
 int a2line(bool append) {
-    if (prgms[current_prgm].locked)
+    if (!current_prgm.is_editable())
+        return ERR_RESTRICTED_OPERATION;
+    if (current_prgm.is_locked())
         return ERR_PROGRAM_LOCKED;
     if (reg_alpha_length == 0) {
         squeak();
@@ -2677,16 +3924,16 @@ int a2line(bool append) {
 }
 
 int prgm_lock(bool lock) {
-    if (!flags.f.prgm_mode)
+    if (!flags.f.prgm_mode || current_prgm.dir != cwd->id)
         return ERR_RESTRICTED_OPERATION;
-    prgms[current_prgm].locked = lock;
+    dir_list[current_prgm.dir]->prgms[current_prgm.idx].locked = lock;
     return ERR_NONE;
 }
 
 static int pc_line_convert(int4 loc, int loc_is_pc) {
     int4 pc = 0;
     int4 line = 1;
-    prgm_struct *prgm = prgms + current_prgm;
+    prgm_struct *prgm = dir_list[current_prgm.dir]->prgms + current_prgm.idx;
 
     while (1) {
         if (loc_is_pc) {
@@ -2717,16 +3964,20 @@ int4 line2pc(int4 line) {
         return pc_line_convert(line, 0);
 }
 
-int4 global_pc2line(int prgm, int4 pc) {
-    int saved_prgm = current_prgm;
+int4 global_pc2line(pgm_index prgm, int4 pc) {
+    if (prgm.idx < 0)
+        return pc;
+    pgm_index saved_prgm = current_prgm;
     current_prgm = prgm;
     int4 res = pc2line(pc);
     current_prgm = saved_prgm;
     return res;
 }
 
-int4 global_line2pc(int prgm, int4 line) {
-    int saved_prgm = current_prgm;
+int4 global_line2pc(pgm_index prgm, int4 line) {
+    if (prgm.idx < 0)
+        return line;
+    pgm_index saved_prgm = current_prgm;
     current_prgm = prgm;
     int4 res = line2pc(line);
     current_prgm = saved_prgm;
@@ -2737,7 +3988,8 @@ int4 find_local_label(const arg_struct *arg) {
     int4 orig_pc = pc;
     int4 search_pc;
     int wrapped = 0;
-    prgm_struct *prgm = prgms + current_prgm;
+    directory *dir = dir_list[current_prgm.dir];
+    prgm_struct *prgm = dir->prgms + current_prgm.idx;
 
     if (orig_pc == -1)
         orig_pc = 0;
@@ -2798,40 +4050,90 @@ int4 find_local_label(const arg_struct *arg) {
     return -2;
 }
 
-static bool find_global_label_2(const arg_struct *arg, int *prgm, int4 *pc, int *idx) {
-    int i;
+bool find_global_label(const arg_struct *arg, pgm_index *prgm, int4 *pc, int *idx) {
     const char *name = arg->val.text;
     int namelen = arg->length;
-    for (i = labels_count - 1; i >= 0; i--) {
-        int j;
-        char *labelname;
-        if (labels[i].length != namelen)
-            continue;
-        labelname = labels[i].name;
-        for (j = 0; j < namelen; j++)
-            if (labelname[j] != name[j])
-                goto nomatch;
-        if (prgm != NULL)
-            *prgm = labels[i].prgm;
-        if (pc != NULL)
-            *pc = labels[i].pc;
-        if (idx != NULL)
-            *idx = i;
-        return true;
-        nomatch:;
+
+    /* Always start by searching the current directory and its ancestors,
+     * followed by PATH. The rationale is that programs, running from a certain
+     * directory, should find the same labels that a user would find, when
+     * doing interactive GTO from the same directory.
+     */
+    directory *dir = cwd;
+    do {
+        for (int i = dir->labels_count - 1; i >= 0; i--) {
+            if (string_equals(dir->labels[i].name, dir->labels[i].length, name, namelen)) {
+                prgm->set(dir->id, dir->labels[i].prgm);
+                *pc = dir->labels[i].pc;
+                if (idx != NULL)
+                    *idx = i;
+                return true;
+            }
+        }
+        dir = dir->parent;
+    } while (dir != NULL);
+
+    vartype_list *path = get_path();
+    if (path != NULL)
+        for (int i = 0; i < path->size; i++) {
+            vartype *v = path->array->data[i];
+            if (v->type != TYPE_DIR_REF)
+                continue;
+            dir = get_dir(((vartype_dir_ref *) v)->dir);
+            if (dir == NULL)
+                continue;
+            for (int j = dir->labels_count - 1; j >= 0; j--) {
+                if (string_equals(dir->labels[j].name, dir->labels[j].length, name, namelen)) {
+                    prgm->set(dir->id, dir->labels[j].prgm);
+                    *pc = dir->labels[j].pc;
+                    if (idx != NULL)
+                        *idx = j;
+                    return true;
+                }
+            }
+        }
+
+    /* If still not found, but we're a running program, search the directory
+     * containing the program. If the current stack frame belongs to an
+     * equation (current_prgm.dir == eq_dir->id) or to SOLVE, INTEG, or
+     * PLOT (current_prgm.idx < 0), search up the RTN stack until the
+     * first stack frame belonging to regular user code.
+     */
+    if (program_running()) {
+        if (current_prgm.idx < 0 || current_prgm.dir == eq_dir->id) {
+            dir = NULL;
+            for (int lvl = rtn_level - 1; lvl >= 0; lvl--) {
+                rtn_stack_entry *rse = rtn_stack + lvl;
+                if (!rse->is_special() && rse->dir != eq_dir->id) {
+                    dir = get_dir(rse->dir);
+                    if (dir == NULL)
+                        // Should never happen
+                        return false;
+                    break;
+                }
+            }
+            if (dir == NULL)
+                return false;
+        } else
+            dir = get_dir(current_prgm.dir);
+        while (dir != NULL) {
+            for (int j = dir->labels_count - 1; j >= 0; j--) {
+                if (string_equals(dir->labels[j].name, dir->labels[j].length, name, namelen)) {
+                    prgm->set(dir->id, dir->labels[j].prgm);
+                    *pc = dir->labels[j].pc;
+                    if (idx != NULL)
+                        *idx = j;
+                    return true;
+                }
+            }
+            dir = dir->parent;
+        }
     }
+
     return false;
 }
 
-bool find_global_label(const arg_struct *arg, int *prgm, int4 *pc) {
-    return find_global_label_2(arg, prgm, pc, NULL);
-}
-
-bool find_global_label_index(const arg_struct *arg, int *idx) {
-    return find_global_label_2(arg, NULL, NULL, idx);
-}
-
-int push_rtn_addr(int prgm, int4 pc) {
+int push_rtn_addr(pgm_index prgm, int4 pc) {
     if (rtn_level == MAX_RTN_LEVEL)
         return ERR_RTN_STACK_FULL;
     if (rtn_level == rtn_stack_capacity) {
@@ -2842,13 +4144,16 @@ int push_rtn_addr(int prgm, int4 pc) {
         rtn_stack_capacity = new_rtn_stack_capacity;
         rtn_stack = new_rtn_stack;
     }
-    rtn_stack[rtn_level].set_prgm(prgm);
+    rtn_stack[rtn_level].dir = prgm.dir;
+    rtn_stack[rtn_level].set_prgm(prgm.idx);
     rtn_stack[rtn_level].pc = pc;
     rtn_level++;
-    if (prgm == -2)
+    if (prgm.idx == -2)
         rtn_solve_active = true;
-    else if (prgm == -3)
+    else if (prgm.idx == -3)
         rtn_integ_active = true;
+    else if (prgm.idx == -5)
+        rtn_plot_active = true;
     return ERR_NONE;
 }
 
@@ -2859,11 +4164,11 @@ int push_indexed_matrix() {
     if (list == NULL)
         return ERR_INSUFFICIENT_MEMORY;
     list->array->data[0] = new_string(matedit_name, matedit_length);
-    list->array->data[1] = new_real(matedit_level);
+    list->array->data[1] = new_real(matedit_dir);
     list->array->data[2] = new_real(matedit_i);
     list->array->data[3] = new_real(matedit_is_list ? -1 : matedit_j);
     for (int i = 0; i < matedit_stack_depth; i++)
-        list->array->data[4 + i] = new_real(matedit_stack[i]);
+        list->array->data[4 + i] = new_real(matedit_stack[i].as_phloat());
     for (int i = 0; i < 4 + matedit_stack_depth; i++)
         if (list->array->data[i] == NULL) {
             free_vartype((vartype *) list);
@@ -2889,23 +4194,33 @@ void maybe_pop_indexed_matrix(const char *name, int len) {
     vartype_list *list = (vartype_list *) recall_and_purge_private_var("MAT", 3);
     if (list == NULL)
         return;
-    int newdepth = list->size - 4;
-    int4 *newstack = newdepth == 0 ? NULL : (int4 *) malloc(newdepth * sizeof(int4));
-    // TODO Handle memory allocation failure
-    vartype_string *s = (vartype_string *) list->array->data[0];
-    string_copy(matedit_name, &matedit_length, s->txt(), s->length);
-    matedit_level = to_int4(((vartype_real *) list->array->data[1])->x);
-    matedit_i = to_int4(((vartype_real *) list->array->data[2])->x);
-    matedit_j = to_int4(((vartype_real *) list->array->data[3])->x);
-    matedit_is_list = matedit_j == -1;
-    if (matedit_is_list)
-        matedit_j = 0;
-    matedit_stack_depth = newdepth;
-    free(matedit_stack);
-    matedit_stack = newstack;
-    for (int i = 0; i < newdepth; i++)
-        matedit_stack[i] = to_int4(((vartype_real *) list->array->data[i + 4])->x);
-    matedit_mode = 1;
+    // Ignoring older MAT lists. Those have only 3 elements, and do
+    // not include the directory id, and we can't reliably reconstruct
+    // what the indexed variable's directory would have been.
+    if (list->size >= 4) {
+        int newdepth = list->size - 4;
+        matedit_stack_entry *newstack = newdepth == 0 ? NULL : (matedit_stack_entry *) malloc(newdepth * sizeof(matedit_stack_entry));
+        // TODO Handle memory allocation failure
+        vartype_string *s = (vartype_string *) list->array->data[0];
+        string_copy(matedit_name, &matedit_length, s->txt(), s->length);
+        matedit_dir = to_int4(((vartype_real *) list->array->data[1])->x);
+        matedit_i = to_int4(((vartype_real *) list->array->data[2])->x);
+        matedit_j = to_int4(((vartype_real *) list->array->data[3])->x);
+        matedit_is_list = matedit_j == -1;
+        if (matedit_is_list)
+            matedit_j = 0;
+        matedit_stack_depth = newdepth;
+        free(matedit_stack);
+        matedit_stack = newstack;
+        for (int i = 0; i < newdepth; i++)
+            matedit_stack[i].set(((vartype_real *) list->array->data[i + 4])->x);
+        matedit_mode = 1;
+    } else {
+        free(matedit_stack);
+        matedit_stack = NULL;
+        matedit_stack_depth = 0;
+        matedit_mode = 0;
+    }
     free_vartype((vartype *) list);
     if (rtn_level == 0)
         rtn_level_0_has_matrix_entry = false;
@@ -3138,8 +4453,6 @@ int pop_func_state(bool error) {
     int n = to_int(((vartype_real *) stk_data[0])->x);
     vartype_string *state = (vartype_string *) stk_data[1];
     bool big = state->txt()[0] == '1';
-    if (big && !core_settings.allow_big_stack)
-        return ERR_BIG_STACK_DISABLED;
 
     int err = ERR_NONE;
     if (false) {
@@ -3332,6 +4645,135 @@ int pop_func_state(bool error) {
     return err;
 }
 
+int get_saved_stack_level(int level, vartype **res) {
+    vartype_list *stk = (vartype_list *) recall_private_var("STK", 3, true);
+    if (stk == NULL || ((vartype_real *) stk->array->data[0])->x == -1)
+        return ERR_INVALID_CONTEXT;
+    vartype *v;
+    if (level == 0)
+        v = stk->array->data[3];
+    else {
+        vartype_list *sstack = (vartype_list *) stk->array->data[2];
+        if (level > sstack->size)
+            return ERR_STACK_DEPTH_ERROR;
+        v = sstack->array->data[sstack->size - level];
+    }
+    v = dup_vartype(v);
+    if (v == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    *res = v;
+    return ERR_NONE;
+}
+
+int set_trap(int4 flags) {
+    if (trap_level > rtn_level) {
+        return ERR_INTERNAL_ERROR;
+    } else if (trap_level == rtn_level) {
+        trap_flags = flags;
+    } else {
+        int8 re = trap_level | (trap_deeper_flags & (int8) 0xffff) << 32;
+        int8 im = trap_flags | (trap_deeper_flags & (int8) 0xffff0000) << 16;
+        #ifdef BCD_MATH
+        vartype *v = new_complex(re, im);
+        #else
+        /* Silence warning about possible loss of precision in VS2022.
+         * The warning is correct, in that we're assigning 64-bit integers
+         * to floating-point types with only 53-bit mantissas; but it just
+         * happens to be the case that we know we're only using 48 bits
+         * so this really is okay.
+         */
+        vartype *v = new_complex((double) re, (double) im);
+        #endif
+        if (v == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+        int err = store_private_var("TRAP", 4, v);
+        if (err != ERR_NONE) {
+            free_vartype(v);
+            return err;
+        }
+        rtn_stack[rtn_level - 1].set_has_trap(true);
+        trap_deeper_flags |= trap_flags;
+        trap_flags = flags;
+        trap_level = rtn_level;
+    }
+    return ERR_NONE;
+}
+
+bool should_trap(int err) {
+    if (err == ERR_NONE)
+        return false;
+    int4 mask = err == -1 || err > RTNERR_MAX ? 1 : 1 << err;
+    // TRY doesn't affect the level in which it is called;
+    // its scope is the duration of the first subroutine to
+    // be called after the TRY. If no subroutine is called
+    // before the end of the routine containing the TRY, the
+    // trap expires when the routine returns.
+    // Note that for the purposes of this discussion, a 'routine'
+    // can be both XEQ or EVAL/EVALN.
+    if (trap_level < rtn_level)
+        return (mask & (trap_flags | trap_deeper_flags)) != 0;
+    else
+        return (mask & trap_deeper_flags) != 0;
+}
+
+int get_trap_rtn_level(int err) {
+    if (err == ERR_NONE)
+        return -1;
+    int4 mask = err == -1 || err > RTNERR_MAX ? 1 : 1 << err;
+    // TRY doesn't affect the level in which it is called;
+    // see the comment in should_trap()
+    if (trap_level < rtn_level && (mask & trap_flags) != 0)
+        return trap_level;
+    if ((mask & trap_deeper_flags) == 0)
+        return -1;
+    for (int i = rtn_level; i > 0; i--)
+        if (rtn_stack[i - 1].has_trap()) {
+            vartype *v = recall_private_var_from_level("TRAP", 4, i);
+            if (v == NULL)
+                continue;
+            vartype_complex *c = (vartype_complex *) v;
+            int4 t_level = (int4) to_int8(c->re);
+            int4 t_flags = (int4) to_int8(c->im);
+            if ((mask & t_flags) != 0)
+                return t_level;
+        }
+    return -1;
+}
+
+void set_caught(bool caught) {
+    trap_caught = caught;
+    if (!caught && trap_trace != NULL) {
+        free_vartype(trap_trace);
+        trap_trace = NULL;
+    }
+}
+
+bool get_caught() {
+    return trap_caught;
+}
+
+static void pop_trap() {
+    if (rtn_level > trap_level)
+        return;
+    if (rtn_level == 0 || !rtn_stack[rtn_level - 1].has_trap()) {
+        no_more_traps:
+        trap_level = 0;
+        trap_flags = 0;
+        trap_deeper_flags = 0;
+        return;
+    }
+    vartype *v = recall_private_var("TRAP", 4);
+    if (v == NULL)
+        // Shouldn't happen
+        goto no_more_traps;
+    vartype_complex *c = (vartype_complex *) v;
+    int8 re = to_int8(c->re);
+    int8 im = to_int8(c->im);
+    trap_level = (int4) re;
+    trap_flags = (int4) im;
+    trap_deeper_flags = (re >> 32) | (im >> 16) & 0xffff0000;
+}
+
 void step_out() {
     if (rtn_level > 0)
         rtn_stop_level = rtn_level - 1;
@@ -3342,6 +4784,65 @@ void step_over() {
         rtn_stop_level = rtn_level;
 }
 
+void return_here_after_last_rtn() {
+    if (current_prgm.dir != eq_dir->id && current_prgm.idx >= 0) {
+        rtn_after_last_rtn_dir = current_prgm.dir;
+        rtn_after_last_rtn_prgm = current_prgm.idx;
+        rtn_after_last_rtn_pc = pc;
+    } else {
+        rtn_after_last_rtn_dir = -1;
+        rtn_after_last_rtn_prgm = -1;
+        rtn_after_last_rtn_pc = -1;
+    }
+}
+
+void equation_deleted(int eqn_index) {
+    if (current_prgm.dir == eq_dir->id && current_prgm.idx == eqn_index) {
+        current_prgm.set(cwd->id, cwd->prgms_count - 1);
+        pc = cwd->prgms[cwd->prgms_count - 1].size - 2;
+    }
+    if (rtn_after_last_rtn_dir == eq_dir->id && rtn_after_last_rtn_prgm == eqn_index) {
+        rtn_after_last_rtn_dir = cwd->id;
+        rtn_after_last_rtn_prgm = cwd->prgms_count - 1;
+        rtn_after_last_rtn_pc = cwd->prgms[cwd->prgms_count - 1].size - 2;
+    }
+    math_equation_deleted(eqn_index);
+}
+
+bool unwind_after_eqn_error() {
+    int4 saved_dir = rtn_after_last_rtn_dir;
+    int4 saved_prgm = rtn_after_last_rtn_prgm;
+    int4 saved_pc = rtn_after_last_rtn_pc;
+    while (true) {
+        int err = pop_func_state(true);
+        if (err != ERR_NONE) {
+            // Fall back on just dropping stack contents
+            clear_all_rtns();
+            goto done;
+        }
+        pgm_index prgm;
+        int4 dummy1;
+        bool dummy2;
+        pop_rtn_addr(&prgm, &dummy1, &dummy2);
+        if (prgm.idx == -1)
+            break;
+        if (prgm.idx == -4)
+            return true;
+    }
+    if (mode_plainmenu == MENU_PROGRAMMABLE)
+        set_menu(MENULEVEL_PLAIN, MENU_NONE);
+    else if (mode_appmenu == MENU_PROGRAMMABLE)
+        set_menu(MENULEVEL_APP, MENU_NONE);
+    if (varmenu_role == 3)
+        varmenu_role = 0;
+    done:
+    if (saved_prgm != -1) {
+        current_prgm.set(saved_dir, saved_prgm);
+        pc = saved_pc;
+    }
+    return false;
+}
+
 bool should_i_stop_at_this_level() {
     bool stop = rtn_stop_level >= rtn_level;
     if (stop)
@@ -3349,70 +4850,51 @@ bool should_i_stop_at_this_level() {
     return stop;
 }
 
+void returning_from_solve_integ_or_plot() {
+    if (trap_level == rtn_level)
+        trap_flags = 0;
+    set_caught(false);
+}
+
 static void remove_locals() {
-    if (matedit_mode == 3 && matedit_level >= rtn_level)
+    if (matedit_mode == 3 && matedit_dir <= 0 && -matedit_dir >= rtn_level)
         leave_matrix_editor();
-    int last = -1;
-    for (int i = vars_count - 1; i >= 0; i--) {
-        if (vars[i].level == -1)
-            continue;
-        if (vars[i].level < rtn_level)
+    pop_trap();
+    int old_count = local_vars_count;
+    for (int i = local_vars_count - 1; i >= 0; i--) {
+        if (local_vars[i].level < rtn_level)
             break;
-        if ((matedit_mode == 1 || matedit_mode == 3)
-                && vars[i].level == matedit_level
-                && string_equals(vars[i].name, vars[i].length, matedit_name, matedit_length)) {
-            if (matedit_mode == 3) {
-                set_appmenu_exitcallback(0);
-                set_menu(MENULEVEL_APP, MENU_NONE);
-            }
-            matedit_mode = 0;
-            free(matedit_stack);
-            matedit_stack = NULL;
-            matedit_stack_depth = 0;
-        }
-        if ((vars[i].flags & VAR_HIDING) != 0) {
-            for (int j = i - 1; j >= 0; j--)
-                if ((vars[j].flags & VAR_HIDDEN) != 0 && string_equals(vars[i].name, vars[i].length, vars[j].name, vars[j].length)) {
-                    vars[j].flags &= ~VAR_HIDDEN;
-                    break;
-                }
-        }
-        free_vartype(vars[i].value);
-        vars[i].length = 100;
-        last = i;
+        free_vartype(local_vars[i].value);
+        local_vars_count--;
     }
-    if (last == -1)
-        return;
-    int from = last;
-    int to = last;
-    while (from < vars_count) {
-        if (vars[from].length != 100)
-            vars[to++] = vars[from];
-        from++;
-    }
-    vars_count -= from - to;
-    update_catalog();
+    if (local_vars_count != old_count)
+        update_catalog();
 }
 
 int rtn(int err) {
     // NOTE: 'err' should be one of ERR_NONE, ERR_YES, or ERR_NO.
     // For any actual *error*, i.e. anything that should actually
     // stop program execution, use rtn_with_error() instead.
-    int newprgm;
+    set_caught(false);
+    pgm_index newprgm;
     int4 newpc;
     bool stop;
     pop_rtn_addr(&newprgm, &newpc, &stop);
-    if (newprgm == -3) {
-        return return_to_integ(stop);
-    } else if (newprgm == -2) {
-        return return_to_solve(0, stop);
-    } else if (newprgm == -1) {
-        if (pc >= prgms[current_prgm].size)
-            /* It's an END; go to line 0 */
-            pc = -1;
-        if (err != ERR_NONE)
-            display_error(err);
-        return ERR_STOP;
+    if (newprgm.idx < 0) {
+        switch (newprgm.idx) {
+            case -1:
+                if (pc >= dir_list[current_prgm.dir]->prgms[current_prgm.idx].size)
+                    /* It's an END; go to line 0 */
+                    pc = -1;
+                if (err != ERR_NONE)
+                    display_error(err);
+                return ERR_STOP;
+            case -2: return return_to_solve(false, stop);
+            case -3: return return_to_integ(stop);
+            case -4: return return_to_eqn_edit(ERR_NONE);
+            case -5: return return_to_plot(false, stop);
+            default: return ERR_INTERNAL_ERROR;
+        }
     } else {
         current_prgm = newprgm;
         pc = newpc;
@@ -3429,46 +4911,94 @@ int rtn(int err) {
 
 int rtn_with_error(int err) {
     bool stop;
-    if (solve_active() && (err == ERR_OUT_OF_RANGE
-                            || err == ERR_DIVIDE_BY_0
-                            || err == ERR_INVALID_DATA
-                            || err == ERR_STAT_MATH_ERROR)) {
-        stop = unwind_stack_until_solve();
-        return return_to_solve(1, stop);
+    bool solve_or_plot_err = solve_or_plot_active()
+                && (err == ERR_OUT_OF_RANGE
+                 || err == ERR_DIVIDE_BY_0
+                 || err == ERR_INVALID_DATA
+                 || err == ERR_STAT_MATH_ERROR
+                 || err == ERR_INVALID_FORECAST_MODEL);
+    bool trap = should_trap(err);
+    int t_level;
+    if (solve_or_plot_err) {
+        if (trap) {
+            t_level = get_trap_rtn_level(err);
+            if (t_level > solve_or_plot_level())
+                goto do_trap;
+        }
+        int which;
+        stop = unwind_stack_until_solve_or_plot(&which);
+        set_caught(false);
+        if (which == -2)
+            return return_to_solve(true, stop);
+        else
+            return return_to_plot(true, stop);
+    } else if (trap) {
+        t_level = get_trap_rtn_level(err);
+        do_trap:
+        set_last_err(err);
+        stop = unwind_stack_until_level(t_level, true);
+        set_caught(true);
+        return stop ? ERR_STOP : ERR_NONE;
     }
-    int newprgm;
+    pgm_index newprgm;
     int4 newpc;
     pop_rtn_addr(&newprgm, &newpc, &stop);
-    if (newprgm >= 0) {
+    if (newprgm.idx >= 0) {
         // Stop on the calling XEQ, not the RTNERR
         current_prgm = newprgm;
         int line = pc2line(newpc);
         set_old_pc(line2pc(line - 1));
     }
+    set_caught(false);
     return err;
 }
 
-void pop_rtn_addr(int *prgm, int4 *pc, bool *stop) {
+bool need_fstart() {
+    int level = rtn_level;
+    while (true) {
+        if (level == 0)
+            return true;
+        int4 dir = rtn_stack[level - 1].dir;
+        if (dir == 1)
+            return false;
+        if (dir > 1)
+            return true;
+        // dir == 0 implies is_special() == true; ignore and try the next one
+        level--;
+    }
+}
+
+void pop_rtn_addr(pgm_index *prgm, int4 *pc, bool *stop) {
     if (rtn_level == 0 ? rtn_level_0_has_matrix_entry : rtn_stack[rtn_level - 1].has_matrix()) {
         vartype_list *list = (vartype_list *) recall_and_purge_private_var("MAT", 3);
         if (list != NULL) {
-            int newdepth = list->size - 4;
-            int4 *newstack = newdepth == 0 ? NULL : (int4 *) malloc(newdepth * sizeof(vartype *));
-            // TODO: Handle memory allocation failure
-            vartype_string *s = (vartype_string *) list->array->data[0];
-            string_copy(matedit_name, &matedit_length, s->txt(), s->length);
-            matedit_level = to_int4(((vartype_real *) list->array->data[1])->x);
-            matedit_i = to_int4(((vartype_real *) list->array->data[2])->x);
-            matedit_j = to_int4(((vartype_real *) list->array->data[3])->x);
-            matedit_is_list = matedit_j == -1;
-            if (matedit_is_list)
-                matedit_j = 0;
-            matedit_stack_depth = newdepth;
-            free(matedit_stack);
-            matedit_stack = newstack;
-            for (int i = 0; i < matedit_stack_depth; i++)
-                matedit_stack[i] = to_int4(((vartype_real *) list->array->data[i + 4])->x);
-            matedit_mode = 1;
+            // Ignoring older MAT lists. Those have only 3 elements, and do
+            // not include the directory id, and we can't reliably reconstruct
+            // what the indexed variable's directory would have been.
+            if (list->size >= 4) {
+                int newdepth = list->size - 4;
+                matedit_stack_entry *newstack = newdepth == 0 ? NULL : (matedit_stack_entry *) malloc(newdepth * sizeof(matedit_stack_entry));
+                // TODO: Handle memory allocation failure
+                vartype_string *s = (vartype_string *) list->array->data[0];
+                string_copy(matedit_name, &matedit_length, s->txt(), s->length);
+                matedit_dir = to_int4(((vartype_real *) list->array->data[1])->x);
+                matedit_i = to_int4(((vartype_real *) list->array->data[2])->x);
+                matedit_j = to_int4(((vartype_real *) list->array->data[3])->x);
+                matedit_is_list = matedit_j == -1;
+                if (matedit_is_list)
+                    matedit_j = 0;
+                matedit_stack_depth = newdepth;
+                free(matedit_stack);
+                matedit_stack = newstack;
+                for (int i = 0; i < matedit_stack_depth; i++)
+                    matedit_stack[i].set(((vartype_real *) list->array->data[i + 4])->x);
+                matedit_mode = 1;
+            } else {
+                free(matedit_stack);
+                matedit_stack = NULL;
+                matedit_stack_depth = 0;
+                matedit_mode = 0;
+            }
             free_vartype((vartype *) list);
         }
         if (rtn_level == 0)
@@ -3478,24 +5008,37 @@ void pop_rtn_addr(int *prgm, int4 *pc, bool *stop) {
     }
     remove_locals();
     if (rtn_level == 0) {
-        *prgm = -1;
-        *pc = -1;
+        if (rtn_after_last_rtn_prgm != -1) {
+            prgm->set(rtn_after_last_rtn_dir, rtn_after_last_rtn_prgm);
+            *pc = rtn_after_last_rtn_pc;
+            rtn_after_last_rtn_dir = -1;
+            rtn_after_last_rtn_prgm = -1;
+            rtn_after_last_rtn_pc = -1;
+            *stop = true;
+        } else {
+            prgm->set(0, -1);
+            *pc = -1;
+        }
         rtn_stop_level = -1;
         rtn_level_0_has_func_state = false;
     } else {
         rtn_level--;
-        *prgm = rtn_stack[rtn_level].get_prgm();
+        prgm->set(rtn_stack[rtn_level].dir, rtn_stack[rtn_level].get_prgm());
         *pc = rtn_stack[rtn_level].pc;
         if (rtn_stop_level >= rtn_level) {
             *stop = true;
             rtn_stop_level = -1;
         } else
             *stop = false;
-        if (*prgm == -2)
+        if (prgm->idx == -2)
             rtn_solve_active = false;
-        else if (*prgm == -3)
+        else if (prgm->idx == -3)
             rtn_integ_active = false;
+        else if (prgm->idx == -5)
+            rtn_plot_active = false;
     }
+    if (trap_level == rtn_level && prgm->idx != -2 && prgm->idx != -3 && prgm->idx != -5)
+        trap_flags = 0;
 }
 
 static void get_saved_stack_mode(int *m) {
@@ -3514,16 +5057,18 @@ static void get_saved_stack_mode(int *m) {
 }
 
 void clear_all_rtns() {
-    int dummy1;
-    int4 dummy2;
-    bool dummy3;
+    pgm_index prgm;
+    int4 dummy1;
+    bool dummy2;
     int st_mode = -1;
     while (rtn_level > 0) {
-        get_saved_stack_mode(&st_mode);
-        pop_rtn_addr(&dummy1, &dummy2, &dummy3);
+        if (stack != NULL)
+            get_saved_stack_mode(&st_mode);
+        pop_rtn_addr(&prgm, &dummy1, &dummy2);
     }
-    get_saved_stack_mode(&st_mode);
-    pop_rtn_addr(&dummy1, &dummy2, &dummy3);
+    if (stack != NULL)
+        get_saved_stack_mode(&st_mode);
+    pop_rtn_addr(&prgm, &dummy1, &dummy2);
     if (st_mode == 0) {
         arg_struct dummy_arg;
         docmd_4stk(&dummy_arg);
@@ -3532,6 +5077,8 @@ void clear_all_rtns() {
     }
     if (mode_plainmenu == MENU_PROGRAMMABLE)
         set_menu(MENULEVEL_PLAIN, MENU_NONE);
+    else if (mode_appmenu == MENU_PROGRAMMABLE)
+        set_menu(MENULEVEL_APP, MENU_NONE);
     if (varmenu_role == 3)
         varmenu_role = 0;
 }
@@ -3562,15 +5109,32 @@ bool integ_active() {
     return rtn_integ_active;
 }
 
-bool unwind_stack_until_solve() {
-    int prgm;
+bool solve_or_plot_active() {
+    return rtn_solve_active || rtn_plot_active;
+}
+
+int solve_or_plot_level() {
+    for (int i = rtn_level - 1; i >= 0; i--) {
+        int4 prgm = rtn_stack[i].get_prgm();
+        if (prgm == -2 || prgm == -5)
+            return i;
+    }
+    return -1;
+}
+
+bool unwind_stack_until_solve_or_plot(int *which) {
+    pgm_index prgm;
     int4 pc;
     bool stop;
     int st_mode = -1;
-    do {
+    while (true) {
         get_saved_stack_mode(&st_mode);
         pop_rtn_addr(&prgm, &pc, &stop);
-    } while (prgm != -2);
+        if (prgm.idx == -2 || prgm.idx == -5) {
+            *which = prgm.idx;
+            break;
+        }
+    }
     if (st_mode == 0) {
         arg_struct dummy_arg;
         docmd_4stk(&dummy_arg);
@@ -3578,6 +5142,268 @@ bool unwind_stack_until_solve() {
         docmd_nstk(NULL);
     }
     return stop;
+}
+
+static void write_keyx_info(textbuf *tb, vartype *keyx) {
+    tb_write(tb, "  KEY ", 6);
+    char *s = ((vartype_string *) keyx)->txt();
+    switch (s[0]) {
+        case 6:
+            tb_write(tb, "\136", 1);
+            break;
+        case 7:
+            tb_write(tb, "\16", 1);
+            break;
+        case 8:
+            tb_write(tb, "EXIT", 4);
+            break;
+        default:
+            tb_write(tb, s + 2, s[1]);
+            break;
+    }
+    tb_write(tb, ": XEQ ", 6);
+    switch (s[9]) {
+        case ARGTYPE_IND_NUM:
+        case ARGTYPE_IND_STK:
+        case ARGTYPE_IND_STR:
+            tb_write(tb, "IND ", 4);
+            break;
+    }
+    switch (s[9]) {
+        case ARGTYPE_NUM:
+        case ARGTYPE_IND_NUM: {
+            char n[2];
+            n[0] = '0' + s[10] / 10;
+            n[1] = '0' + s[10] % 10;
+            tb_write(tb, n, 2);
+            break;
+        }
+        case ARGTYPE_IND_STK: {
+            char st[4] = "ST ";
+            st[3] = s[10];
+            tb_write(tb, st, 4);
+            break;
+        }
+        case ARGTYPE_LCLBL:
+            tb_write(tb, s + 10, 1);
+            break;
+        case ARGTYPE_STR:
+        case ARGTYPE_IND_STR:
+            tb_write(tb, "\"", 1);
+            tb_write(tb, s + 11, s[10]);
+            tb_write(tb, "\"", 1);
+            break;
+    }
+    tb_write(tb, "\n", 1);
+}
+
+static void create_stack_trace(int level) {
+    textbuf tb;
+    tb.buf = NULL;
+    tb.size = 0;
+    tb.capacity = 0;
+    tb.fail = false;
+
+    bool no_error = level == -1;
+
+    if (no_error) {
+        tb_write(&tb, "No Error", 8);
+        level = 0;
+    } else if (lasterr == -1)
+        tb_write(&tb, lasterr_text, lasterr_length);
+    else
+        tb_write(&tb, errors[lasterr].text, errors[lasterr].length);
+    tb_write(&tb, "\n", 1);
+
+    pgm_index f_prgm, prev_prgm(-1, -1);
+    directory *dir = NULL;
+    int4 f_pc;
+    for (int i = rtn_level; i >= level; i--) {
+        if (i == rtn_level) {
+            f_prgm = current_prgm;
+            f_pc = pc;
+        } else {
+            f_prgm = pgm_index(rtn_stack[i].dir, rtn_stack[i].get_prgm());
+            if (f_prgm.idx == -2)
+                get_solve_caller(&f_prgm, &f_pc);
+            else if (f_prgm.idx == -3)
+                get_integ_caller(&f_prgm, &f_pc);
+            else
+                f_pc = rtn_stack[i].pc;
+            if (f_prgm.idx == -5)
+                continue;
+        }
+        int4 line = global_pc2line(f_prgm, f_pc) - 1;
+        if (no_error && i == rtn_level && !program_running())
+            line++;
+        vartype *keyx = i < rtn_level ? recall_private_var_from_level("KEYX", 4, i + 1) : NULL;
+        if (keyx != NULL && line == 0 && f_prgm.dir != 1) {
+            directory *d = get_dir(f_prgm.dir);
+            f_pc = d->prgms[f_prgm.idx].size - 2;
+            line = global_pc2line(f_prgm, f_pc);
+        } else
+            f_pc = global_line2pc(f_prgm, line);
+
+        if (f_prgm.dir == 1) {
+            equation_data *eqd = eq_dir->prgms[f_prgm.idx].eq_data;
+            if (eqd->text == NULL) {
+                if (f_prgm != prev_prgm) {
+                    tb_write(&tb, "Eqn[", 4);
+                    char buf[8];
+                    int len = int2string(f_prgm.idx, buf, 8);
+                    tb_write(&tb, buf, len);
+                    tb_write(&tb, "] no src\n", 9);
+                }
+                goto print_rpn_line;
+            }
+            if (f_prgm != prev_prgm) {
+                int len = eqd->length;
+                if (len > 24)
+                    len = 24;
+                tb_write(&tb, eqd->text, len);
+                tb_write(&tb, "\n", 1);
+            }
+            pgm_index prev = current_prgm;
+            current_prgm = f_prgm;
+            print_equation_segment(&tb, f_pc);
+            current_prgm = prev;
+        } else {
+            if (f_prgm != prev_prgm) {
+                if (dir == NULL || dir->id != f_prgm.dir) {
+                    dir = get_dir(f_prgm.dir);
+                    vartype *dp = get_dir_path(dir);
+                    if (dp == NULL) {
+                        tb_write(&tb, "?", 1);
+                    } else {
+                        vartype_string *s = (vartype_string *) dp;
+                        tb_write(&tb, s->txt(), s->length);
+                        free_vartype(dp);
+                    }
+                    tb_write(&tb, ":", 1);
+                }
+                int a = 0;
+                int b = dir->labels_count - 1;
+                int c;
+                if (dir->labels[a].prgm == f_prgm.idx) {
+                    c = a;
+                } else if (dir->labels[b].prgm = f_prgm.idx) {
+                    c = b;
+                } else {
+                    while (true) {
+                        c = (a + b) >> 1;
+                        if (c == a || c == b)
+                            break;
+                        int p = dir->labels[c].prgm;
+                        if (p == f_prgm.idx)
+                            break;
+                        if (p > f_prgm.idx)
+                            b = c;
+                        else
+                            a = c;
+                    }
+                }
+                while (c > 0 && dir->labels[c - 1].prgm == f_prgm.idx)
+                    c--;
+                if (dir->labels[c].prgm == f_prgm.idx && dir->labels[c].length > 0) {
+                    tb_write(&tb, "\"", 1);
+                    tb_write(&tb, dir->labels[c].name, dir->labels[c].length);
+                    tb_write(&tb, "\"\n", 2);
+                } else if (f_prgm.idx == dir->prgms_count - 1) {
+                    tb_write(&tb, ".END.\n", 6);
+                } else {
+                    tb_write(&tb, "END\n", 4);
+                }
+            }
+            print_rpn_line:
+            tb_print_program_line(&tb, f_prgm, f_pc, line);
+        }
+        if (keyx != NULL)
+            write_keyx_info(&tb, keyx);
+
+        prev_prgm = f_prgm;
+    }
+
+    if (trap_trace != NULL) {
+        vartype_string *s = (vartype_string *) trap_trace;
+        tb_write(&tb, s->txt(), s->length);
+        free_vartype(trap_trace);
+        trap_trace = NULL;
+    } else {
+        tb.size--;
+    }
+
+    if (tb.buf != NULL) {
+        trap_trace = new_string(tb.buf, (int) tb.size);
+        free(tb.buf);
+    }
+}
+
+int print_backtrace() {
+    if (!flags.f.printer_exists)
+        return ERR_PRINTING_IS_DISABLED;
+
+    vartype *t;
+    if (trap_trace == NULL) {
+        create_stack_trace(-1);
+        if (trap_trace == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+        t = trap_trace;
+        trap_trace = NULL;
+    } else {
+        t = trap_trace;
+    }
+    vartype_string *s = (vartype_string *) t;
+
+    bool prev_double_wide = flags.f.double_wide_print;
+    bool prev_lowercase = flags.f.lowercase_print;
+    flags.f.double_wide_print = false;
+    flags.f.lowercase_print = false;
+    print_text(NULL, 0, true);
+    alpha_print_helper(s->txt(), s->length);
+    flags.f.double_wide_print = prev_double_wide;
+    flags.f.lowercase_print = prev_lowercase;
+
+    if (trap_trace == NULL)
+        free_vartype(t);
+    return ERR_NONE;
+}
+
+bool unwind_stack_until_level(int level, bool save_stack_trace) {
+    if (save_stack_trace)
+        create_stack_trace(level);
+
+    bool stop;
+    int st_mode = -1;
+    while (rtn_level > level) {
+        get_saved_stack_mode(&st_mode);
+        pop_rtn_addr(&current_prgm, &pc, &stop);
+    }
+    if (current_prgm.idx == -2) {
+        get_solve_caller(&current_prgm, &pc);
+        if (trap_level == rtn_level)
+            trap_flags = 0;
+    } else if (current_prgm.idx == -3) {
+        get_integ_caller(&current_prgm, &pc);
+        if (trap_level == rtn_level)
+            trap_flags = 0;
+    }
+    if (st_mode == 0) {
+        arg_struct dummy_arg;
+        docmd_4stk(&dummy_arg);
+    } else if (st_mode == 1) {
+        docmd_nstk(NULL);
+    }
+
+    return stop;
+}
+
+bool dir_used(int id) {
+    if (current_prgm.dir == id)
+        return true;
+    for (int i = 0; i < rtn_level; i++)
+        if (rtn_stack[i].dir == id)
+            return true;
+    return false;
 }
 
 bool read_bool(bool *b) {
@@ -3731,7 +5557,7 @@ bool read_phloat(phloat *d) {
                 char buf[16];
                 if (fread(buf, 1, 16, gfile) != 16)
                     return false;
-                char *dst = (char *) d;
+                    char *dst = (char *) d;
                 for (int i = 0; i < 16; i++)
                     dst[i] = buf[15 - i];
                 return true;
@@ -3747,8 +5573,8 @@ bool read_phloat(phloat *d) {
         #else
             if (fread(d, 1, sizeof(phloat), gfile) != sizeof(phloat))
                 return false;
-            return true;
         #endif
+        return true;
     }
 }
 
@@ -3772,7 +5598,39 @@ bool write_phloat(phloat d) {
     #endif
 }
 
-bool read_arg(arg_struct *arg) {
+struct fake_bcd {
+    char data[16];
+};
+
+struct dec_arg_struct {
+    unsigned char type;
+    unsigned char length;
+    int4 target;
+    union {
+        int4 num;
+        char text[15];
+        char stk;
+        int cmd;
+        char lclbl;
+    } val;
+    fake_bcd val_d;
+};
+
+struct bin_arg_struct {
+    unsigned char type;
+    unsigned char length;
+    int4 target;
+    union {
+        int4 num;
+        char text[15];
+        char stk;
+        int cmd;
+        char lclbl;
+    } val;
+    double val_d;
+};
+
+bool read_arg(arg_struct *arg, bool old) {
     if (!read_char((char *) &arg->type))
         return false;
     char c;
@@ -3783,7 +5641,13 @@ bool read_arg(arg_struct *arg) {
         case ARGTYPE_NEG_NUM:
         case ARGTYPE_IND_NUM:
         case ARGTYPE_LBLINDEX:
-            return read_int4(&arg->val.num);
+            if (!read_int4(&arg->val.num))
+                return false;
+            if (ver < 11) {
+                arg->target = 2;
+                return true;
+            } else
+                return read_int4(&arg->target);
         case ARGTYPE_STK:
         case ARGTYPE_IND_STK:
             return read_char(&arg->val.stk);
@@ -3796,8 +5660,6 @@ bool read_arg(arg_struct *arg) {
                 return false;
             arg->length = c & 255;
             return fread(arg->val.text, 1, arg->length, gfile) == arg->length;
-        case ARGTYPE_COMMAND:
-            return read_int(&arg->val.cmd);
         case ARGTYPE_LCLBL:
             return read_char(&arg->val.lclbl);
         case ARGTYPE_DOUBLE:
@@ -3810,8 +5672,8 @@ bool read_arg(arg_struct *arg) {
 
 bool write_arg(const arg_struct *arg) {
     int type = arg->type;
-    if (type == ARGTYPE_XSTR)
-        // This type is always used immediately, so no need to persist it;
+    if (type == ARGTYPE_XSTR || type == ARGTYPE_EQN)
+        // This types are always used immediately, so no need to persist them;
         // also, persisting it would be difficult, since this variant uses
         // a pointer to the actual text, which is context-dependent and
         // would be impossible to restore.
@@ -3826,7 +5688,7 @@ bool write_arg(const arg_struct *arg) {
         case ARGTYPE_NEG_NUM:
         case ARGTYPE_IND_NUM:
         case ARGTYPE_LBLINDEX:
-            return write_int4(arg->val.num);
+            return write_int4(arg->val.num) && write_int4(arg->target);
         case ARGTYPE_STK:
         case ARGTYPE_IND_STK:
             return write_char(arg->val.stk);
@@ -3834,8 +5696,6 @@ bool write_arg(const arg_struct *arg) {
         case ARGTYPE_IND_STR:
             return write_char((char) arg->length)
                 && fwrite(arg->val.text, 1, arg->length, gfile) == arg->length;
-        case ARGTYPE_COMMAND:
-            return write_int(arg->val.cmd);
         case ARGTYPE_LCLBL:
             return write_char(arg->val.lclbl);
         case ARGTYPE_DOUBLE:
@@ -3849,8 +5709,8 @@ bool write_arg(const arg_struct *arg) {
 static void menu_adjust(int from1, int to1, int offset1,
                         int from2 = INT_MIN, int to2 = INT_MIN, int offset2 = INT_MIN,
                         int from3 = INT_MIN, int to3 = INT_MIN, int offset3 = INT_MIN) {
-    static int *menuptr[] = { &mode_appmenu, &mode_plainmenu, &mode_transientmenu, &mode_alphamenu, &mode_commandmenu };
-    for (int i = 0; i < 5; i++) {
+    static int *menuptr[] = { &mode_appmenu, &mode_auxmenu, &mode_plainmenu, &mode_transientmenu, &mode_alphamenu, &mode_commandmenu };
+    for (int i = 0; i < 6; i++) {
         int *menu = menuptr[i];
         if (*menu >= from1 && *menu <= to1)
             *menu += offset1;
@@ -3873,7 +5733,7 @@ static bool load_state2(bool *clear, bool *too_new) {
 
     if (!read_int4(&magic))
         return false;
-    if (magic != FREE42_MAGIC)
+    if (magic != PLUS42_MAGIC)
         return false;
     if (!read_int4(&ver)) {
         // A state file containing nothing after the magic number
@@ -3884,28 +5744,22 @@ static bool load_state2(bool *clear, bool *too_new) {
         return false;
     }
 
-    if (ver > FREE42_VERSION) {
+    if (ver < 7)
+        return false;
+    if (ver > PLUS42_VERSION) {
         *too_new = true;
         return false;
     }
-    if (ver < 26)
-        // Pre-2.5, non-portable state. Not supported any more.
-        return false;
 
-    if (bug_mode == 0 && ver == 26)
-        bug_mode = 1;
-
-    if (ver >= 28) {
-        // Embedded version information. No need to read this; it's just
-        // there for troubleshooting purposes. All we need to do here is
-        // skip it.
-        while (true) {
-            char c;
-            if (!read_char(&c))
-                return false;
-            if (c == 0)
-                break;
-        }
+    // Embedded version information. No need to read this; it's just
+    // there for troubleshooting purposes. All we need to do here is
+    // skip it.
+    while (true) {
+        char c;
+        if (!read_char(&c))
+            return false;
+        if (c == 0)
+            break;
     }
 
     bool state_is_decimal;
@@ -3926,27 +5780,50 @@ static bool load_state2(bool *clear, bool *too_new) {
     if (!read_bool(&mode_alpha_entry)) return false;
     if (!read_bool(&mode_shift)) return false;
     if (!read_int(&mode_appmenu)) return false;
+    if (ver < 16)
+        mode_auxmenu = MENU_NONE;
+    else
+        if (!read_int(&mode_auxmenu)) return false;
     if (!read_int(&mode_plainmenu)) return false;
     if (!read_bool(&mode_plainmenu_sticky)) return false;
     if (!read_int(&mode_transientmenu)) return false;
     if (!read_int(&mode_alphamenu)) return false;
     if (!read_int(&mode_commandmenu)) return false;
-    if (ver < 33)
-        menu_adjust(24, INT_MAX, 2);
-    if (ver < 50)
-        menu_adjust(24, 24, 37, 25, 61, -1);
-    if (ver < 51)
-        menu_adjust(61, 61, 7, 62, 63, 3, 64, INT_MAX, 7);
-    if (ver < 53)
-        menu_adjust(26, INT_MAX, 1);
+    if (ver < 21)
+        // inserted MENU_DISP3
+        menu_adjust(30, 85, 1);
+    if (ver < 26)
+        // inserted MENU_UNIT_FCN2
+        menu_adjust(76, 86, 1);
+    if (ver < 30)
+        // inserted MENU_DISP4
+        menu_adjust(31, 87, 1);
+    if (ver < 45)
+        // inserted MENU_ALPHA_PUNC3
+        menu_adjust(18, 88, 1);
+    if (ver < 51) {
+        // moved MENU_MODES3 to MENU_BASE2
+        menu_adjust(26, 26, 43, 27, 69, -1);
+        // inserted MENU_EQN_FCN2
+        menu_adjust(87, INT_MAX, 1);
+    }
+    if (ver < 52)
+        // BASE enhancements
+        menu_adjust(69, 69, 7, 70, 71, 3, 72, INT_MAX, 7);
     if (ver < 54)
-        menu_adjust(55, INT_MAX, 3);
+        // inserted MENU_MODES_MENUS
+        menu_adjust(28, INT_MAX, 1);
     if (!read_bool(&mode_running)) return false;
-    if (ver < 46)
+    if (ver < 28)
         mode_caller_stack_lift_disabled = false;
     else if (!read_bool(&mode_caller_stack_lift_disabled))
         return false;
     if (!read_bool(&mode_varmenu)) return false;
+    if (ver < 19) {
+        mode_varmenu_whence = CATSECT_TOP;
+    } else {
+        if (!read_int(&mode_varmenu_whence)) return false;
+    }
     if (!read_bool(&mode_updown)) return false;
 
     if (!read_bool(&mode_getkey))
@@ -3957,45 +5834,43 @@ static bool load_state2(bool *clear, bool *too_new) {
     if (fread(entered_string, 1, 15, gfile) != 15) return false;
 
     if (!read_int(&pending_command)) return false;
-    if (!read_arg(&pending_command_arg)) return false;
+    if (!read_arg(&pending_command_arg, false)) return false;
     if (!read_int(&xeq_invisible)) return false;
 
     if (!read_int(&incomplete_command)) return false;
-    if (ver < 35) {
-        int temp;
-        if (!read_int(&temp)) return false;
-        incomplete_ind = temp != 0;
-        if (!read_int(&temp)) return false;
-        incomplete_alpha = temp != 0;
-    } else {
-        if (!read_bool(&incomplete_ind)) return false;
-        if (!read_bool(&incomplete_alpha)) return false;
-    }
+    if (!read_bool(&incomplete_ind)) return false;
+    if (!read_bool(&incomplete_alpha)) return false;
     if (!read_int(&incomplete_length)) return false;
     if (!read_int(&incomplete_maxdigits)) return false;
     if (!read_int(&incomplete_argtype)) return false;
     if (!read_int(&incomplete_num)) return false;
-    int isl = ver < 40 ? 7 : 22;
+    int isl = ver < 23 ? 22 : incomplete_length;
     if (fread(incomplete_str, 1, isl, gfile) != isl) return false;
     if (!read_int4(&incomplete_saved_pc)) return false;
     if (!read_int4(&incomplete_saved_highlight_row)) return false;
 
     if (fread(cmdline, 1, 100, gfile) != 100) return false;
     if (!read_int(&cmdline_length)) return false;
-    if (!read_int(&cmdline_row)) return false;
+    if (!read_int(&cmdline_unit)) return false;
+    if (ver < 13) {
+        int dummy;
+        if (!read_int(&dummy)) return false;
+    }
 
     if (!read_int(&matedit_mode)) return false;
-    if (ver < 47)
-        matedit_level = -2; // This is handled later in this function
+    if (ver < 12)
+        // Without a valid directory id, we can't reliably tell
+        // which variable matedit would have been referring to
+        matedit_mode = 0;
     else
-        if (!read_int(&matedit_level)) return false;
+        if (!read_int4(&matedit_dir)) return false;
     if (fread(matedit_name, 1, 7, gfile) != 7) return false;
     if (!read_int(&matedit_length)) return false;
     if (!unpersist_vartype(&matedit_x)) return false;
     if (!read_int4(&matedit_i)) return false;
     if (!read_int4(&matedit_j)) return false;
     if (!read_int(&matedit_prev_appmenu)) return false;
-    if (ver < 48) {
+    if (ver < 33) {
         matedit_stack = NULL;
         matedit_stack_depth = 0;
         matedit_is_list = false;
@@ -4004,33 +5879,50 @@ static bool load_state2(bool *clear, bool *too_new) {
         if (matedit_stack_depth == 0) {
             matedit_stack = NULL;
         } else {
-            matedit_stack = (int4 *) malloc(matedit_stack_depth * sizeof(int4));
+            matedit_stack = (matedit_stack_entry *) malloc(matedit_stack_depth * sizeof(matedit_stack_entry));
             if (matedit_stack == NULL) {
                 matedit_stack_depth = 0;
                 return false;
             }
-            for (int i = 0; i < matedit_stack_depth; i++)
-                if (!read_int4(matedit_stack + i)) {
-                    free(matedit_stack);
-                    matedit_stack = NULL;
-                    matedit_stack_depth = 0;
-                    return false;
+            if (false) {
+                nomem:
+                free(matedit_stack);
+                matedit_stack = NULL;
+                matedit_stack_depth = 0;
+                return false;
+            }
+            if (ver < 36)
+                for (int i = 0; i < matedit_stack_depth; i++) {
+                    int4 coord;
+                    if (!read_int4(&coord))
+                        goto nomem;
+                    matedit_stack[i].set(coord, -1);
+                }
+            else
+                for (int i = 0; i < matedit_stack_depth; i++) {
+                    int8 combined;
+                    if (!read_int8(&combined))
+                        goto nomem;
+                    matedit_stack[i].set(combined);
                 }
         }
         if (!read_bool(&matedit_is_list)) return false;
+        if (ver < 37) {
+            matedit_view_i = -1;
+            matedit_view_j = -1;
+        } else {
+            if (!read_int4(&matedit_view_i)) goto nomem;
+            if (!read_int4(&matedit_view_j)) goto nomem;
+        }
     }
 
     if (fread(input_name, 1, 11, gfile) != 11) return false;
     if (!read_int(&input_length)) return false;
-    if (!read_arg(&input_arg)) return false;
+    if (!read_arg(&input_arg, false)) return false;
 
-    if (ver < 39) {
-        lasterr = 0;
-    } else {
-        if (!read_int(&lasterr)) return false;
-        if (!read_int(&lasterr_length)) return false;
-        if (fread(lasterr_text, 1, 22, gfile) != 22) return false;
-    }
+    if (!read_int(&lasterr)) return false;
+    if (!read_int(&lasterr_length)) return false;
+    if (fread(lasterr_text, 1, 22, gfile) != 22) return false;
 
     if (!read_int(&baseapp)) return false;
 
@@ -4049,62 +5941,70 @@ static bool load_state2(bool *clear, bool *too_new) {
         return false;
     if (!unpersist_globals())
         return false;
-
-    /* When loading older states, figure out matedit_level.
-     * This is needed for EDITN and INDEX to keep working across
-     * upgrades. Note that we're not dealing with saved matrix
-     * info on the RTN stack, though, so this provides only
-     * partial compatibility, covering only the most common
-     * scenarios.
-     */
-    if (matedit_level == -2 && (matedit_mode == 1 || matedit_mode == 3)) {
-        matedit_level = -1;
-        for (int i = vars_count - 1; i >= 0; i--) {
-            var_struct *vs = vars + i;
-            if ((vs->flags & (VAR_HIDDEN | VAR_PRIVATE)) != 0)
-                continue;
-            if (string_equals(matedit_name, matedit_length, vs->name, vs->length)) {
-                matedit_level = vs->level;
-                break;
-            }
-        }
-    }
-
+    if (!unpersist_eqn(ver))
+        return false;
     if (!unpersist_math(ver))
         return false;
+    pc = line2pc(pc);
+    incomplete_saved_pc = line2pc(incomplete_saved_pc);
+
+    // It would be better to also prevent all the useless rebuild_label_table()
+    // calls that have happened during state file loading until this point.
+    // All that churn is harmless, but useless...
+    rebuild_label_table();
 
     if (!read_int4(&magic)) return false;
-    if (magic != FREE42_MAGIC)
+    if (magic != PLUS42_MAGIC)
         return false;
     if (!read_int4(&version)) return false;
     if (version != ver)
         return false;
 
+    // When parser or code generator bugs are fixed, or when the semantics of
+    // generated code are changed, re-parse all equations so all equation code
+    // is re-generated.
+    if (ver < 41) {
+        set_running(false);
+        clear_all_rtns();
+        pc = -1;
+        reparse_all_equations();
+        if (flags.f.prgm_mode && current_prgm.dir == 1)
+            force_redisplay = true;
+    }
+
+    // Update equation reference counts to account for all EMBED instructions
+    count_embed_references(root, true);
+    for (int i = 0; i < eq_dir->prgms_count; i++) {
+        /* Remove orphaned equations */
+        equation_data *eqd = eq_dir->prgms[i].eq_data;
+        if (eqd != NULL && eqd->refcount == 0) {
+            delete eqd;
+            eq_dir->prgms[i].eq_data = NULL;
+            free(eq_dir->prgms[i].text);
+            eq_dir->prgms[i].text = NULL;
+        }
+    }
+    count_embed_references(eq_dir, true);
+
     return true;
 }
 
-// See the comment for bug_mode at its declaration...
+bool load_state(bool *clear, bool *too_new) {
+    shared_data_count = 0;
+    shared_data_capacity = 0;
+    shared_data = NULL;
 
-bool load_state(int4 ver_p, bool *clear, bool *too_new) {
-    bug_mode = 0;
-    ver = ver_p;
-    long fpos = ftell(gfile);
-    if (load_state2(clear, too_new))
-        return true;
-    if (bug_mode != 3)
-        return false;
-    // bug_mode == 3 is the signal that the file looks screwy
-    // in the way caused by the buggy string-in-matrix writing
-    // in version 2.5
-    core_cleanup();
-    fseek(gfile, fpos, SEEK_SET);
-    bug_mode = 2;
-    return load_state2(clear, too_new);
+    loading_state = true;
+    bool ret = load_state2(clear, too_new);
+    loading_state = false;
+
+    free(shared_data);
+    return ret;
 }
 
-void save_state(bool *success) {
+static void save_state2(bool *success) {
     *success = false;
-    if (!write_int4(FREE42_MAGIC) || !write_int4(FREE42_VERSION))
+    if (!write_int4(PLUS42_MAGIC) || !write_int4(PLUS42_VERSION))
         return;
 
     // Write app version and platform, for troubleshooting purposes
@@ -4129,6 +6029,7 @@ void save_state(bool *success) {
     if (!write_bool(mode_alpha_entry)) return;
     if (!write_bool(mode_shift)) return;
     if (!write_int(mode_appmenu)) return;
+    if (!write_int(mode_auxmenu)) return;
     if (!write_int(mode_plainmenu)) return;
     if (!write_bool(mode_plainmenu_sticky)) return;
     if (!write_int(mode_transientmenu)) return;
@@ -4137,6 +6038,7 @@ void save_state(bool *success) {
     if (!write_bool(mode_running)) return;
     if (!write_bool(mode_caller_stack_lift_disabled)) return;
     if (!write_bool(mode_varmenu)) return;
+    if (!write_int(mode_varmenu_whence)) return;
     if (!write_bool(mode_updown)) return;
     if (!write_bool(mode_getkey)) return;
 
@@ -4155,16 +6057,16 @@ void save_state(bool *success) {
     if (!write_int(incomplete_maxdigits)) return;
     if (!write_int(incomplete_argtype)) return;
     if (!write_int(incomplete_num)) return;
-    if (fwrite(incomplete_str, 1, 22, gfile) != 22) return;
+    if (fwrite(incomplete_str, 1, incomplete_length, gfile) != incomplete_length) return;
     if (!write_int4(pc2line(incomplete_saved_pc))) return;
     if (!write_int4(incomplete_saved_highlight_row)) return;
 
     if (fwrite(cmdline, 1, 100, gfile) != 100) return;
     if (!write_int(cmdline_length)) return;
-    if (!write_int(cmdline_row)) return;
+    if (!write_int(cmdline_unit)) return;
 
     if (!write_int(matedit_mode)) return;
-    if (!write_int(matedit_level)) return;
+    if (!write_int4(matedit_dir)) return;
     if (fwrite(matedit_name, 1, 7, gfile) != 7) return;
     if (!write_int(matedit_length)) return;
     if (!persist_vartype(matedit_x)) return;
@@ -4173,8 +6075,10 @@ void save_state(bool *success) {
     if (!write_int(matedit_prev_appmenu)) return;
     if (!write_int(matedit_stack_depth)) return;
     for (int i = 0; i < matedit_stack_depth; i++)
-        if (!write_int4(matedit_stack[i])) return;
+        if (!write_int8(matedit_stack[i].as_int8())) return;
     if (!write_bool(matedit_is_list)) return;
+    if (!write_int4(matedit_view_i)) return;
+    if (!write_int4(matedit_view_j)) return;
 
     if (fwrite(input_name, 1, 11, gfile) != 11) return;
     if (!write_int(input_length)) return;
@@ -4201,12 +6105,28 @@ void save_state(bool *success) {
         return;
     if (!persist_globals())
         return;
+    if (!persist_eqn())
+        return;
     if (!persist_math())
         return;
 
-    if (!write_int4(FREE42_MAGIC)) return;
-    if (!write_int4(FREE42_VERSION)) return;
+    if (!write_int4(PLUS42_MAGIC)) return;
+    if (!write_int4(PLUS42_VERSION)) return;
     *success = true;
+}
+
+bool save_state() {
+    shared_data_count = 0;
+    shared_data_capacity = 0;
+    shared_data = NULL;
+
+    bool success;
+    saving_state = true;
+    save_state2(&success);
+    saving_state = false;
+
+    free(shared_data);
+    return success;
 }
 
 // Reason:
@@ -4214,13 +6134,10 @@ void save_state(bool *success) {
 // 1 = State File Corrupt
 // 2 = State File Too New
 void hard_reset(int reason) {
-    vartype *regs;
+    if (reason == 1)
+        core_cleanup();
 
-    /* Clear stack */
-    for (int i = 0; i <= sp; i++)
-        free_vartype(stack[i]);
-    free(stack);
-    free_vartype(lastx);
+    /* Create stack */
     sp = 3;
     stack_capacity = 4;
     stack = (vartype **) malloc(stack_capacity * sizeof(vartype *));
@@ -4228,45 +6145,29 @@ void hard_reset(int reason) {
         stack[i] = new_real(0);
     lastx = new_real(0);
 
-    /* Clear alpha */
-    reg_alpha_length = 0;
-
-    /* Clear variables */
-    purge_all_vars();
-    regs = new_realmatrix(25, 1);
-    store_var("REGS", 4, regs);
-
-    /* Clear RTN stack */
-    if (rtn_stack != NULL)
-        free(rtn_stack);
+    /* Create RTN stack */
     rtn_stack_capacity = 16;
     rtn_stack = (rtn_stack_entry *) malloc(rtn_stack_capacity * sizeof(rtn_stack_entry));
-    rtn_level = 0;
-    rtn_stop_level = -1;
-    rtn_solve_active = false;
-    rtn_integ_active = false;
 
-    /* Clear programs */
-    if (prgms != NULL) {
-        free(prgms);
-        prgms = NULL;
-        prgms_capacity = 0;
-        prgms_count = 0;
-    }
-    if (labels != NULL) {
-        free(labels);
-        labels = NULL;
-        labels_capacity = 0;
-        labels_count = 0;
-    }
+    /* Create eqns and root directories */
+    eq_dir = new directory(1);
+    map_dir(1, eq_dir);
+    root = new directory(2);
+    map_dir(2, root);
+    cwd = root;
+
+    /* Create REGS */
+    vartype *regs = new_realmatrix(25, 1);
+    store_var("REGS", 4, regs);
+
+    /* Initialize PRGM memory */
+    bool prev_loading_state = loading_state;
+    loading_state = true;
     goto_dot_dot(false);
+    loading_state = prev_loading_state;
 
     pending_command = CMD_NONE;
 
-    matedit_mode = 0;
-    matedit_stack_depth = 0;
-    free(matedit_stack);
-    matedit_stack = NULL;
     input_length = 0;
     baseapp = 0;
     random_number_low = 0;
@@ -4294,7 +6195,8 @@ void hard_reset(int reason) {
     flags.f.stack_lift_disable = 0;
     int df = shell_date_format();
     flags.f.dmy = df == 1;
-    flags.f.f32 = flags.f.f33 = 0;
+    flags.f.direct_solver = 1;
+    flags.f.prev_progmenu = 0;
     flags.f.agraph_control1 = 0;
     flags.f.agraph_control0 = 0;
     flags.f.digits_bit3 = 0;
@@ -4311,11 +6213,11 @@ void hard_reset(int reason) {
     /* flags.f.VIRTUAL_variable_menu = 0; */
     /* flags.f.VIRTUAL_alpha_mode = 0; */
     /* flags.f.VIRTUAL_low_battery = 0; */
-    flags.f.message = 1;
-    flags.f.two_line_message = 0;
+    /* flags.f.VIRTUAL_message = 1; */
+    /* flags.f.VIRTUAL_two_line_message = 0; */
     flags.f.prgm_mode = 0;
     /* flags.f.VIRTUAL_input = 0; */
-    flags.f.f54 = 0;
+    flags.f.eqn_compat = 0;
     flags.f.printer_exists = 0;
     flags.f.lin_fit = 1;
     flags.f.log_fit = 0;
@@ -4356,13 +6258,16 @@ void hard_reset(int reason) {
     mode_alphamenu = MENU_NONE;
     mode_transientmenu = MENU_NONE;
     mode_plainmenu = MENU_NONE;
+    mode_auxmenu = MENU_NONE;
     mode_appmenu = MENU_NONE;
     mode_running = false;
     mode_getkey = false;
     mode_pause = false;
     mode_caller_stack_lift_disabled = false;
     mode_varmenu = false;
+    mode_varmenu_whence = CATSECT_TOP;
     prgm_highlight_row = 0;
+    varmenu_eqn = NULL;
     varmenu_length = 0;
     mode_updown = false;
     mode_sigma_reg = 11;
@@ -4378,25 +6283,35 @@ void hard_reset(int reason) {
     mode_hex_sep = false;
     mode_menu_caps = false;
     mode_menu_static = false;
+    mode_header = true;
+    mode_amort_seq = 0;
+    mode_plot_viewer = false;
+    mode_plot_key = 0;
+    mode_plot_sp = 0;
+    mode_plot_inv = NULL;
+    mode_plot_result_width = 0;
+    mode_multi_line = true;
+    mode_lastx_top = false;
+#ifdef PX42
+    mode_alpha_top = true; /* ALPHA on top, as on the PX-42F */
+#else
+    mode_alpha_top = false;
+#endif
+    mode_header_flags = false;
+    mode_header_polar = false;
+    mode_matedit_stk = false;
 
-    reset_math();
-
-    clear_display();
-    clear_custom_menu();
-    clear_prgm_menu();
     switch (reason) {
         case 0:
-            draw_string(0, 0, "Memory Clear", 12);
+            draw_message(0, "Memory Clear", 12, false);
             break;
         case 1:
-            draw_string(0, 0, "State File Corrupt", 18);
+            draw_message(0, "State File Corrupt", 18, false);
             break;
         case 2:
-            draw_string(0, 0, "State File Too New", 18);
+            draw_message(0, "State File Too New", 18, false);
             break;
     }
-    display_x(1);
-    flush_display();
 }
 
 #ifdef IPHONE

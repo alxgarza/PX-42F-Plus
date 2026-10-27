@@ -16,7 +16,7 @@
 #define SETTINGS_FLASH_OFFSET (4u * 1024u * 1024u - FLASH_SECTOR_SIZE)
 
 #define SETTINGS_MAGIC   0x32345850u /* "PX42" */
-#define SETTINGS_VERSION 8           /* bump when px_settings_t changes */
+#define SETTINGS_VERSION 9           /* bump when px_settings_t changes */
 
 typedef struct {
     uint32_t magic;
@@ -66,6 +66,7 @@ static const px_settings_t defaults = {
     .clock_24h = true,
     .small_font = "",
     .large_font = "",
+    .mini_font = "",
 };
 
 /* FNV-1a over everything before the checksum field. */
@@ -86,21 +87,29 @@ static const settings_record_t *stored_record(void) {
 }
 
 /* Version 7 was today's layout without the fonts, which were added at the
- * end: its settings are the first V7_SIZE bytes, its checksum right after. */
+ * end: its settings are the first V7_SIZE bytes, its checksum right after.
+ * Version 8, likewise, without the mini font -- its settings ended in
+ * chars, so the struct's padding to 8 (it holds a uint64_t) came before
+ * the checksum. */
 #define V7_SIZE        offsetof(px_settings_t, small_font)
 #define V7_CHECKSUM_AT (offsetof(settings_record_t, settings) + V7_SIZE)
+#define V8_SIZE        offsetof(px_settings_t, mini_font)
+#define V8_CHECKSUM_AT (offsetof(settings_record_t, settings) + ((V8_SIZE + 7) & ~(size_t) 7))
 
-/* The current layout, or one of the two before -- version 6 too: settings
- * are only written when one changes, so a calculator can still hold it.
- * Anything older gets the defaults. */
+/* The current layout, or one of the three before -- versions 6 and 7 too:
+ * settings are only written when one changes, so a calculator can still
+ * hold them. Anything older gets the defaults. */
 void settings_load(void) {
     const settings_record_t *r = stored_record();
     const settings_record_v6_t *r6 = (const settings_record_v6_t *) r;
-    uint32_t v7_checksum;
+    uint32_t v7_checksum, v8_checksum;
     memcpy(&v7_checksum, (const uint8_t *) r + V7_CHECKSUM_AT, sizeof(v7_checksum));
+    memcpy(&v8_checksum, (const uint8_t *) r + V8_CHECKSUM_AT, sizeof(v8_checksum));
     px_settings = defaults;
     if (r->magic == SETTINGS_MAGIC && r->version == SETTINGS_VERSION && r->checksum == checksum(r)) {
         px_settings = r->settings;
+    } else if (r->magic == SETTINGS_MAGIC && r->version == 8 && v8_checksum == checksum_bytes(r, V8_CHECKSUM_AT)) {
+        memcpy(&px_settings, &r->settings, V8_SIZE);
     } else if (r->magic == SETTINGS_MAGIC && r->version == 7 && v7_checksum == checksum_bytes(r, V7_CHECKSUM_AT)) {
         memcpy(&px_settings, &r->settings, V7_SIZE);
     } else if (r6->magic == SETTINGS_MAGIC && r6->version == 6
@@ -124,6 +133,7 @@ void settings_load(void) {
     px_settings.key_sound[KEY_SOUND_NAME_MAX] = 0;
     px_settings.small_font[FONT_SETTING_MAX] = 0;
     px_settings.large_font[FONT_SETTING_MAX] = 0;
+    px_settings.mini_font[FONT_SETTING_MAX] = 0;
     if (px_settings.date_format > RTC_WMD)
         px_settings.date_format = RTC_YMD;
 }

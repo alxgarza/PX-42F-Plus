@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,29 +19,65 @@
 
 #include "core_math1.h"
 #include "core_commands2.h"
+#include "core_commands8.h"
+#include "core_commandsa.h"
 #include "core_display.h"
 #include "core_globals.h"
 #include "core_helpers.h"
 #include "core_main.h"
+#include "core_parser.h"
 #include "core_variables.h"
 #include "shell.h"
 
-#define SOLVE_VERSION 4
-#define INTEG_VERSION 3
 #define NUM_SHADOWS 10
+
+struct caller_info {
+    int keep_running;
+    pgm_index prev_prgm;
+    int4 prev_pc;
+    void set(int prev) {
+        if (prev != 0) {
+            prev_prgm.set(0, prev);
+            prev_pc = 0;
+        } else {
+            prev_prgm = current_prgm;
+            prev_pc = pc;
+        }
+    }
+    int ret(int err) {
+        if (prev_prgm.idx == -5) {
+            return return_to_plot(err != ERR_NONE, err == ERR_NONE && !keep_running);
+        } else if (prev_prgm.idx == -3) {
+            return return_to_integ(err == ERR_NONE && !keep_running);
+        } else {
+            current_prgm = prev_prgm;
+            pc = prev_pc;
+            returning_from_solve_integ_or_plot();
+            return err != ERR_NONE ? err : keep_running ? ERR_NONE : ERR_STOP;
+        }
+    }
+    void equation_deleted(int equation_index) {
+        if (prev_prgm.dir == eq_dir->id && prev_prgm.idx == equation_index) {
+            prev_prgm.dir = cwd->id;
+            prev_prgm.idx = cwd->prgms_count - 1;
+            prev_pc = cwd->prgms[cwd->prgms_count - 1].size - 2;
+        }
+    }
+};
 
 /* Solver */
 struct solve_state {
     int version;
+    vartype *eq;
     char prgm_name[7];
     int prgm_length;
+    vartype *active_eq;
     char active_prgm_name[7];
     int active_prgm_length;
+    vartype *saved_t;
     char var_name[7];
     int var_length;
-    int keep_running;
-    int prev_prgm;
-    int4 prev_pc;
+    caller_info caller;
     int state;
     int which;
     int toggle;
@@ -55,11 +91,19 @@ struct solve_state {
     phloat best_f, best_x, second_f, second_x;
     char shadow_name[NUM_SHADOWS][7];
     int shadow_length[NUM_SHADOWS];
-    phloat shadow_value[NUM_SHADOWS];
+    vartype *shadow_value[NUM_SHADOWS];
     uint4 last_disp_time;
     int prev_sp;
+    vartype *param_unit;
     phloat f_gap;
     int f_gap_worsening_counter;
+    solve_state() : eq(NULL), active_eq(NULL), saved_t(NULL), param_unit(NULL) {
+        prgm_length = 0;
+        for (int i = 0; i < NUM_SHADOWS; i++) {
+            shadow_length[i] = 0;
+            shadow_value[i] = NULL;
+        }
+    }
 };
 
 static solve_state solve;
@@ -71,15 +115,16 @@ static solve_state solve;
 /* Integrator */
 struct integ_state {
     int version;
+    vartype *eq;
     char prgm_name[7];
     int prgm_length;
+    vartype *active_eq;
     char active_prgm_name[7];
     int active_prgm_length;
+    vartype *saved_t;
     char var_name[7];
     int var_length;
-    int keep_running;
-    int prev_prgm;
-    int4 prev_pc;
+    caller_info caller;
     int state;
     phloat llim, ulim, acc;
     phloat a, b, eps;
@@ -93,6 +138,11 @@ struct integ_state {
     phloat prev_int;
     phloat prev_res;
     int prev_sp;
+    vartype *param_unit;
+    vartype *result_unit;
+    integ_state() : eq(NULL), active_eq(NULL), saved_t(NULL), param_unit(NULL), result_unit(NULL) {
+        prgm_length = 0;
+    }
 };
 
 static integ_state integ;
@@ -104,18 +154,23 @@ static void reset_integ();
 
 bool persist_math() {
     if (!write_int(solve.version)) return false;
+    if (!persist_vartype(solve.eq)) return false;
     if (fwrite(solve.prgm_name, 1, 7, gfile) != 7) return false;
     if (!write_int(solve.prgm_length)) return false;
+    if (!persist_vartype(solve.active_eq)) return false;
     if (fwrite(solve.active_prgm_name, 1, 7, gfile) != 7) return false;
     if (!write_int(solve.active_prgm_length)) return false;
+    if (!persist_vartype(solve.saved_t)) return false;
     if (fwrite(solve.var_name, 1, 7, gfile) != 7) return false;
     if (!write_int(solve.var_length)) return false;
-    if (!write_int(solve.keep_running)) return false;
+    if (!write_int(solve.caller.keep_running)) return false;
     if (solve_active()) {
-        if (!write_int(solve.prev_prgm)) return false;
-        if (!write_int4(global_pc2line(solve.prev_prgm, solve.prev_pc))) return false;
+        if (!write_int4(solve.caller.prev_prgm.dir)) return false;
+        if (!write_int4(solve.caller.prev_prgm.idx)) return false;
+        if (!write_int4(global_pc2line(solve.caller.prev_prgm, solve.caller.prev_pc))) return false;
     } else {
-        if (!write_int(0)) return false;
+        if (!write_int4(0)) return false;
+        if (!write_int4(0)) return false;
         if (!write_int4(0)) return false;
     }
     if (!write_int(solve.state)) return false;
@@ -141,24 +196,30 @@ bool persist_math() {
     for (int i = 0; i < NUM_SHADOWS; i++) {
         if (fwrite(solve.shadow_name[i], 1, 7, gfile) != 7) return false;
         if (!write_int(solve.shadow_length[i])) return false;
-        if (!write_phloat(solve.shadow_value[i])) return false;
+        if (!persist_vartype(solve.shadow_value[i])) return false;
     }
     if (!write_int4(solve.last_disp_time)) return false;
     if (!write_int(solve.prev_sp)) return false;
+    if (!persist_vartype(solve.param_unit)) return false;
 
     if (!write_int(integ.version)) return false;
+    if (!persist_vartype(integ.eq)) return false;
     if (fwrite(integ.prgm_name, 1, 7, gfile) != 7) return false;
     if (!write_int(integ.prgm_length)) return false;
+    if (!persist_vartype(integ.active_eq)) return false;
     if (fwrite(integ.active_prgm_name, 1, 7, gfile) != 7) return false;
     if (!write_int(integ.active_prgm_length)) return false;
+    if (!persist_vartype(integ.saved_t)) return false;
     if (fwrite(integ.var_name, 1, 7, gfile) != 7) return false;
     if (!write_int(integ.var_length)) return false;
-    if (!write_int(integ.keep_running)) return false;
+    if (!write_int(integ.caller.keep_running)) return false;
     if (integ_active()) {
-        if (!write_int(integ.prev_prgm)) return false;
-        if (!write_int4(global_pc2line(integ.prev_prgm, integ.prev_pc))) return false;
+        if (!write_int4(integ.caller.prev_prgm.dir)) return false;
+        if (!write_int4(integ.caller.prev_prgm.idx)) return false;
+        if (!write_int4(global_pc2line(integ.caller.prev_prgm, integ.caller.prev_pc))) return false;
     } else {
-        if (!write_int(0)) return false;
+        if (!write_int4(0)) return false;
+        if (!write_int4(0)) return false;
         if (!write_int4(0)) return false;
     }
     if (!write_int(integ.state)) return false;
@@ -185,27 +246,39 @@ bool persist_math() {
     if (!write_phloat(integ.prev_int)) return false;
     if (!write_phloat(integ.prev_res)) return false;
     if (!write_int(integ.prev_sp)) return false;
+    if (!persist_vartype(integ.param_unit)) return false;
+    if (!persist_vartype(integ.result_unit)) return false;
     return true;
 }
 
 bool unpersist_math(int ver) {
     if (!read_int(&solve.version)) return false;
+    if (!unpersist_vartype(&solve.eq)) return false;
     if (fread(solve.prgm_name, 1, 7, gfile) != 7) return false;
     if (!read_int(&solve.prgm_length)) return false;
+    if (!unpersist_vartype(&solve.active_eq)) return false;
     if (fread(solve.active_prgm_name, 1, 7, gfile) != 7) return false;
     if (!read_int(&solve.active_prgm_length)) return false;
+    if (!unpersist_vartype(&solve.saved_t)) return false;
     if (fread(solve.var_name, 1, 7, gfile) != 7) return false;
     if (!read_int(&solve.var_length)) return false;
-    if (!read_int(&solve.keep_running)) return false;
-    if (!read_int(&solve.prev_prgm)) return false;
-    if (!read_int4(&solve.prev_pc)) return false;
+    if (!read_int(&solve.caller.keep_running)) return false;
+    int4 dir, idx;
+    if (ver < 9) {
+        dir = root->id;
+    } else {
+        if (!read_int4(&dir)) return false;
+    }
+    if (!read_int4(&idx)) return false;
+    solve.caller.prev_prgm.set(dir, idx);
+    if (!read_int4(&solve.caller.prev_pc)) return false;
     if (solve_active())
-        solve.prev_pc = global_line2pc(solve.prev_prgm, solve.prev_pc);
+        solve.caller.prev_pc = global_line2pc(solve.caller.prev_prgm, solve.caller.prev_pc);
     if (!read_int(&solve.state)) return false;
     if (!read_int(&solve.which)) return false;
     if (!read_int(&solve.toggle)) return false;
     if (!read_int(&solve.retry_counter)) return false;
-    if (ver < 45) {
+    if (ver < 24) {
         solve.secant_impatience = 0;
     } else {
         if (!read_int(&solve.secant_impatience)) return false;
@@ -221,39 +294,54 @@ bool unpersist_math(int ver) {
     if (!read_phloat(&solve.curr_f)) return false;
     if (!read_phloat(&solve.xm)) return false;
     if (!read_phloat(&solve.fxm)) return false;
-    if (ver >= 29) {
-        if (!read_phloat(&solve.best_f)) return false;
-        if (!read_phloat(&solve.best_x)) return false;
-        if (!read_phloat(&solve.second_f)) return false;
-        if (!read_phloat(&solve.second_x)) return false;
-    } else {
-        solve.best_f = solve.second_f = POS_HUGE_PHLOAT;
-        solve.best_x = solve.second_x = 0;
-    }
+    if (!read_phloat(&solve.best_f)) return false;
+    if (!read_phloat(&solve.best_x)) return false;
+    if (!read_phloat(&solve.second_f)) return false;
+    if (!read_phloat(&solve.second_x)) return false;
     for (int i = 0; i < NUM_SHADOWS; i++) {
         if (fread(solve.shadow_name[i], 1, 7, gfile) != 7) return false;
         if (!read_int(&solve.shadow_length[i])) return false;
-        if (!read_phloat(&solve.shadow_value[i])) return false;
+        if (ver < 8) {
+            phloat x;
+            if (!read_phloat(&x)) return false;
+            vartype *v = new_real(x);
+            if (v == NULL)
+                return false;
+            solve.shadow_value[i] = v;
+        } else {
+            if (!unpersist_vartype(&solve.shadow_value[i])) return false;
+        }
     }
     if (!read_int4((int4 *) &solve.last_disp_time)) return false;
-    if (ver >= 33) {
-        if (!read_int(&solve.prev_sp)) return false;
+    if (!read_int(&solve.prev_sp)) return false;
+    if (ver < 8) {
+        solve.param_unit = NULL;
     } else {
-        solve.prev_sp = -2;
+        if (!unpersist_vartype(&solve.param_unit)) return false;
     }
+    solve.f_gap = NAN_PHLOAT;
 
     if (!read_int(&integ.version)) return false;
+    if (!unpersist_vartype(&integ.eq)) return false;
     if (fread(integ.prgm_name, 1, 7, gfile) != 7) return false;
     if (!read_int(&integ.prgm_length)) return false;
+    if (!unpersist_vartype(&integ.active_eq)) return false;
     if (fread(integ.active_prgm_name, 1, 7, gfile) != 7) return false;
     if (!read_int(&integ.active_prgm_length)) return false;
+    if (!unpersist_vartype(&integ.saved_t)) return false;
     if (fread(integ.var_name, 1, 7, gfile) != 7) return false;
     if (!read_int(&integ.var_length)) return false;
-    if (!read_int(&integ.keep_running)) return false;
-    if (!read_int(&integ.prev_prgm)) return false;
-    if (!read_int4(&integ.prev_pc)) return false;
+    if (!read_int(&integ.caller.keep_running)) return false;
+    if (ver < 9) {
+        dir = root->id;
+    } else {
+        if (!read_int4(&dir)) return false;
+    }
+    if (!read_int4(&idx)) return false;
+    integ.caller.prev_prgm.set(dir, idx);
+    if (!read_int4(&integ.caller.prev_pc)) return false;
     if (integ_active())
-        integ.prev_pc = global_line2pc(integ.prev_prgm, integ.prev_pc);
+        integ.caller.prev_pc = global_line2pc(integ.caller.prev_prgm, integ.caller.prev_pc);
     if (!read_int(&integ.state)) return false;
     if (!read_phloat(&integ.llim)) return false;
     if (!read_phloat(&integ.ulim)) return false;
@@ -277,13 +365,14 @@ bool unpersist_math(int ver) {
     if (!read_phloat(&integ.u)) return false;
     if (!read_phloat(&integ.prev_int)) return false;
     if (!read_phloat(&integ.prev_res)) return false;
-    if (ver >= 33) {
-        if (!read_int(&integ.prev_sp)) return false;
+    if (!read_int(&integ.prev_sp)) return false;
+    if (ver < 8) {
+        integ.param_unit = NULL;
+        integ.result_unit = NULL;
     } else {
-        integ.prev_sp = -2;
+        if (!unpersist_vartype(&integ.param_unit)) return false;
+        if (!unpersist_vartype(&integ.result_unit)) return false;
     }
-    solve.f_gap = NAN_PHLOAT;
-
     return true;
 }
 
@@ -292,7 +381,12 @@ void reset_math() {
     reset_integ();
 }
 
-static void clean_stack(int prev_sp) {
+void math_equation_deleted(int eqn_index) {
+    solve.caller.equation_deleted(eqn_index);
+    integ.caller.equation_deleted(eqn_index);
+}
+
+void clean_stack(int prev_sp) {
     if (flags.f.big_stack && prev_sp != -2 && sp > prev_sp) {
         int excess = sp - prev_sp;
         for (int i = 0; i < excess; i++)
@@ -301,15 +395,40 @@ static void clean_stack(int prev_sp) {
     }
 }
 
+static void restore_t(vartype *t) {
+    if (t == NULL || flags.f.big_stack)
+        return;
+    t = dup_vartype(t);
+    if (t == NULL)
+        return;
+    free_vartype(stack[REG_X]);
+    stack[REG_X] = stack[REG_Y];
+    stack[REG_Y] = stack[REG_Z];
+    stack[REG_Z] = stack[REG_T];
+    stack[REG_T] = t;
+}
+
 static void reset_solve() {
     int i;
-    for (i = 0; i < NUM_SHADOWS; i++)
+    for (i = 0; i < NUM_SHADOWS; i++) {
         solve.shadow_length[i] = 0;
+        free_vartype(solve.shadow_value[i]);
+        solve.shadow_value[i] = NULL;
+    }
+    free_vartype(solve.eq);
+    solve.eq = NULL;
     solve.prgm_length = 0;
+    free_vartype(solve.active_eq);
+    solve.active_eq = NULL;
     solve.active_prgm_length = 0;
+    free_vartype(solve.saved_t);
+    solve.saved_t = NULL;
     solve.state = 0;
+    free_vartype(solve.param_unit);
+    solve.param_unit = NULL;
     if (mode_appmenu == MENU_SOLVE)
         set_menu_return_err(MENULEVEL_APP, MENU_NONE, true);
+    solve.caller.prev_prgm.set(root->id, 0);
 }
 
 static int find_shadow(const char *name, int length) {
@@ -321,7 +440,7 @@ static int find_shadow(const char *name, int length) {
     return -1;
 }
 
-void put_shadow(const char *name, int length, phloat value) {
+void put_shadow(const char *name, int length, vartype *value) {
     remove_shadow(name, length);
     int i;
     for (i = 0; i < NUM_SHADOWS; i++)
@@ -330,6 +449,7 @@ void put_shadow(const char *name, int length, phloat value) {
     /* No empty slots available. Remove slot 0 (the oldest) and
      * move all subsequent ones down, freeing up slot NUM_SHADOWS - 1
      */
+    free_vartype(solve.shadow_value[0]);
     for (i = 0; i < NUM_SHADOWS - 1; i++) {
         string_copy(solve.shadow_name[i], &solve.shadow_length[i],
                     solve.shadow_name[i + 1], solve.shadow_length[i + 1]);
@@ -337,45 +457,78 @@ void put_shadow(const char *name, int length, phloat value) {
     }
     do_insert:
     string_copy(solve.shadow_name[i], &solve.shadow_length[i], name, length);
-    solve.shadow_value[i] = value;
+    solve.shadow_value[i] = dup_vartype(value);
 }
 
-bool get_shadow(const char *name, int length, phloat *value) {
+vartype *get_shadow(const char *name, int length) {
     int i = find_shadow(name, length);
     if (i == -1)
-        return false;
-    *value = solve.shadow_value[i];
-    return true;
+        return NULL;
+    else
+        return solve.shadow_value[i];
 }
 
 void remove_shadow(const char *name, int length) {
     int i = find_shadow(name, length);
     if (i == -1)
         return;
+    free_vartype(solve.shadow_value[i]);
     while (i < NUM_SHADOWS - 1) {
         string_copy(solve.shadow_name[i], &solve.shadow_length[i],
                     solve.shadow_name[i + 1], solve.shadow_length[i + 1]);
         solve.shadow_value[i] = solve.shadow_value[i + 1];
         i++;
     }
+    solve.shadow_value[NUM_SHADOWS - 1] = NULL;
     solve.shadow_length[NUM_SHADOWS - 1] = 0;
 }
 
 void set_solve_prgm(const char *name, int length) {
     string_copy(solve.prgm_name, &solve.prgm_length, name, length);
+    free_vartype(solve.eq);
+    solve.eq = NULL;
+}
+
+int set_solve_eqn(vartype *eq) {
+    free_vartype(solve.eq);
+    solve.eq = dup_vartype(eq);
+    return solve.eq == NULL ? ERR_INSUFFICIENT_MEMORY : ERR_NONE;
 }
 
 static int call_solve_fn(int which, int state) {
-    if (solve.active_prgm_length == 0)
+    if (solve.active_eq == NULL && solve.active_prgm_length == 0)
         return ERR_NONEXISTENT;
     int err, i;
     arg_struct arg;
-    vartype *v = recall_var(solve.var_name, solve.var_length);
+    vartype *v;
     phloat x = which == 1 ? solve.x1 : which == 2 ? solve.x2 : solve.x3;
     solve.prev_x = solve.curr_x;
     solve.curr_x = x;
-    if (v == NULL || v->type != TYPE_REAL) {
-        v = new_real(x);
+    if (solve.var_length == 0) {
+        if (solve.param_unit == 0) {
+            v = new_real(x);
+        } else {
+            vartype_unit *u = (vartype_unit *) solve.param_unit;
+            v = new_unit(x, u->text, u->length);
+        }
+        if (v == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+    } else if (solve.param_unit == NULL) {
+        v = recall_var(solve.var_name, solve.var_length);
+        if (v == NULL || v->type != TYPE_REAL) {
+            v = new_real(x);
+            if (v == NULL)
+                return ERR_INSUFFICIENT_MEMORY;
+            err = store_var(solve.var_name, solve.var_length, v);
+            if (err != ERR_NONE) {
+                free_vartype(v);
+                return err;
+            }
+        } else
+            ((vartype_real *) v)->x = x;
+    } else {
+        vartype_unit *u = (vartype_unit *) solve.param_unit;
+        v = new_unit(x, u->text, u->length);
         if (v == NULL)
             return ERR_INSUFFICIENT_MEMORY;
         err = store_var(solve.var_name, solve.var_length, v);
@@ -383,38 +536,158 @@ static int call_solve_fn(int which, int state) {
             free_vartype(v);
             return err;
         }
-    } else
-        ((vartype_real *) v)->x = x;
+    }
     solve.which = which;
     solve.state = state;
-    arg.type = ARGTYPE_STR;
-    arg.length = solve.active_prgm_length;
-    for (i = 0; i < arg.length; i++)
-        arg.val.text[i] = solve.active_prgm_name[i];
-    clean_stack(solve.prev_sp);
-    err = docmd_gto(&arg);
-    if (err != ERR_NONE) {
-        free_vartype(v);
-        return err;
+    if (solve.active_eq == NULL) {
+        arg.type = ARGTYPE_STR;
+        arg.length = solve.active_prgm_length;
+        for (i = 0; i < arg.length; i++)
+            arg.val.text[i] = solve.active_prgm_name[i];
+        clean_stack(solve.prev_sp);
+        err = docmd_gto(&arg);
+        if (err != ERR_NONE)
+            return err;
+    } else {
+        clean_stack(solve.prev_sp);
+        vartype_equation *eq = (vartype_equation *) solve.active_eq;
+        current_prgm.set(eq_dir->id, eq->data->eqn_index);
+        pc = 0;
     }
-    err = push_rtn_addr(-2, 0);
-    if (err != ERR_NONE) {
-        current_prgm = solve.prev_prgm;
-        pc = solve.prev_pc;
-        return err;
-    } else
+    if (solve.var_length == 0) {
+        err = recall_result(v);
+        if (err != ERR_NONE)
+            return err;
+    }
+    pgm_index solve_index;
+    solve_index.set(0, -2);
+    err = push_rtn_addr(solve_index, 0);
+    if (err == ERR_NONE) {
+        if (solve.active_eq != NULL) {
+            err = store_stack_reference(solve.active_eq);
+            if (err != ERR_NONE)
+                goto fail;
+        }
         return ERR_RUN;
+    } else {
+        fail:
+        return solve.caller.ret(err);
+    }
 }
 
-int start_solve(const char *name, int length, phloat x1, phloat x2) {
+static int start_solve_2(vartype *v1, vartype *v2, bool after_direct);
+
+int start_solve(int prev, const char *name, int length, vartype *v1, vartype *v2, vartype **saved_inv) {
     if (solve_active())
         return ERR_SOLVE_SOLVE;
     string_copy(solve.var_name, &solve.var_length, name, length);
     string_copy(solve.active_prgm_name, &solve.active_prgm_length,
                 solve.prgm_name, solve.prgm_length);
-    solve.prev_prgm = current_prgm;
-    solve.prev_pc = pc;
+    free_vartype(solve.saved_t);
+    if (!flags.f.big_stack && solve.eq != NULL)
+        solve.saved_t = dup_vartype(stack[REG_T]);
+    else
+        solve.saved_t = NULL;
+    solve.caller.set(prev);
     solve.prev_sp = flags.f.big_stack ? sp : -2;
+
+    // Try direct solution
+    if (solve.eq != NULL && flags.f.direct_solver) {
+        vartype *inv;
+        if (saved_inv != NULL && *saved_inv != NULL) {
+            inv = *saved_inv;
+        } else {
+            inv = isolate(solve.eq, name, length);
+            if (saved_inv != NULL)
+                *saved_inv = inv;
+        }
+        if (inv != NULL) {
+            solve.caller.keep_running = !should_i_stop_at_this_level() && program_running();
+
+            solve.state = 8;
+            clean_stack(solve.prev_sp);
+            current_prgm.set(eq_dir->id, ((vartype_equation *) inv)->data->eqn_index);
+            pc = 0;
+
+            vartype *v = dup_vartype(v1);
+            if (v != NULL)
+                store_private_var("X1", 2, v);
+            v = dup_vartype(v2);
+            if (v != NULL)
+                store_private_var("X2", 2, v);
+
+            pgm_index solve_index;
+            solve_index.set(0, -2);
+            int err = push_rtn_addr(solve_index, 0);
+            if (err == ERR_NONE) {
+                if (saved_inv == NULL) {
+                    err = store_private_var("REF", 3, inv);
+                    if (err != ERR_NONE)
+                        goto fail;
+                }
+                return ERR_RUN;
+            } else {
+                fail:
+                if (saved_inv == NULL)
+                    free_vartype(inv);
+                return solve.caller.ret(err);
+            }
+        }
+    }
+    return start_solve_2(v1, v2, false);
+}
+
+static int start_solve_2(vartype *v1, vartype *v2, bool after_direct) {
+    free_vartype(solve.param_unit);
+    solve.param_unit = NULL;
+
+    phloat x1, x2;
+    if (v1 == NULL) {
+        x1 = 0;
+        x2 = 1;
+    } else if (v1->type == TYPE_STRING) {
+        return ERR_ALPHA_DATA_IS_INVALID;
+    } else if (v2 == NULL) {
+        one_guess:
+        if (v1->type == TYPE_REAL) {
+            x1 = ((vartype_real *) v1)->x;
+            x2 = x1;
+        } else if (v1->type == TYPE_UNIT) {
+            solve.param_unit = dup_vartype(v1);
+            if (solve.param_unit == NULL)
+                return ERR_INSUFFICIENT_MEMORY;
+            x1 = ((vartype_unit *) v1)->x;
+            x2 = x1;
+        } else
+            return ERR_INVALID_TYPE;
+    } else if (v2->type == TYPE_STRING) {
+        return ERR_ALPHA_DATA_IS_INVALID;
+    } else if ((v1->type == TYPE_REAL || v1->type == TYPE_UNIT)
+            && (v2->type == TYPE_REAL || v2->type == TYPE_UNIT)) {
+        x1 = ((vartype_real *) v1)->x;
+        int err = convert_helper(v1, v2, &x2);
+        if (err != ERR_NONE)
+            goto one_guess;
+        if (v1->type == TYPE_UNIT) {
+            solve.param_unit = dup_vartype(v1);
+            if (solve.param_unit == NULL)
+                return ERR_INSUFFICIENT_MEMORY;
+        }
+    } else {
+        return ERR_INVALID_TYPE;
+    }
+
+    if (solve.eq != NULL) {
+        vartype *eq = dup_vartype(solve.eq);
+        if (eq == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+        free_vartype(solve.active_eq);
+        solve.active_eq = eq;
+    } else {
+        free_vartype(solve.active_eq);
+        solve.active_eq = NULL;
+    }
+
     if (x1 == x2) {
         if (x1 == 0) {
             x2 = 1;
@@ -444,29 +717,20 @@ int start_solve(const char *name, int length, phloat x1, phloat x2) {
     solve.toggle = 1;
     solve.secant_impatience = 0;
     solve.f_gap = NAN_PHLOAT;
-    solve.keep_running = !should_i_stop_at_this_level() && program_running();
+    if (!after_direct)
+        solve.caller.keep_running = !should_i_stop_at_this_level() && program_running();
     return call_solve_fn(1, 1);
 }
 
-struct message_spec {
-    const char *text;
-    int length;
-};
-
-#define SOLVE_ROOT          0
-#define SOLVE_SIGN_REVERSAL 1
-#define SOLVE_EXTREMUM      2
-#define SOLVE_BAD_GUESSES   3
-#define SOLVE_CONSTANT      4
-#define SOLVE_NOT_SURE     -1
-
-static const message_spec solve_message[] = {
+const message_spec solve_message[] = {
     { NULL,             0 },
     { "Sign Reversal", 13 },
     { "Extremum",       8 },
     { "Bad Guess(es)", 13 },
     { "Constant?",      9 }
 };
+
+#define SOLVE_NOT_SURE -1
 
 static int finish_solve(int message) {
     vartype *v, *new_x, *new_y, *new_z, *new_t;
@@ -519,12 +783,33 @@ static int finish_solve(int message) {
 
     solve.state = 0;
 
+    free_vartype(solve.active_eq);
+    solve.active_eq = NULL;
+    free_vartype(solve.saved_t);
+    solve.saved_t = NULL;
+
     clean_stack(solve.prev_sp);
-    v = recall_var(solve.var_name, solve.var_length);
-    ((vartype_real *) v)->x = b;
+    if (solve.param_unit == NULL) {
+        v = new_real(b);
+        if (v == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+    } else {
+        v = solve.param_unit;
+        solve.param_unit = NULL;
+        ((vartype_unit *) v)->x = b;
+    }
+    if (solve.var_length > 0) {
+        int err = store_var(solve.var_name, solve.var_length, v);
+        if (err != ERR_NONE) {
+            free_vartype(v);
+            return err;
+        }
+        v = dup_vartype(v);
+    }
+
     if (flags.f.big_stack && !ensure_stack_capacity(4))
         return ERR_INSUFFICIENT_MEMORY;
-    new_x = dup_vartype(v);
+    new_x = v;
     new_y = new_real(s);
     new_z = new_real(final_f);
     new_t = new_real(message);
@@ -545,32 +830,26 @@ static int finish_solve(int message) {
     stack[sp - 2] = new_z;
     stack[sp - 3] = new_t;
 
-    current_prgm = solve.prev_prgm;
-    pc = solve.prev_pc;
-
     arg.type = ARGTYPE_STR;
     string_copy(arg.val.text, &dummy, solve.var_name, solve.var_length);
     arg.length = solve.var_length;
 
     print = (flags.f.trace_print || flags.f.normal_print) && flags.f.printer_exists;
 
-    if (!solve.keep_running) {
+    if (!solve.caller.keep_running) {
         view_helper(&arg, print);
-        if (message != SOLVE_ROOT) {
-            clear_row(1);
-            draw_string(0, 1, solve_message[message].text,
-                              solve_message[message].length);
-            flags.f.message = 1;
-            flags.f.two_line_message = 1;
-            flush_display();
-        }
+        if (message != SOLVE_ROOT)
+            draw_message(1, solve_message[message].text,
+                            solve_message[message].length);
     } else {
         if (print) {
-            char namebuf[8], valbuf[22];
+            char namebuf[8];
+            char *valbuf = (char *) malloc(disp_c);
+            freer f(valbuf);
             int namelen = 0, vallen;
             string2buf(namebuf, 8, &namelen, solve.var_name, solve.var_length);
             char2buf(namebuf, 8, &namelen, '=');
-            vallen = vartype2string(v, valbuf, 22);
+            vallen = vartype2string(v, valbuf, disp_c);
             print_wide(namebuf, namelen, valbuf, vallen);
         }
     }
@@ -579,7 +858,7 @@ static int finish_solve(int message) {
         print_lines(solve_message[message].text,
                     solve_message[message].length, true);
 
-    return solve.keep_running ? ERR_NONE : ERR_STOP;
+    return solve.caller.ret(ERR_NONE);
 }
 
 static void track_f_gap() {
@@ -597,12 +876,88 @@ static void track_f_gap() {
     solve.f_gap = gap;
 }
 
-int return_to_solve(int failure, bool stop) {
+int return_to_solve(bool failure, bool stop) {
     phloat f, slope, s, xnew, prev_f = solve.curr_f;
     uint4 now_time;
 
     if (stop)
-        solve.keep_running = 0;
+        solve.caller.keep_running = 0;
+
+    if (solve.state == 8) {
+        // Direct solution
+        if (failure) {
+            // Proceed to numerical solver
+            // TODO: What about stack state? Is it OK like this?
+            vartype *v1 = recall_and_purge_private_var("X1", 2);
+            vartype *v2 = recall_and_purge_private_var("X2", 2);
+            int err = start_solve_2(v1, v2, true);
+            free_vartype(v1);
+            free_vartype(v2);
+            return err;
+        }
+        if (sp == -1)
+            return ERR_TOO_FEW_ARGUMENTS;
+        if (flags.f.big_stack && !ensure_stack_capacity(1))
+            return ERR_INSUFFICIENT_MEMORY;
+
+        /* If the variable being solved for already exists, try to convert
+         * the direct solver's result to the same unit as the existing value.
+         */
+        if (stack[sp]->type == TYPE_UNIT) {
+            bool writable;
+            vartype *prev = recall_var(solve.var_name, solve.var_length, &writable);
+            if (prev != NULL && prev->type == TYPE_UNIT && writable) {
+                phloat n;
+                int err = convert_helper(prev, stack[sp], &n);
+                if (err == ERR_NONE) {
+                    vartype *nv = dup_vartype(prev);
+                    if (nv != NULL) {
+                        ((vartype_unit *) nv)->x = n;
+                        free_vartype(stack[sp]);
+                        stack[sp] = nv;
+                    }
+                }
+            }
+        }
+
+        vartype *v = dup_vartype(stack[sp]);
+        vartype *m = new_string("Direct", 6);
+        if (v == NULL || m == NULL) {
+            nomem:
+            free_vartype(v);
+            free_vartype(m);
+            return ERR_INSUFFICIENT_MEMORY;
+        }
+        int err = store_var(solve.var_name, solve.var_length, v);
+        if (err != ERR_NONE)
+            goto nomem;
+        /* Put the string "Direct" in Y, to signal that the solution was
+         * obtained using the direct solver.
+         */
+        if (flags.f.big_stack) {
+            sp++;
+            stack[sp] = stack[sp - 1];
+            stack[sp - 1] = m;
+        } else {
+            free_vartype(stack[REG_T]);
+            stack[REG_T] = stack[REG_Z];
+            stack[REG_Z] = stack[REG_Y];
+            stack[REG_Y] = m;
+        }
+
+        if (!solve.caller.keep_running) {
+            arg_struct arg;
+            arg.type = ARGTYPE_STR;
+            int len;
+            string_copy(arg.val.text, &len, solve.var_name, solve.var_length);
+            arg.length = len;
+
+            int print = flags.f.trace_print && flags.f.printer_exists;
+            view_helper(&arg, print);
+        }
+
+        return solve.caller.ret(ERR_NONE);
+    }
 
     if (solve.state == 0)
         return ERR_INTERNAL_ERROR;
@@ -610,6 +965,7 @@ int return_to_solve(int failure, bool stop) {
         if (sp == -1)
             return ERR_TOO_FEW_ARGUMENTS;
         if (stack[sp]->type == TYPE_REAL) {
+            real_result:
             f = ((vartype_real *) stack[sp])->x;
             solve.curr_f = f;
             if (f == 0)
@@ -620,10 +976,27 @@ int return_to_solve(int failure, bool stop) {
                 solve.best_f = fabs(f);
                 solve.best_x = solve.curr_x;
             }
+        } else if (stack[sp]->type == TYPE_UNIT) {
+            vartype_unit *u = (vartype_unit *) stack[sp];
+            if (u->length == 2 && u->text[0] == 19 && (u->text[1] == 'C' || u->text[1] == 'F'))
+                goto real_result;
+            bool saved_norm = flags.f.normal_print;
+            bool saved_trace = flags.f.trace_print;
+            flags.f.normal_print = false;
+            flags.f.trace_print = false;
+            int err = docmd_ubase(NULL);
+            flags.f.normal_print = saved_norm;
+            flags.f.trace_print = saved_trace;
+            if (err == ERR_NONE)
+                goto real_result;
+            else
+                goto bad_result;
         } else {
+            bad_result:
             solve.curr_f = POS_HUGE_PHLOAT;
-            failure = 1;
+            failure = true;
         }
+        restore_t(solve.saved_t);
     } else
         solve.curr_f = POS_HUGE_PHLOAT;
 
@@ -638,30 +1011,27 @@ int return_to_solve(int failure, bool stop) {
     if (now_time < solve.last_disp_time)
         // shell_milliseconds() wrapped around
         solve.last_disp_time = 0;
-    if (!solve.keep_running && solve.state > 1
+    if (!solve.caller.keep_running && solve.state > 1
                                 && now_time >= solve.last_disp_time + 250) {
         /* Put on a show so the user won't think we're just drinking beer
          * while they're waiting anxiously for the solver to converge...
          */
-        char buf[22];
+        char *buf = (char *) malloc(disp_c);
+        freer f(buf);
         int bufptr = 0, i;
         solve.last_disp_time = now_time;
-        clear_display();
-        bufptr = phloat2string(solve.curr_x, buf, 22, 0, 0, 3,
+        bufptr = phloat2string(solve.curr_x, buf, disp_c, 0, 0, 3,
                                     flags.f.thousands_separators);
-        for (i = bufptr; i < 21; i++)
+        for (i = bufptr; i < disp_c - 1; i++)
             buf[i] = ' ';
-        buf[21] = failure ? '?' : solve.curr_f > 0 ? '+' : '-';
-        draw_string(0, 0, buf, 22);
-        bufptr = phloat2string(solve.prev_x, buf, 22, 0, 0, 3,
+        buf[disp_c - 1] = failure ? '?' : solve.curr_f > 0 ? '+' : '-';
+        draw_message(0, buf, disp_c, false);
+        bufptr = phloat2string(solve.prev_x, buf, disp_c, 0, 0, 3,
                                     flags.f.thousands_separators);
-        for (i = bufptr; i < 21; i++)
+        for (i = bufptr; i < disp_c - 1; i++)
             buf[i] = ' ';
-        buf[21] = prev_f == POS_HUGE_PHLOAT ? '?' : prev_f > 0 ? '+' : '-';
-        draw_string(0, 1, buf, 22);
-        flush_display();
-        flags.f.message = 1;
-        flags.f.two_line_message = 1;
+        buf[disp_c - 1] = prev_f == POS_HUGE_PHLOAT ? '?' : prev_f > 0 ? '+' : '-';
+        draw_message(1, buf, disp_c);
     }
 
     switch (solve.state) {
@@ -1029,20 +1399,49 @@ int return_to_solve(int failure, bool stop) {
     }
 }
 
+void get_solve_caller(pgm_index *prgm, int4 *pc) {
+    *prgm = solve.caller.prev_prgm;
+    *pc = solve.caller.prev_pc;
+}
+
+bool is_solve_var(const char *name, int length) {
+    return string_equals(solve.var_name, solve.var_length, name, length);
+}
+
 static void reset_integ() {
+    free_vartype(integ.eq);
+    integ.eq = NULL;
     integ.prgm_length = 0;
+    free_vartype(integ.active_eq);
+    integ.active_eq = NULL;
     integ.active_prgm_length = 0;
+    free_vartype(integ.saved_t);
+    integ.saved_t = NULL;
     integ.state = 0;
+    free_vartype(integ.param_unit);
+    integ.param_unit = NULL;
+    free_vartype(integ.result_unit);
+    integ.result_unit = NULL;
     if (mode_appmenu == MENU_INTEG || mode_appmenu == MENU_INTEG_PARAMS)
         set_menu_return_err(MENULEVEL_APP, MENU_NONE, true);
+    integ.caller.prev_prgm.set(root->id, 0);
 }
 
 void set_integ_prgm(const char *name, int length) {
     string_copy(integ.prgm_name, &integ.prgm_length, name, length);
+    free_vartype(integ.eq);
+    integ.eq = NULL;
 }
 
-void get_integ_prgm(char *name, int *length) {
+int set_integ_eqn(vartype *eq) {
+    free_vartype(integ.eq);
+    integ.eq = dup_vartype(eq);
+    return integ.eq == NULL ? ERR_INSUFFICIENT_MEMORY : ERR_NONE;
+}
+
+void get_integ_prgm_eqn(char *name, int *length, vartype **eqn) {
     string_copy(name, length, integ.prgm_name, integ.prgm_length);
+    *eqn = dup_vartype(integ.eq);
 }
 
 void set_integ_var(const char *name, int length) {
@@ -1054,14 +1453,38 @@ void get_integ_var(char *name, int *length) {
 }
 
 static int call_integ_fn() {
-    if (integ.active_prgm_length == 0)
+    if (integ.active_eq == NULL && integ.active_prgm_length == 0)
         return ERR_NONEXISTENT;
     int err, i;
     arg_struct arg;
     phloat x = integ.u;
-    vartype *v = recall_var(integ.var_name, integ.var_length);
-    if (v == NULL || v->type != TYPE_REAL) {
-        v = new_real(x);
+    vartype *v;
+
+    if (integ.var_length == 0) {
+        if (integ.param_unit == 0) {
+            v = new_real(x);
+        } else {
+            vartype_unit *u = (vartype_unit *) integ.param_unit;
+            v = new_unit(x, u->text, u->length);
+        }
+        if (v == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+    } else if (integ.param_unit == NULL) {
+        v = recall_var(integ.var_name, integ.var_length);
+        if (v == NULL || v->type != TYPE_REAL) {
+            v = new_real(x);
+            if (v == NULL)
+                return ERR_INSUFFICIENT_MEMORY;
+            err = store_var(integ.var_name, integ.var_length, v);
+            if (err != ERR_NONE) {
+                free_vartype(v);
+                return err;
+            }
+        } else
+            ((vartype_real *) v)->x = x;
+    } else {
+        vartype_unit *u = (vartype_unit *) integ.param_unit;
+        v = new_unit(x, u->text, u->length);
         if (v == NULL)
             return ERR_INSUFFICIENT_MEMORY;
         err = store_var(integ.var_name, integ.var_length, v);
@@ -1069,56 +1492,101 @@ static int call_integ_fn() {
             free_vartype(v);
             return err;
         }
-    } else
-        ((vartype_real *) v)->x = x;
-    arg.type = ARGTYPE_STR;
-    arg.length = integ.active_prgm_length;
-    for (i = 0; i < arg.length; i++)
-        arg.val.text[i] = integ.active_prgm_name[i];
-    clean_stack(integ.prev_sp);
-    err = docmd_gto(&arg);
-    if (err != ERR_NONE) {
-        free_vartype(v);
-        return err;
     }
-    err = push_rtn_addr(-3, 0);
-    if (err != ERR_NONE) {
-        current_prgm = integ.prev_prgm;
-        pc = integ.prev_pc;
+
+    pgm_index integ_index;
+    integ_index.set(0, -3);
+
+    if (integ.active_eq == NULL) {
+        arg.type = ARGTYPE_STR;
+        arg.length = integ.active_prgm_length;
+        for (i = 0; i < arg.length; i++)
+            arg.val.text[i] = integ.active_prgm_name[i];
+        clean_stack(integ.prev_sp);
+        err = docmd_gto(&arg);
+        if (err != ERR_NONE)
+            return err;
+    } else if (integ.active_eq->type == TYPE_LIST) {
+        /* Combined INTEG(SOLVE), used by the plot viewer */
+        // TODO: Stack reference needed for eq in this case?
+        // err = store_stack_reference(integ.active_eq);
+        // if (err != ERR_NONE)
+        //     goto fail;
+        vartype_list *list = (vartype_list *) integ.active_eq;
+        vartype_string *fname = (vartype_string *) list->array->data[0];
+        err = start_solve(-3, fname->txt(), fname->length, list->array->data[1], list->array->data[2], &list->array->data[3]);
+        if (err != ERR_NONE && err != ERR_RUN)
+            goto fail;
         return err;
-    } else
+    } else {
+        clean_stack(integ.prev_sp);
+        vartype_equation *eq = (vartype_equation *) integ.active_eq;
+        current_prgm.set(eq_dir->id, eq->data->eqn_index);
+        pc = 0;
+    }
+    if (integ.var_length == 0) {
+        err = recall_result(v);
+        if (err != ERR_NONE)
+            return err;
+    }
+    err = push_rtn_addr(integ_index, 0);
+    if (err == ERR_NONE) {
+        if (integ.active_eq != NULL) {
+            err = store_stack_reference(integ.active_eq);
+            if (err != ERR_NONE)
+                goto fail;
+        }
         return ERR_RUN;
+    } else {
+        fail:
+        return integ.caller.ret(err);
+    }
 }
 
-int start_integ(const char *name, int length) {
-    vartype *v;
+int start_integ(int prev, const char *name, int length, vartype *solve_info) {
     if (integ_active())
         return ERR_INTEG_INTEG;
-    v = recall_var("LLIM", 4);
-    if (v == NULL)
+
+    vartype *llim = recall_var("LLIM", 4);
+    if (llim == NULL)
         return ERR_NONEXISTENT;
-    else if (v->type == TYPE_STRING)
+    else if (llim->type == TYPE_STRING)
         return ERR_ALPHA_DATA_IS_INVALID;
-    else if (v->type != TYPE_REAL)
+    else if (llim->type != TYPE_REAL && llim->type != TYPE_UNIT)
         return ERR_INVALID_TYPE;
-    integ.llim = ((vartype_real *) v)->x;
-    v = recall_var("ULIM", 4);
-    if (v == NULL)
+    vartype *ulim = recall_var("ULIM", 4);
+    if (ulim == NULL)
         return ERR_NONEXISTENT;
-    else if (v->type == TYPE_STRING)
+    else if (ulim->type == TYPE_STRING)
         return ERR_ALPHA_DATA_IS_INVALID;
-    else if (v->type != TYPE_REAL)
+    else if (ulim->type != TYPE_REAL && ulim->type != TYPE_UNIT)
         return ERR_INVALID_TYPE;
-    integ.ulim = ((vartype_real *) v)->x;
-    v = recall_var("ACC", 3);
-    if (v == NULL)
+
+    integ.llim = ((vartype_real *) llim)->x;
+    int err = convert_helper(llim, ulim, &integ.ulim);
+    if (err != ERR_NONE)
+        return err;
+    free_vartype(integ.param_unit);
+    if (llim->type == TYPE_REAL) {
+        integ.param_unit = NULL;
+    } else {
+        integ.param_unit = dup_vartype(llim);
+        if (integ.param_unit == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+    }
+
+    free_vartype(integ.result_unit);
+    integ.result_unit = NULL;
+
+    vartype *acc = recall_var("ACC", 3);
+    if (acc == NULL)
         integ.acc = 0;
-    else if (v->type == TYPE_STRING)
+    else if (acc->type == TYPE_STRING)
         return ERR_ALPHA_DATA_IS_INVALID;
-    else if (v->type != TYPE_REAL)
+    else if (acc->type != TYPE_REAL)
         return ERR_INVALID_TYPE;
     else
-        integ.acc = ((vartype_real *) v)->x;
+        integ.acc = ((vartype_real *) acc)->x;
     if (integ.acc > 1)
         integ.acc = 1;
     else {
@@ -1134,8 +1602,25 @@ int start_integ(const char *name, int length) {
     string_copy(integ.var_name, &integ.var_length, name, length);
     string_copy(integ.active_prgm_name, &integ.active_prgm_length,
                 integ.prgm_name, integ.prgm_length);
-    integ.prev_prgm = current_prgm;
-    integ.prev_pc = pc;
+    free_vartype(integ.saved_t);
+    if (!flags.f.big_stack && integ.eq != NULL)
+        integ.saved_t = dup_vartype(stack[REG_T]);
+    else
+        integ.saved_t = NULL;
+    if (solve_info != NULL) {
+        free_vartype(integ.active_eq);
+        integ.active_eq = solve_info;
+    } else if (integ.eq != NULL) {
+        vartype *eq = dup_vartype(integ.eq);
+        if (eq == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+        free_vartype(integ.active_eq);
+        integ.active_eq = eq;
+    } else {
+        free_vartype(integ.active_eq);
+        integ.active_eq = NULL;
+    }
+    integ.caller.set(prev);
     integ.prev_sp = flags.f.big_stack ? sp : -2;
 
     integ.a = integ.llim;
@@ -1149,14 +1634,9 @@ int start_integ(const char *name, int length) {
     integ.k = 1;
     integ.prev_res = 0;
 
-    integ.keep_running = !should_i_stop_at_this_level() && program_running();
-    if (!integ.keep_running) {
-        clear_row(0);
-        draw_string(0, 0, "Integrating", 11);
-        flush_display();
-        flags.f.message = 1;
-        flags.f.two_line_message = 0;
-    }
+    integ.caller.keep_running = !should_i_stop_at_this_level() && program_running();
+    if (!integ.caller.keep_running)
+        draw_message(0, "Integrating", 11);
     return return_to_integ(false);
 }
 
@@ -1166,8 +1646,26 @@ static int finish_integ() {
     integ.state = 0;
 
     clean_stack(integ.prev_sp);
-    x = new_real(integ.sum * integ.b * 0.75);
-    y = new_real(integ.eps);
+    if (integ.param_unit == NULL && (integ.result_unit == NULL || integ.result_unit->type == TYPE_REAL)) {
+        real_result:
+        x = new_real(integ.sum * integ.b * 0.75);
+        y = new_real(integ.eps);
+    } else {
+        std::string pu("1"), ru("1");
+        if (integ.param_unit != NULL) {
+            vartype_unit *u = (vartype_unit *) integ.param_unit;
+            pu = std::string(u->text, u->length);
+        }
+        if (integ.result_unit != NULL && integ.result_unit->type == TYPE_UNIT) {
+            vartype_unit *u = (vartype_unit *) integ.result_unit;
+            ru = std::string(u->text, u->length);
+        }
+        normalize_unit(pu + "*" + ru, &ru);
+        if (ru == "")
+            goto real_result;
+        x = new_unit(integ.sum * integ.b * 0.75, ru.c_str(), (int) ru.length());
+        y = new_unit(integ.eps, ru.c_str(), (int) ru.length());
+    }
     if (x == NULL || y == NULL) {
         free_vartype(x);
         free_vartype(y);
@@ -1178,24 +1676,27 @@ static int finish_integ() {
         return ERR_INSUFFICIENT_MEMORY;
     flags.f.trace_print = saved_trace;
 
-    current_prgm = integ.prev_prgm;
-    pc = integ.prev_pc;
+    free_vartype(integ.active_eq);
+    integ.active_eq = NULL;
+    free_vartype(integ.saved_t);
+    integ.saved_t = NULL;
+    free_vartype(integ.param_unit);
+    integ.param_unit = NULL;
+    free_vartype(integ.result_unit);
+    integ.result_unit = NULL;
 
-    if (!integ.keep_running) {
-        char buf[22];
+    if (!integ.caller.keep_running) {
+        char *buf = (char *) malloc(disp_c);
+        freer f(buf);
         int bufptr = 0;
-        string2buf(buf, 22, &bufptr, "\3=", 2);
-        bufptr += vartype2string(x, buf + bufptr, 22 - bufptr);
-        clear_row(0);
-        draw_string(0, 0, buf, bufptr);
-        flush_display();
-        flags.f.message = 1;
-        flags.f.two_line_message = 0;
+        string2buf(buf, disp_c, &bufptr, "\3=", 2);
+        bufptr += vartype2string(x, buf + bufptr, disp_c - bufptr);
+        draw_message(0, buf, bufptr);
         if ((flags.f.trace_print || flags.f.normal_print) && flags.f.printer_exists)
             print_wide(buf, 2, buf + 2, bufptr - 2);
-        return ERR_STOP;
-    } else
-        return ERR_NONE;
+    }
+
+    return integ.caller.ret(ERR_NONE);
 }
 
 
@@ -1206,7 +1707,10 @@ static int finish_integ() {
 
 int return_to_integ(bool stop) {
     if (stop)
-        integ.keep_running = 0;
+        integ.caller.keep_running = 0;
+
+    vartype *r;
+    phloat pr;
 
     switch (integ.state) {
     case 0:
@@ -1233,9 +1737,21 @@ int return_to_integ(bool stop) {
             return ERR_TOO_FEW_ARGUMENTS;
         if (stack[sp]->type == TYPE_STRING)
             return ERR_ALPHA_DATA_IS_INVALID;
-        else if (stack[sp]->type != TYPE_REAL)
+        r = stack[sp];
+        if (r->type != TYPE_REAL && r->type != TYPE_UNIT)
             return ERR_INVALID_TYPE;
-        integ.sum += integ.t * ((vartype_real *) stack[sp])->x;
+        if (integ.result_unit == NULL) {
+            integ.result_unit = dup_vartype(r);
+            if (integ.result_unit == NULL)
+                return ERR_INSUFFICIENT_MEMORY;
+            pr = ((vartype_real *) r)->x;
+        } else {
+            int err = convert_helper(integ.result_unit, r, &pr);
+            if (err != ERR_NONE)
+                return err;
+        }
+        integ.sum += integ.t * pr;
+        restore_t(integ.saved_t);
         integ.p += integ.h;
         if (++integ.i < integ.nsteps)
             goto loop2;
@@ -1278,4 +1794,9 @@ int return_to_integ(bool stop) {
     default:
         return ERR_INTERNAL_ERROR;
     }
+}
+
+void get_integ_caller(pgm_index *prgm, int4 *pc) {
+    *prgm = integ.caller.prev_prgm;
+    *pc = integ.caller.prev_pc;
 }

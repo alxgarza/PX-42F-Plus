@@ -10,12 +10,12 @@ extern "C" {
 #endif
 
 /* The state-file volume: a FAT filesystem on the flash disk (flashdisk.h),
- * holding Free42 state files as /STATE/<name>.f42 -- the same format the
- * desktop Free42 versions read and write. Like the DM42: states are saved
+ * holding Plus42 state files as /STATE/<name>.p42 -- the same format the
+ * desktop Plus42 versions read and write. Like the DM42: states are saved
  * and loaded by name from the settings menu, and copied to and from a
  * computer in USB Disk mode. */
 
-#define STATEFS_NAME_MAX 16 /* characters in a state name, without ".f42" */
+#define STATEFS_NAME_MAX 16 /* characters in a state name, without ".p42" */
 
 /* Mounts the volume, formatting it on first use. Returns false if the
  * disk is unusable (see flashdisk_init()); every other call then fails. */
@@ -26,7 +26,7 @@ bool statefs_ready(void);
  * a power loss can't lose it. */
 bool statefs_sync(void); /* false if a write to flash failed */
 
-/* "/STATE/<name>.f42" */
+/* "/STATE/<name>.p42" */
 void statefs_state_path(const char *name, char *path, size_t size);
 bool statefs_state_exists(const char *name);
 /* Any file or folder, by full path. */
@@ -49,6 +49,9 @@ int statefs_list_states(char names[][STATEFS_NAME_MAX + 1], int max);
  * the extension, sorted, into names[i * name_size]. Names longer than
  * name_size - 1 are skipped. Returns how many. */
 int statefs_list_files(const char *dir, const char *ext, char *names, size_t name_size, int max);
+
+/* The same for the folders in dir (key sound sets). */
+int statefs_list_dirs(const char *dir, char *names, size_t name_size, int max);
 
 /* Backing for Free42's my_fopen()/my_rename()/my_remove() (see shell.cc):
  * stdio FILEs on the FAT volume, via newlib's funopen(). Modes "rb" and

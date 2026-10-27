@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -33,6 +33,7 @@ int docmd_clk24(arg_struct *arg);
 int docmd_date(arg_struct *arg);
 int docmd_date_plus(arg_struct *arg);
 int docmd_ddays(arg_struct *arg);
+int docmd_ddaysc(arg_struct *arg);
 int docmd_dmy(arg_struct *arg);
 int docmd_dow(arg_struct *arg);
 int docmd_mdy(arg_struct *arg);
@@ -57,8 +58,10 @@ int docmd_errno(arg_struct *arg);
 int docmd_rtnyes(arg_struct *arg);
 int docmd_rtnno(arg_struct *arg);
 int docmd_rtnerr(arg_struct *arg);
+int docmd_raise(arg_struct *arg);
 int docmd_strace(arg_struct *arg);
 int docmd_varmnu1(arg_struct *arg);
+int docmd_eqnmnu1(arg_struct *arg);
 int docmd_x2line(arg_struct *arg);
 int docmd_a2line(arg_struct *arg);
 int docmd_a2pline(arg_struct *arg);
@@ -79,6 +82,10 @@ int docmd_getmi(arg_struct *arg);
 int docmd_putmi(arg_struct *arg);
 int docmd_getli(arg_struct *arg);
 int docmd_putli(arg_struct *arg);
+int docmd_try(arg_struct *arg);
+int docmd_tryx(arg_struct *arg);
+int docmd_catch_t(arg_struct *arg);
+int docmd_prtrace(arg_struct *arg);
 
 int docmd_4stk(arg_struct *arg);
 int docmd_l4stk(arg_struct *arg);
@@ -97,6 +104,7 @@ int docmd_rupn(arg_struct *arg);
 
 int docmd_pgmmenu(arg_struct *arg);
 int docmd_pgmvar(arg_struct *arg);
+int docmd_eqnvar(arg_struct *arg);
 
 int docmd_x_eq_nn(arg_struct *arg);
 int docmd_x_ne_nn(arg_struct *arg);
@@ -111,21 +119,8 @@ int docmd_0_gt_nn(arg_struct *arg);
 int docmd_0_le_nn(arg_struct *arg);
 int docmd_0_ge_nn(arg_struct *arg);
 
-int docmd_sn(arg_struct *arg);
-int docmd_sx(arg_struct *arg);
-int docmd_sx2(arg_struct *arg);
-int docmd_sy(arg_struct *arg);
-int docmd_sy2(arg_struct *arg);
-int docmd_sxy(arg_struct *arg);
-int docmd_slnx(arg_struct *arg);
-int docmd_slnx2(arg_struct *arg);
-int docmd_slny(arg_struct *arg);
-int docmd_slny2(arg_struct *arg);
-int docmd_slnxlny(arg_struct *arg);
-int docmd_sxlny(arg_struct *arg);
-int docmd_sylnx(arg_struct *arg);
-
 int docmd_xstr(arg_struct *arg);
+int docmd_xview(arg_struct *arg);
 int docmd_append(arg_struct *arg);
 int docmd_extend(arg_struct *arg);
 int docmd_substr(arg_struct *arg);
@@ -136,14 +131,12 @@ int docmd_pos(arg_struct *arg);
 int docmd_s_to_n(arg_struct *arg);
 int docmd_n_to_s(arg_struct *arg);
 int docmd_nn_to_s(arg_struct *arg);
+int docmd_ip_to_s(arg_struct *arg);
 int docmd_c_to_n(arg_struct *arg);
 int docmd_n_to_c(arg_struct *arg);
 int docmd_list_t(arg_struct *arg);
 int docmd_newlist(arg_struct *arg);
 int docmd_to_list(arg_struct *arg);
 int docmd_from_list(arg_struct *arg);
-
-int docmd_width(arg_struct *arg);
-int docmd_height(arg_struct *arg);
 
 #endif

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -57,7 +57,7 @@ int generic_mul(const vartype *x, const vartype *y,
                             int (*completion)(int, vartype *));
 int generic_sub(const vartype *x, const vartype *y, vartype **res);
 int generic_add(const vartype *x, const vartype *y, vartype **res);
-int generic_rcl(arg_struct *arg, vartype **dst);
+int generic_rcl(arg_struct *arg, vartype **dst, bool must_be_writable = false);
 int generic_sto(arg_struct *arg, char operation);
 
 
@@ -66,7 +66,8 @@ int generic_sto(arg_struct *arg, char operation);
 /* to arbitrary parameter types               */
 /**********************************************/
 
-int map_unary(const vartype *src, vartype **dst, mappable_r, mappable_c mc);
+int map_unary(const vartype *src, vartype **dst, mappable_r mr, mappable_c mc,
+            bool do_units = false);
 int map_binary(const vartype *src1, const vartype *src2, vartype **dst,
             mappable_rr mrr, mappable_rc mrc, mappable_cr mcr, mappable_cc mcc);
 

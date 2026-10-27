@@ -245,7 +245,14 @@ static void core1_main(void)
     keyboard_init();
     if (!woke_from_off || crashed) {
         display_clear();
-        display_draw_string(&font_24x10, "PX-42F", 0, 0, 0x00);
+        /* "Hello!" in the middle of the screen -- or, with a crash report
+         * under it, along the top -- centred by its ink. */
+        static const char hello[] = "Hello!";
+        int left = 0, right = 0;
+        display_text_ink(&font_24x10, hello, &left, &right);
+        int hello_y = crashed ? 0 : (DISPLAY_HEIGHT - font_24x10.height) / 2;
+        display_draw_string(&font_24x10, hello, (uint8_t) ((DISPLAY_WIDTH - (right - left + 1)) / 2 - left),
+                            (uint8_t) hello_y, 0x00);
         if (crashed) {
             display_draw_string(&font_8x12, "Last reset:", 0, 56, 0x00);
             display_draw_string(&font_8x12, crash1, 0, 69, 0x00);
@@ -485,7 +492,7 @@ static void core1_main(void)
             debug_checkpoint(CKPT_KEY_DOWN, ((uint32_t) row << 8) | col);
             cpuclock_set_fast(true); /* work: full speed until it's idle again */
             key_hold_begin(row, col);
-            sounds_key_play();
+            sounds_key_play(free42_key_sound(row, col));
             free42_key_down(row, col);
 
             bool enqueued = free42_key_is_enqueued();

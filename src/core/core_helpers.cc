@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,6 +21,7 @@
 
 #include "core_helpers.h"
 #include "core_commands2.h"
+#include "core_commands8.h"
 #include "core_display.h"
 #include "core_phloat.h"
 #include "core_main.h"
@@ -148,6 +149,40 @@ int arg_to_num(arg_struct *arg, int4 *num) {
         return ERR_ALPHA_DATA_IS_INVALID;
     else
         return ERR_INVALID_TYPE;
+}
+
+int get_arg_equation(arg_struct *arg, vartype_equation **eq) {
+    if (arg->type == ARGTYPE_IND_NUM
+            || arg->type == ARGTYPE_IND_STK
+            || arg->type == ARGTYPE_IND_STR) {
+        int err = resolve_ind_arg(arg);
+        if (err != ERR_NONE)
+            return err;
+    }
+    vartype *v;
+    if (arg->type == ARGTYPE_STR) {
+        v = recall_var(arg->val.text, arg->length);
+        if (v == NULL)
+            return ERR_NONEXISTENT;
+    } else { // arg->type == ARGTYPE_STK
+        int idx;
+        switch (arg->val.stk) {
+            case 'X': idx = 0; break;
+            case 'Y': idx = 1; break;
+            case 'Z': idx = 2; break;
+            case 'T': idx = 3; break;
+            case 'L': v = lastx; goto have_var;
+            default: return ERR_INTERNAL_ERROR;
+        }
+        if (idx > sp)
+            return ERR_STACK_DEPTH_ERROR;
+        v = stack[sp - idx];
+    }
+    have_var:
+    if (v->type != TYPE_EQUATION)
+        return ERR_INVALID_TYPE;
+    *eq = (vartype_equation *) v;
+    return ERR_NONE;
 }
 
 bool dim_to_int4(vartype *dim, int4 *res) {
@@ -420,6 +455,18 @@ void string_copy(char *dst, int *dstlen, const char *src, int srclen) {
         dst[i] = src[i];
 }
 
+void string_copy(char *dst, unsigned char *dstlen, const char *src, int srclen) {
+    int d;
+    string_copy(dst, &d, src, srclen);
+    *dstlen = (unsigned char) d;
+}
+
+void string_copy(char *dst, unsigned short *dstlen, const char *src, int srclen) {
+    int d;
+    string_copy(dst, &d, src, srclen);
+    *dstlen = (unsigned short) d;
+}
+
 bool string_equals(const char *s1, int s1len, const char *s2, int s2len) {
     int i;
     if (s1len != s2len)
@@ -465,14 +512,12 @@ int string_pos(const char *ntext, int nlen, const vartype *hs, int startpos) {
 }
 
 bool vartype_equals(const vartype *v1, const vartype *v2) {
+    if ((v1->type == TYPE_REAL || v1->type == TYPE_UNIT)
+            && (v2->type == TYPE_REAL || v2->type == TYPE_UNIT))
+        return generic_comparison(v1, v2, 'E') == ERR_YES;
     if (v1->type != v2->type)
         return false;
     switch (v1->type) {
-        case TYPE_REAL: {
-            const vartype_real *x = (const vartype_real *) v1;
-            const vartype_real *y = (const vartype_real *) v2;
-            return x->x == y->x;
-        }
         case TYPE_COMPLEX: {
             const vartype_complex *x = (const vartype_complex *) v1;
             const vartype_complex *y = (const vartype_complex *) v2;
@@ -540,9 +585,73 @@ bool vartype_equals(const vartype *v1, const vartype *v2) {
                     return false;
             return true;
         }
+        case TYPE_EQUATION: {
+            vartype_equation *x = (vartype_equation *) v1;
+            equation_data *xd = x->data;
+            vartype_equation *y = (vartype_equation *) v2;
+            equation_data *yd = y->data;
+            return xd->compatMode == yd->compatMode
+                && string_equals(xd->text, xd->length, yd->text, yd->length);
+        }
+        case TYPE_DIR_REF: {
+            vartype_dir_ref *x = (vartype_dir_ref *) v1;
+            vartype_dir_ref *y = (vartype_dir_ref *) v2;
+            return x->dir == y->dir;
+        }
+        case TYPE_PGM_REF: {
+            vartype_pgm_ref *x = (vartype_pgm_ref *) v1;
+            vartype_pgm_ref *y = (vartype_pgm_ref *) v2;
+            return x->dir == y->dir && x->pgm == y->pgm;
+        }
+        case TYPE_VAR_REF: {
+            vartype_var_ref *x = (vartype_var_ref *) v1;
+            vartype_var_ref *y = (vartype_var_ref *) v2;
+            return x->dir == y->dir
+                && string_equals(x->name, x->length, y->name, y->length);
+        }
         default:
             /* Looks like someone added a type that we're not handling yet! */
             return false;
+    }
+}
+
+int generic_comparison(const vartype *x, const vartype *y, char which) {
+    /* x and y are both guaranteed to be TYPE_REAL or TYPE_UNIT */
+    if (x->type == TYPE_REAL && y->type == TYPE_REAL) {
+        /* Quick and straightforward handling for the most common case */
+        phloat xx = ((vartype_real *) x)->x;
+        phloat yy = ((vartype_real *) y)->x;
+        switch (which) {
+            case 'E': return xx == yy ? ERR_YES : ERR_NO;
+            case 'L': return xx < yy ? ERR_YES : ERR_NO;
+            case 'l': return xx <= yy ? ERR_YES : ERR_NO;
+            case 'G': return xx > yy ? ERR_YES : ERR_NO;
+            case 'g': return xx >= yy ? ERR_YES : ERR_NO;
+            default: return ERR_INTERNAL_ERROR;
+        }
+    } else if (x->type == TYPE_REAL && ((vartype_real *) x)->x == 0) {
+        /* Compare anything to dimensionless zero, without conversions */
+        switch (which) {
+            case 'E': return ((vartype_real *) y)->x == 0 ? ERR_YES : ERR_NO;
+            case 'L': return ((vartype_real *) y)->x > 0 ? ERR_YES : ERR_NO;
+            case 'l': return ((vartype_real *) y)->x >= 0 ? ERR_YES : ERR_NO;
+            case 'G': return ((vartype_real *) y)->x < 0 ? ERR_YES : ERR_NO;
+            case 'g': return ((vartype_real *) y)->x <= 0 ? ERR_YES : ERR_NO;
+            default: return ERR_INTERNAL_ERROR;
+        }
+    } else if (y->type == TYPE_REAL && ((vartype_real *) y)->x == 0) {
+        /* Compare anything to dimensionless zero, without conversions */
+        switch (which) {
+            case 'E': return ((vartype_real *) x)->x == 0 ? ERR_YES : ERR_NO;
+            case 'L': return ((vartype_real *) x)->x < 0 ? ERR_YES : ERR_NO;
+            case 'l': return ((vartype_real *) x)->x <= 0 ? ERR_YES : ERR_NO;
+            case 'G': return ((vartype_real *) x)->x > 0 ? ERR_YES : ERR_NO;
+            case 'g': return ((vartype_real *) x)->x >= 0 ? ERR_YES : ERR_NO;
+            default: return ERR_INTERNAL_ERROR;
+        }
+    } else {
+        /* Unit conversions involved; here be dragons */
+        return unit_compare(x, y, which);
     }
 }
 
@@ -827,6 +936,28 @@ int virtual_flag_handler(int flagop, int flagnum) {
                     return ERR_INTERNAL_ERROR;
             }
         }
+        case 50: /* message */ {
+            bool msg = mode_message_lines > 0;
+            switch (flagop) {
+                case FLAGOP_FS_T:
+                    return msg ? ERR_YES : ERR_NO;
+                case FLAGOP_FC_T:
+                    return msg ? ERR_NO : ERR_YES;
+                default:
+                    return ERR_INTERNAL_ERROR;
+            }
+        }
+        case 51: /* two line message */ {
+            bool msg = mode_message_lines > 1;
+            switch (flagop) {
+                case FLAGOP_FS_T:
+                    return msg ? ERR_YES : ERR_NO;
+                case FLAGOP_FC_T:
+                    return msg ? ERR_NO : ERR_YES;
+                default:
+                    return ERR_INTERNAL_ERROR;
+            }
+        }
         case 53: /* input */ {
             switch (flagop) {
                 case FLAGOP_FS_T:
@@ -849,7 +980,7 @@ int virtual_flag_handler(int flagop, int flagnum) {
             }
         }
         case 75: /* programmable_menu */ {
-            int its_on = mode_plainmenu == MENU_PROGRAMMABLE;
+            int its_on = mode_plainmenu == MENU_PROGRAMMABLE || mode_appmenu == MENU_PROGRAMMABLE;
             switch (flagop) {
                 case FLAGOP_FS_T:
                     return its_on ? ERR_YES : ERR_NO;
@@ -1199,27 +1330,81 @@ static void print_command_2(const char *text, int len) {
 }
 
 void print_command(int cmd, const arg_struct *arg) {
-    char buf[100];
+    char cbuf[100];
     int bufptr = 0;
+    char *xbuf = NULL;
+
+    char *buf = cbuf;
+    int maxlen = 100;
 
     if (cmd == CMD_NULL && !deferred_print)
         return;
 
-    if (cmd != CMD_NULL)
-        bufptr += command2buf(buf, 100, cmd, arg);
+    if (cmd != CMD_NULL) {
+        int len = 0;
+        if (cmd == CMD_EMBED || arg->type == ARGTYPE_EQN) {
+            equation_data *eqd = eq_dir->prgms[arg->val.num].eq_data;
+            if (cmd != CMD_EMBED || arg->type != ARGTYPE_NUM)
+                len = cmd_array[cmd].name_length + 1;
+            len += 2 + eqd->length;
+        } else if (arg->type == ARGTYPE_XSTR) {
+            len = 7 + arg->length;
+        }
+        if (len > maxlen) {
+            xbuf = (char *) malloc(len);
+            if (xbuf != NULL) {
+                buf = xbuf;
+                maxlen = len;
+            }
+        }
+        bufptr += command2buf(buf, maxlen, cmd, arg);
+    }
 
     print_command_2(buf, bufptr);
+    free(xbuf);
+}
+
+void print_equation_segment(textbuf *tb, int4 pc) {
+    if (current_prgm.dir != eq_dir->id)
+        return;
+    equation_data *eqd = eq_dir->prgms[current_prgm.idx].eq_data;
+    if (eqd->map == NULL)
+        return;
+    int4 pos = eqd->map->lookup(pc2line(pc));
+    if (pos == -1)
+        return;
+    static int4 last_eqn = -1;
+    static int4 last_pos = -1;
+    if (tb == NULL) {
+        // TRACE mode printing; don't print the same eqn segment
+        // over and over while stepping through RPN code
+        if (eqd->eqn_index == last_eqn && pos == last_pos)
+            return;
+        last_eqn = eqd->eqn_index;
+        last_pos = pos;
+    }
+    int w = tb == NULL && flags.f.double_wide_print ? 12 : 24;
+    int apos = tb == NULL && flags.f.double_wide_print ? 4 : 9;
+    char line[24];
+    for (int i = 0; i < apos; i++) {
+        int n = i + pos - apos;
+        line[i] = n < 0 ? ' ' : eqd->text[n];
+    }
+    line[apos] = 6;
+    for (int i = apos + 1; i < w; i++) {
+        int n = i + pos - apos - 1;
+        line[i] = n >= eqd->length ? ' ' : eqd->text[n];
+    }
+    if (tb == NULL)
+        print_text(line, w, true);
+    else
+        tb_write(tb, line, w);
 }
 
 void print_menu_trace(const char *name, int len) {
-    if (!flags.f.prgm_mode
-            && (flags.f.trace_print || flags.f.normal_print) && flags.f.printer_exists)
-        print_command_2(name, len);
-}
-
-void print_menu_trace_always(const char *name, int len) {
     if ((flags.f.trace_print || flags.f.normal_print) && flags.f.printer_exists)
-        print_command_2(name, len);
+        if (!flags.f.prgm_mode || string_equals(name, len, "PRGM", 4))
+            print_command_2(name, len);
 }
 
 void print_trace() {
@@ -1233,6 +1418,90 @@ void print_trace() {
 void print_stack_trace() {
     if (flags.f.trace_print && flags.f.normal_print && flags.f.printer_exists)
         docmd_prstk(NULL);
+}
+
+void print_one_var(const char *name, int length) {
+    vartype *v = recall_var(name, length);
+    char lbuf[32], rbuf[100];
+    int llen = 0, rlen = 0;
+    string2buf(lbuf, 8, &llen, name, length);
+    char2buf(lbuf, 8, &llen, '=');
+
+    if (v == NULL) {
+        print_wide(lbuf, llen, "<Unset>", 7);
+    } else if (v->type == TYPE_STRING) {
+        vartype_string *s = (vartype_string *) v;
+        char *sbuf = (char *) malloc(s->length + 2);
+        if (sbuf == NULL) {
+            print_wide(lbuf, llen, "<Low Mem>", 9);
+        } else {
+            sbuf[0] = '"';
+            memcpy(sbuf + 1, s->txt(), s->length);
+            sbuf[s->length + 1] = '"';
+            print_wide(lbuf, llen, sbuf, s->length + 2);
+            free(sbuf);
+        }
+    } else {
+        rlen = vartype2string(v, rbuf, 100);
+        print_wide(lbuf, llen, rbuf, rlen);
+    }
+}
+
+int alpha_print_helper(const char *text, int length) {
+    if (!flags.f.printer_exists)
+        return ERR_PRINTING_IS_DISABLED;
+    set_annunciators(-1, -1, 1, -1, -1, -1);
+    if (length == 0)
+        print_text(NULL, 0, true);
+    else {
+        int line_start = 0;
+        int width = flags.f.double_wide_print ? 12 : 24;
+        int i;
+        for (i = 0; i < length; i++) {
+            if (text[i] == 10) {
+                print_text(text + line_start, i - line_start, true);
+                line_start = i + 1;
+            } else if (i == line_start + width) {
+                print_text(text + line_start, i - line_start, true);
+                line_start = i;
+            }
+        }
+        if (line_start < length
+                || (line_start > 0 && text[line_start - 1] == 10))
+            print_text(text + line_start, length - line_start, true);
+    }
+    set_annunciators(-1, -1, 0, -1, -1, -1);
+    return ERR_NONE;
+}
+
+void alpha_view_helper(const char *text, int length) {
+    int *line_start = (int *) malloc(disp_r * sizeof(int));
+    int *line_length = (int *) malloc(disp_r * sizeof(int));
+    freer f1(line_start);
+    freer f2(line_length);
+    int line = 0;
+    int i;
+    line_start[0] = 0;
+    for (i = 0; i < length; i++) {
+        if (text[i] == 10) {
+            if (line == disp_r - 1)
+                break;
+            line_length[line] = i - line_start[line];
+            line_start[++line] = i + 1;
+        } else if (i == line_start[line] + disp_c) {
+            if (line == disp_r - 1)
+                break;
+            line_length[line] = i - line_start[line];
+            line_start[++line] = i;
+        }
+    }
+    line_length[line] = i - line_start[line];
+    for (i = 0; i <= line; i++)
+        draw_message(i, text + line_start[i], line_length[i], false);
+    if (program_running())
+        for (int i = line + 1; i < disp_r; i++)
+            clear_row(i);
+    flush_display();
 }
 
 void generic_r2p(phloat re, phloat im, phloat *r, phloat *phi) {
@@ -1385,43 +1654,6 @@ phloat sin_grad(phloat x) {
 
 phloat cos_grad(phloat x) {
     return sin_or_cos_grad(x, false);
-}
-
-int dimension_array(const char *name, int namelen, int4 rows, int4 columns, bool check_matedit) {
-    int idx = lookup_var(name, namelen);
-    if (check_matedit
-            && (matedit_mode == 1 || matedit_mode == 3)
-            && idx != -1 && vars[idx].level == matedit_level
-            && string_equals(name, namelen, matedit_name, matedit_length)) {
-        if (matedit_mode == 1)
-            matedit_i = matedit_j = 0;
-        else
-            return ERR_RESTRICTED_OPERATION;
-    }
-
-    vartype *matrix = idx == -1 ? NULL : vars[idx].value;
-    /* NOTE: 'size' will only ever be 0 when we're called from
-     * docmd_size(); docmd_dim() does not allow 0-size matrices.
-     */
-    int4 size = rows * columns;
-    if (matrix == NULL || (matrix->type != TYPE_REALMATRIX
-                        && matrix->type != TYPE_COMPLEXMATRIX
-                        && matrix->type != TYPE_LIST)) {
-        vartype *newmatrix;
-        if (size == 0)
-            return ERR_NONE;
-        newmatrix = new_realmatrix(rows, columns);
-        if (newmatrix == NULL)
-            return ERR_INSUFFICIENT_MEMORY;
-        int err = store_var(name, namelen, newmatrix);
-        if (err != ERR_NONE)
-            free_vartype(newmatrix);
-        return err;
-    } else if (size == 0) {
-        purge_var(name, namelen);
-        return ERR_NONE;
-    } else
-        return dimension_array_ref(matrix, rows, columns);
 }
 
 int dimension_array_ref(vartype *matrix, int4 rows, int4 columns) {
@@ -1773,9 +2005,11 @@ int vartype2string(const vartype *v, char *buf, int buflen, int max_mant_digits)
 
         case TYPE_COMPLEX: {
             phloat x, y;
-            char x_buf[22];
+            char *x_buf = (char *) malloc(disp_c);
+            freer f1(x_buf);
             int x_len;
-            char y_buf[22];
+            char *y_buf = (char *) malloc(disp_c);
+            freer f2(y_buf);
             int y_len;
             int i, ret_len;
 
@@ -1789,22 +2023,22 @@ int vartype2string(const vartype *v, char *buf, int buflen, int max_mant_digits)
                 y = ((vartype_complex *) v)->im;
             }
 
-            x_len = phloat2string(x, x_buf, 22,
+            x_len = phloat2string(x, x_buf, disp_c,
                                   0, digits, dispmode,
                                   flags.f.thousands_separators,
                                   max_mant_digits);
-            y_len = phloat2string(y, y_buf, 22,
+            y_len = phloat2string(y, y_buf, disp_c,
                                   0, digits, dispmode,
                                   flags.f.thousands_separators,
                                   max_mant_digits);
 
             if (x_len + y_len + 2 > buflen) {
                 /* Too long? Fall back on ENG 2 */
-                x_len = phloat2string(x, x_buf, 22,
+                x_len = phloat2string(x, x_buf, disp_c,
                                       0, 2, 2,
                                       flags.f.thousands_separators,
                                       max_mant_digits);
-                y_len = phloat2string(y, y_buf, 22,
+                y_len = phloat2string(y, y_buf, disp_c,
                                       0, 2, 2,
                                       flags.f.thousands_separators,
                                       max_mant_digits);
@@ -1887,6 +2121,104 @@ int vartype2string(const vartype *v, char *buf, int buflen, int max_mant_digits)
             chars_so_far += i;
             string2buf(buf, buflen, &chars_so_far, "-Elem List }", 12);
             return chars_so_far;
+        }
+
+        case TYPE_EQUATION: {
+            vartype_equation *eq = (vartype_equation *) v;
+            equation_data *eqd = eq->data;
+            int i;
+            int chars_so_far = 0;
+            char d = eqd->compatMode ? '`' : '\'';
+            char2buf(buf, buflen, &chars_so_far, d);
+            for (i = 0; i < eqd->length; i++)
+                char2buf(buf, buflen, &chars_so_far, eqd->text[i]);
+            char2buf(buf, buflen, &chars_so_far, d);
+            return chars_so_far;
+        }
+
+        case TYPE_UNIT: {
+            vartype_unit *u = (vartype_unit *) v;
+            int p = phloat2string(u->x, buf, buflen,
+                                 0, digits, dispmode,
+                                 flags.f.thousands_separators,
+                                 max_mant_digits);
+            char2buf(buf, buflen, &p, '_');
+            string2buf(buf, buflen, &p, u->text, u->length);
+            return p;
+        }
+
+        case TYPE_DIR_REF: {
+            vartype_dir_ref *r = (vartype_dir_ref *) v;
+            int p = 0;
+            string2buf(buf, buflen, &p, "Dir[", 4);
+            p += int2string(r->dir, buf + p, buflen - p);
+            string2buf(buf, buflen, &p, "] ", 2);
+            directory *dir = get_dir(r->dir);
+            if (dir == NULL)
+                string2buf(buf, buflen, &p, "<Invalid>", 9);
+            else if (dir->parent == NULL)
+                string2buf(buf, buflen, &p, "<Root>", 6);
+            else {
+                directory *parent = dir->parent;
+                for (int i = 0; i < parent->children_count; i++)
+                    if (parent->children[i].dir == dir) {
+                        char2buf(buf, buflen, &p, '"');
+                        string2buf(buf, buflen, &p, parent->children[i].name, parent->children[i].length);
+                        char2buf(buf, buflen, &p, '"');
+                        break;
+                    }
+            }
+            return p;
+        }
+
+        case TYPE_PGM_REF: {
+            vartype_pgm_ref *r = (vartype_pgm_ref *) v;
+            int p = 0;
+            string2buf(buf, buflen, &p, "Pgm[", 4);
+            p += int2string(r->dir, buf + p, buflen - p);
+            char2buf(buf, buflen, &p, ':');
+            p += int2string(r->pgm, buf + p, buflen - p);
+            string2buf(buf, buflen, &p, "] ", 2);
+            directory *dir = get_dir(r->dir);
+            if (dir == NULL || r->pgm >= dir->prgms_count)
+                string2buf(buf, buflen, &p, "<Invalid>", 9);
+            else {
+                for (int i = 0; i < dir->labels_count; i++)
+                    if (dir->labels[i].prgm == r->pgm) {
+                        if (dir->labels[i].length != 0) {
+                            char2buf(buf, buflen, &p, '"');
+                            string2buf(buf, buflen, &p, dir->labels[i].name, dir->labels[i].length);
+                            char2buf(buf, buflen, &p, '"');
+                        } else if (r->pgm == dir->prgms_count - 1)
+                            string2buf(buf, buflen, &p, ".END.", 5);
+                        else
+                            string2buf(buf, buflen, &p, "END", 3);
+                        break;
+                    }
+            }
+            return p;
+        }
+
+        case TYPE_VAR_REF: {
+            vartype_var_ref *r = (vartype_var_ref *) v;
+            int p = 0;
+            string2buf(buf, buflen, &p, "Var[", 4);
+            p += int2string(r->dir, buf + p, buflen - p);
+            string2buf(buf, buflen, &p, ":\"", 2);
+            string2buf(buf, buflen, &p, r->name, r->length);
+            string2buf(buf, buflen, &p, "\"]", 2);
+            bool found = false;
+            directory *dir = get_dir(r->dir);
+            if (dir != NULL) {
+                for (int i = 0; i < dir->vars_count; i++)
+                    if (string_equals(dir->vars[i].name, dir->vars[i].length, r->name, r->length)) {
+                        found = true;
+                        break;
+                    }
+            }
+            if (!found)
+                string2buf(buf, buflen, &p, " <Invalid>", 10);
+            return p;
         }
 
         default: {
@@ -2013,6 +2345,29 @@ int easy_phloat2string(phloat d, char *buf, int buflen, int base_mode) {
                          digits, dispmode, flags.f.thousands_separators);
 }
 
+int real2buf(char *buf, phloat x, const char *format, bool force_decimal) {
+    bool saved_binsep, saved_octsep, saved_decsep, saved_hexsep;
+    if (!force_decimal) {
+        saved_binsep = mode_bin_sep;
+        saved_octsep = mode_oct_sep;
+        saved_decsep = mode_dec_sep;
+        saved_hexsep = mode_hex_sep;
+        mode_bin_sep = mode_oct_sep = mode_dec_sep = mode_hex_sep = false;
+    }
+    int bufptr = phloat2string(x, buf, 49, force_decimal ? 0 : 1, 0, 3, 0, MAX_MANT_DIGITS, format);
+    if (!force_decimal) {
+        mode_bin_sep = saved_binsep;
+        mode_oct_sep = saved_octsep;
+        mode_dec_sep = saved_decsep;
+        mode_hex_sep = saved_hexsep;
+    }
+    /* Convert small-caps 'E' to regular 'e' */
+    for (int i = 0; i < bufptr; i++)
+        if (buf[i] == 24)
+            buf[i] = 'e';
+    return bufptr;
+}
+
 int ip2revstring(phloat d, char *buf, int buflen) {
     int s = 1;
     int bufpos = 0;
@@ -2034,25 +2389,73 @@ int ip2revstring(phloat d, char *buf, int buflen) {
     return bufpos;
 }
 
+vartype_list *get_path() {
+    for (int i = 0; i < root->vars_count; i++) {
+        if (string_equals(root->vars[i].name, root->vars[i].length, "PATH", 4)) {
+            vartype *v = root->vars[i].value;
+            if (v->type == TYPE_LIST)
+                return (vartype_list *) v;
+            else
+                return NULL;
+        }
+    }
+    return NULL;
+}
+
+vartype *get_dir_path(directory *dir) {
+    try {
+        std::string path;
+        while (dir->parent != NULL) {
+            directory *parent = dir->parent;
+            for (int i = 0; i < parent->children_count; i++) {
+                if (parent->children[i].dir == dir) {
+                    path = std::string(":", 1) + std::string(parent->children[i].name, parent->children[i].length) + path;
+                    goto found;
+                }
+            }
+            return NULL;
+            found:
+            dir = parent;
+        }
+        path = std::string("HOME", 4) + path;
+        return new_string(path.c_str(), (int) path.length());
+    } catch (std::bad_alloc &) {
+        return NULL;
+    }
+}
+
 int matedit_get(vartype **res) {
     if (matedit_mode == 0)
         return ERR_NONEXISTENT;
 
     vartype *m = NULL;
-    if (matedit_mode == 2)
+    if (matedit_mode == 2) {
         m = matedit_x;
-    else
-        for (int i = vars_count - 1; i >= 0; i--) {
-            var_struct *lv = vars + i;
+    } else if (matedit_dir <= 0) {
+        int level = -matedit_dir;
+        for (int i = local_vars_count - 1; i >= 0; i--) {
+            var_struct *lv = local_vars + i;
             if ((lv->flags & VAR_PRIVATE) != 0)
                 continue;
-            if (matedit_level != -1 && lv->level < matedit_level)
+            if (lv->level < level)
                 return ERR_NONEXISTENT;
-            if (lv->level == matedit_level && string_equals(matedit_name, matedit_length, lv->name, lv->length)) {
+            if (lv->level == level && string_equals(matedit_name, matedit_length, lv->name, lv->length)) {
                 m = lv->value;
                 break;
             }
         }
+    } else {
+        directory *dir = get_dir(matedit_dir);
+        if (dir == NULL)
+            return ERR_NONEXISTENT;
+        for (int i = dir->vars_count - 1; i >= 0; i--) {
+            var_struct *gv = dir->vars + i;
+            if (string_equals(matedit_name, matedit_length, gv->name, gv->length)) {
+                m = gv->value;
+                break;
+            }
+        }
+    }
     int err = ERR_NONEXISTENT;
     if (m == NULL) {
         bad_matrix:
@@ -2067,11 +2470,11 @@ int matedit_get(vartype **res) {
             goto bad_matrix;
         }
         vartype_list *list = (vartype_list *) m;
-        if (matedit_stack[i] >= list->size) {
+        if (matedit_stack[i].coord >= list->size) {
             err = ERR_INVALID_DATA;
             goto bad_matrix;
         }
-        m = list->array->data[matedit_stack[i]];
+        m = list->array->data[matedit_stack[i].coord];
     }
 
     if (m->type != TYPE_REALMATRIX && m->type != TYPE_COMPLEXMATRIX && m->type != TYPE_LIST) {
@@ -2107,4 +2510,14 @@ void leave_matrix_editor() {
     free(matedit_stack);
     matedit_stack = NULL;
     matedit_stack_depth = 0;
+}
+
+void switch_30_and_94(char *text, int length) {
+    for (int i = 0; i < length; i++) {
+        char c = text[i];
+        if (c == 30)
+            text[i] = 94;
+        else if (c == 94)
+            text[i] = 30;
+    }
 }

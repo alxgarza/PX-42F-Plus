@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PX-42F-Plus User Manual</title>
+<style>
+:root {
+  --bg: #fbfaf7;
+  --fg: #1d1d1f;
+  --muted: #5d5d63;
+  --rule: #dcd9d2;
+  --panel: #f1efe9;
+  --accent: #2f5d8a;
+  --lcd-bg: #e9eae2;
+  --lcd-ink: #1b1c1a;
+  --code-bg: #ecebe6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17181a;
+    --fg: #e8e7e3;
+    --muted: #a3a29d;
+    --rule: #34353a;
+    --panel: #212226;
+    --accent: #8ab4dd;
+    --lcd-bg: #d9dbd1;
+    --lcd-ink: #1b1c1a;
+    --code-bg: #26272b;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #17181a;
+  --fg: #e8e7e3;
+  --muted: #a3a29d;
+  --rule: #34353a;
+  --panel: #212226;
+  --accent: #8ab4dd;
+  --lcd-bg: #d9dbd1;
+  --lcd-ink: #1b1c1a;
+  --code-bg: #26272b;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+main { max-width: 860px; margin: 0 auto; padding: 32px 16px 80px; }
+header.cover { border-bottom: 2px solid var(--fg); padding-bottom: 20px; margin-bottom: 28px; }
+header.cover h1 { font-size: 2.1rem; line-height: 1.15; margin: 0 0 6px; letter-spacing: -0.01em; }
+header.cover p { margin: 0; color: var(--muted); }
+h2 { font-size: 1.45rem; margin: 48px 0 12px; padding-top: 8px; border-top: 1px solid var(--rule); }
+h3 { font-size: 1.12rem; margin: 28px 0 8px; }
+h4 { font-size: 1rem; margin: 20px 0 6px; }
+p, ul, ol { margin: 0 0 14px; }
+li { margin: 4px 0; }
+a { color: var(--accent); }
+code, kbd, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code-bg); padding: 12px 14px; border-radius: 6px; overflow-x: auto; margin: 0 0 16px; line-height: 1.45; }
+pre code { background: none; padding: 0; }
+kbd {
+  display: inline-block; padding: 0 6px; border: 1px solid var(--rule); border-bottom-width: 2px;
+  border-radius: 4px; background: var(--panel); line-height: 1.5; white-space: nowrap;
+}
+nav.toc { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 18px; margin-bottom: 8px; }
+nav.toc h2 { border: 0; margin: 0 0 6px; padding: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+nav.toc ol { margin: 0; padding-left: 22px; columns: 2; column-gap: 32px; }
+@media (max-width: 560px) { nav.toc ol { columns: 1; } }
+.table-wrap { overflow-x: auto; margin: 0 0 16px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+th { font-weight: 600; background: var(--panel); }
+.note { border-left: 3px solid var(--accent); background: var(--panel); padding: 10px 14px; border-radius: 0 6px 6px 0; margin: 0 0 16px; }
+figure { margin: 8px 0 20px; }
+figure img.lcd {
+  display: block; width: 100%; max-width: 500px; height: auto;
+  image-rendering: pixelated; image-rendering: crisp-edges;
+  border: 10px solid #3a3b3e; border-radius: 10px; background: var(--lcd-bg);
+}
+figure img.map { display: block; max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--rule); background: #fff; }
+figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 6px; }
+img.icon { height: 36px; width: auto; image-rendering: pixelated; image-rendering: crisp-edges; vertical-align: middle; margin: 2px 6px 2px 0; border-radius: 2px; }
+table.icons td:first-child { white-space: nowrap; }
+.shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px 18px; margin: 8px 0 18px; }
+.shots figure { margin: 0; }
+img.shot {
+  display: block; width: 100%; max-width: 500px; height: auto;
+  image-rendering: pixelated; image-rendering: crisp-edges;
+  border: 6px solid #3a3b3e; border-radius: 6px; background: var(--lcd-bg);
+}
+.statusbar {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  max-width: 500px; padding: 4px 10px; background: var(--lcd-ink); color: var(--lcd-bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 600; font-size: 0.95rem;
+  border-radius: 4px; margin: 6px 0;
+}
+.statusbar .right { display: flex; gap: 10px; align-items: center; }
+.statusbar .batt { display: inline-block; width: 26px; height: 13px; border: 2px solid var(--lcd-bg); border-radius: 2px; position: relative; }
+.statusbar .batt::after { content: ""; position: absolute; right: -5px; top: 3px; width: 3px; height: 4px; background: var(--lcd-bg); }
+.statusbar .batt i { position: absolute; left: 2px; top: 2px; bottom: 2px; width: 14px; background: var(--lcd-bg); }
+.callouts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 10px 0 18px; font-size: 0.95rem; }
+.callouts dt { font-weight: 600; white-space: nowrap; }
+.callouts dd { margin: 0; }
+@media (max-width: 560px) { .callouts { grid-template-columns: 1fr; } .callouts dd { margin-bottom: 6px; } }
+.menu-path { font-weight: 600; }
+.back-view { display: block; width: 100%; max-width: 620px; height: auto; margin: 8px 0 6px; color: var(--fg); }
+.back-view .body { fill: var(--panel); stroke: var(--fg); stroke-width: 2; }
+.back-view .part { fill: var(--bg); stroke: var(--fg); stroke-width: 2; }
+.back-view .ink { fill: var(--fg); }
+.back-view .lead { stroke: var(--muted); stroke-width: 1.5; }
+.back-view text { fill: var(--fg); font: 600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+.back-view text.small { fill: var(--muted); font-weight: 400; font-size: 12px; }
+ol.steps > li { margin: 8px 0; }
+footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule); color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<main>
+
+<header class="cover">
+  <h1>PX-42F-Plus User Manual</h1>
+  <p>The screen, its fonts, the settings menu, charging and firmware updates</p>
+</header>
+
+<p>The PX-42F-Plus runs Plus42, an enhanced HP-42S, on the PX-42F calculator. This manual covers what the calculator adds around Plus42: how the screen is laid out, which font is used when, and every option in the settings menu. For the calculator's functions themselves (the stack, programming, the solver, matrices, units, equations), see the Plus42 and HP-42S documentation.</p>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#keys">Special keys</a></li>
+    <li><a href="#screen">The screen</a></li>
+    <li><a href="#status">The status bar</a></li>
+    <li><a href="#lines">Lines and fonts</a></li>
+    <li><a href="#fonts">The three fonts</a></li>
+    <li><a href="#settings">The settings menu</a></li>
+    <li><a href="#drive">Files on the drive</a></li>
+    <li><a href="#back">The back of the calculator</a></li>
+    <li><a href="#charging">Charging</a></li>
+    <li><a href="#updating">Updating the firmware</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="keys">1. Special keys</h2>
+
+<p>These key combinations belong to the PX-42F-Plus itself. They work on the calculator screen, and the last three in the settings menu too.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Keys</th><th>What they do</th></tr></thead>
+<tbody>
+<tr><td><kbd>ON</kbd> (the <kbd>EXIT</kbd> key)</td><td>Turns the calculator on. Its memory comes back exactly as it was when it was turned off.</td></tr>
+<tr><td><kbd>SHIFT</kbd> then <kbd>EXIT</kbd></td><td>Opens the settings menu. On the HP-42S this is OFF; here, OFF is the first item of the menu. In the settings menu itself, <kbd>SHIFT</kbd> then <kbd>EXIT</kbd> turns the calculator off.</td></tr>
+<tr><td>Hold <kbd>EXIT</kbd> for 2 seconds</td><td>Turns the calculator off.</td></tr>
+<tr><td>Hold <kbd>SHIFT</kbd> and <kbd>&minus;</kbd> together for &frac12; second</td><td>Takes a screenshot: the screen as it was when <kbd>SHIFT</kbd> went down is saved to <code>/SCREENSHOTS</code> on the drive as a 250 &times; 122 PNG named by date and time. A screenshot can be used as a splash image.</td></tr>
+</tbody>
+</table></div>
+
+<p>The calculator also turns itself off after the <a href="#set-sleep">Sleep Timer</a>, and when the battery runs empty (about 3.45 V).</p>
+
+<!-- ============================================================ -->
+<h2 id="screen">2. The screen</h2>
+
+<p>The screen is 250 &times; 122 pixels. From top to bottom it has three parts:</p>
+<ol>
+  <li><strong>The status bar:</strong> a black bar 12 pixels tall. See <a href="#status">The status bar</a>.</li>
+  <li><strong>The lines:</strong> the stack, messages, programs, the equation editor, whatever Plus42 is showing.</li>
+  <li><strong>The menu:</strong> six tabs along the bottom, one for each of the six top-row keys, whenever a menu is open.</li>
+</ol>
+
+<figure>
+  <img class="lcd" src="{{SCREEN}}" alt="The calculator screen: a black status bar reading { HOME }, a degree sign and the battery; then five lines in the large font, A: T: Z: Y: X:, with dotted lines between them." width="250" height="122">
+  <figcaption>The screen after Memory Clear: 5 rows in the large font. ALPHA is on top (<code>A:""</code>, empty), then the stack T, Z, Y and X, with dotted dividers between the lines.</figcaption>
+</figure>
+
+<h3>The lines</h3>
+<p>Plus42 decides what each line holds; the PX-42F-Plus decides how big they are drawn.</p>
+<ul>
+  <li>The space below the status bar is shared equally between the lines, and each line sits in the middle of its share. So there is always space above the first line and below the last one.</li>
+  <li>The stack's labels are drawn as <strong>X:</strong> <strong>Y:</strong> <strong>Z:</strong> <strong>T:</strong>, plus <strong>L:</strong> for LASTx and <strong>A:</strong> for ALPHA, when those are shown on top (LTOP, ATOP).</li>
+  <li>In the large font, and in the smaller ones when there is room, a dotted line separates every two lines. It is either between all of them or none, never in some gaps only.</li>
+  <li>A plot fills the whole area below the status bar, drawn from Plus42's own pixels at the same scale across and down.</li>
+</ul>
+
+<h3>The menu</h3>
+<p>A menu always looks the same, whatever the number of lines: six black tabs, 14 pixels tall, labelled in the small font. Each tab belongs to the key below it.</p>
+<ul>
+  <li>A label is cut short at five characters.</li>
+  <li>An item that is the current setting (for example RAD in the MODES menu while in RAD mode) is underlined.</li>
+  <li>When a menu is open, the lines share the space above the tabs. When no menu is open, the bottom row is one more line of text and the lines share the whole area.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="status">3. The status bar</h2>
+
+<p>The status bar has two halves: information on the left, and the calculator's indicators on the right.</p>
+
+<div class="statusbar" aria-label="Status bar with HEADER on"><span>{ HOME }</span><span class="right"><span>&#9654;</span><span>&uarr;&darr;</span><span>&#8627;</span><span>&deg;</span><span class="batt"><i></i></span></span></div>
+<div class="statusbar" aria-label="Status bar with HEADER off"><span>TUE-OCT-21 11:42AM</span><span class="right"><span>&#9654;</span><span>&uarr;&darr;</span><span>&#8627;</span><span>&deg;</span><span class="batt"><i></i></span></span></div>
+<p class="note">Both bars show every indicator at once, only to show where each one appears. Normally only the ones that apply are lit.</p>
+
+<h3>Left: the directory, or the date and time</h3>
+<p>Plus42's HEADER setting (<span class="menu-path">DISP</span> menu, third page, <strong>HDR</strong>) chooses what the left side shows:</p>
+<ul>
+  <li><strong>HEADER on</strong> (after Memory Clear): the current directory, such as <code>{ HOME }</code> or <code>{ HOME MATH }</code>. After it come any extras that are switched on:
+    <ul>
+      <li><strong>HFLG</strong> (HFLAGS): the numbers of any of flags 0&ndash;10 that are set, for example <code>13</code> for flags 1 and 3.</li>
+      <li><strong>HPOL</strong> (HPOLAR): a <code>&#8737;</code> while the calculator is in POLAR mode.</li>
+      <li>In the BASE menus, the base and word size, such as <code>HEX 36 SW</code>. In TVM, its BEGIN/END status.</li>
+    </ul>
+    There is room for 22 characters. A longer path loses its beginning, shown as <code>&hellip;</code>, so the directory you're in always stays in view.</li>
+  <li><strong>HEADER off:</strong> the date and time, in the formats set in <a href="#set-datetime">Date &amp; Time</a>, for example <code>TUE-OCT-21 11:42AM</code> or <code>2026-10-21 11:42</code>.</li>
+</ul>
+
+<h3>Right: the indicators</h3>
+<p>From the right edge leftwards. These are the icons as the calculator draws them, enlarged; only the ones that apply are shown.</p>
+<div class="table-wrap"><table class="icons">
+<thead><tr><th>Icon</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><img class="icon" src="{{ICON:battery4}}" alt="Battery, full"> <img class="icon" src="{{ICON:battery2}}" alt="Battery, half"> <img class="icon" src="{{ICON:battery0}}" alt="Battery, empty"></td><td><strong>Battery</strong>: four bars when full, none when nearly empty. Always shown.</td></tr>
+<tr><td><img class="icon" src="{{ICON:deg}}" alt="Degree sign"></td><td><strong>DEG</strong>: angles in degrees. One of the three angle icons is always shown.</td></tr>
+<tr><td><img class="icon" src="{{ICON:rad}}" alt="Pi"></td><td><strong>RAD</strong>: angles in radians.</td></tr>
+<tr><td><img class="icon" src="{{ICON:grad}}" alt="G"></td><td><strong>GRAD</strong>: angles in grads.</td></tr>
+<tr><td><img class="icon" src="{{ICON:shift}}" alt="Bent arrow pointing right"></td><td><strong>Shift</strong>: <kbd>SHIFT</kbd> is active; the next key does its shifted function.</td></tr>
+<tr><td><img class="icon" src="{{ICON:updn}}" alt="Up and down arrows"></td><td><strong>More menu rows</strong>: the open menu has more rows; <kbd>&uarr;</kbd> and <kbd>&darr;</kbd> page through them.</td></tr>
+<tr><td><img class="icon" src="{{ICON:run}}" alt="Right-pointing triangle"></td><td><strong>Running</strong>: a program is running.</td></tr>
+</tbody>
+</table></div>
+<p>The angle icons are the HP-42S's own characters &deg;, &pi; and G. The &#8737; sign is left to Plus42's HPOLAR mark on the left side, where it means POLAR mode.</p>
+
+<!-- ============================================================ -->
+<h2 id="lines">4. Lines and fonts</h2>
+
+<p>The number of rows is Plus42's own setting, and the font follows from it: the PX-42F-Plus always uses the biggest font that fits. The row count includes the menu's row (with no menu open, that row is a line of text).</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Rows</th><th>Font</th><th>Characters per line</th><th>Dotted dividers</th></tr></thead>
+<tbody>
+<tr><td>2 &ndash; 5</td><td>Large, 10 &times; 16</td><td>22 (the HP-42S's own width)</td><td>Always</td></tr>
+<tr><td>6 &ndash; 7</td><td>Small, 8 &times; 12</td><td>31</td><td>Always</td></tr>
+<tr><td>8</td><td>Small, 8 &times; 12</td><td>31</td><td>None (no room)</td></tr>
+<tr><td>9 &ndash; 12</td><td>Mini, 6 &times; 8</td><td>41</td><td>When there is room</td></tr>
+</tbody>
+</table></div>
+
+<p>After Memory Clear the calculator starts with <strong>5 rows</strong> and <strong>ATOP on</strong>: ALPHA, T, Z, Y and X in the large font, or ALPHA, Z, Y and X above a menu.</p>
+
+<h3>Changing the number of rows</h3>
+<p>Press <kbd>SHIFT</kbd> <kbd>DISP</kbd> (the <kbd>E</kbd> key) and page down to the third page:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Key</th><th>Command</th><th>On the PX-42F-Plus</th></tr></thead>
+<tbody>
+<tr><td>ROW+ / ROW&minus;</td><td>One row more or less</td><td>Changes the rows (2 to 12), and with them the font.</td></tr>
+<tr><td>SETDS</td><td>Set display size: rows in Y, columns in X</td><td>Sets the rows. The columns are ignored: the font sets them.</td></tr>
+<tr><td>GETDS</td><td>Get display size</td><td>Returns the real size: columns in X, rows in Y.</td></tr>
+<tr><td>COL+ / COL&minus;</td><td>One column more or less</td><td>No effect: the font sets the columns.</td></tr>
+</tbody>
+</table></div>
+
+<p>Other settings on the DISP menu's later pages change what the lines show:</p>
+<ul>
+  <li><strong>HDR, HFLG, HPOL</strong> (HEADER, HFLAGS, HPOLAR): the left side of the status bar. See <a href="#status">The status bar</a>.</li>
+  <li><strong>LTOP</strong>: a line for LASTx (<strong>L:</strong>) at the top.</li>
+  <li><strong>ATOP</strong>: a line for ALPHA (<strong>A:</strong>) at the top.</li>
+  <li><strong>1LINE / NLINE</strong>: whether a long number in X stays on one line or wraps onto more.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="fonts">5. The three fonts</h2>
+
+<p>The calculator screen uses three fonts. Each is either the built-in one or a font of your own from the drive, chosen in <a href="#set-fonts">Settings &rarr; Fonts</a>.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Font</th><th>Character size</th><th>Used for</th></tr></thead>
+<tbody>
+<tr><td>Large</td><td>10 &times; 16 pixels</td><td>The lines, with 2 to 5 rows.</td></tr>
+<tr><td>Small</td><td>8 &times; 12 pixels</td><td>The status bar and the menu tabs, always. The lines, with 6 to 8 rows.</td></tr>
+<tr><td>Mini</td><td>6 &times; 8 pixels</td><td>The lines, with 9 to 12 rows. The built-in mini font is Plus42's own character set.</td></tr>
+</tbody>
+</table></div>
+
+<p>Every font holds the 128 characters of the HP-42S character set, in the HP-42S order. Codes 32&ndash;126 are mostly ordinary ASCII, and codes 0&ndash;31 hold the calculator's own symbols:</p>
+<div class="table-wrap"><table class="mono">
+<thead><tr><th>Codes</th><th>Characters</th></tr></thead>
+<tbody>
+<tr><td>0 &ndash; 15</td><td>&divide; &times; &radic; &int; &#9618; &Sigma; &#9654; &pi; &iquest; &le; LF &ge; &ne; &crarr; &darr; &rarr;</td></tr>
+<tr><td>16 &ndash; 31</td><td>&larr; &micro; &pound; &deg; &Aring; &Ntilde; &Auml; &#8737; &#7431; &AElig; &hellip; Esc &Ouml; &Uuml; &#9618; &bull;</td></tr>
+<tr><td>94, 126</td><td>&uarr; (in place of ^), ~</td></tr>
+</tbody>
+</table></div>
+
+<h3>The built-in fonts</h3>
+<p>Each map shows the 128 characters in a 16 &times; 8 grid. A character's code is its row (00 to 70, in hexadecimal) plus its column (0 to F).</p>
+<figure><img class="map" src="{{LARGE}}" alt="Map of the built-in large font, 10 by 16 pixels"><figcaption>Large, 10 &times; 16.</figcaption></figure>
+<figure><img class="map" src="{{SMALL}}" alt="Map of the built-in small font, 8 by 12 pixels"><figcaption>Small, 8 &times; 12.</figcaption></figure>
+<figure><img class="map" src="{{MINI}}" alt="Map of the built-in mini font, 6 by 8 pixels"><figcaption>Mini, 6 &times; 8.</figcaption></figure>
+
+<h3 id="font-sheets">Making your own font</h3>
+<p>A font is a PNG image, called a font sheet, with the 128 characters in a grid of 16 across and 8 down, in code order: the character with code <var>c</var> is in row <var>c</var> &divide; 16, column <var>c</var> mod 16. Dark pixels are ink. The sizes are fixed:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Font</th><th>Folder</th><th>Image size</th><th>Cells</th></tr></thead>
+<tbody>
+<tr><td>Large</td><td><code>/FONTS/LARGE/</code></td><td>175 &times; 135</td><td>10 &times; 16, with 1 pixel between cells</td></tr>
+<tr><td>Small</td><td><code>/FONTS/SMALL/</code></td><td>128 &times; 96</td><td>8 &times; 12, no gaps</td></tr>
+<tr><td>Mini</td><td><code>/FONTS/MINI/</code></td><td>96 &times; 64</td><td>6 &times; 8, no gaps</td></tr>
+</tbody>
+</table></div>
+<p>The easiest way to start is to copy the built-in font's own sheet and edit it. Copy the finished PNG into its folder with <a href="#set-usb">USB Drive</a>, then choose it in <a href="#set-fonts">Settings &rarr; Fonts</a>.</p>
+<p class="note">The settings menu, the boot screen and the clock on the splash screen always use the built-in fonts. That way a font that turns out unreadable can always be undone.</p>
+
+<!-- ============================================================ -->
+<h2 id="settings">6. The settings menu</h2>
+
+<p>Press <kbd>SHIFT</kbd> then <kbd>EXIT</kbd> to open it. Every screen has the same frame: a black title bar with the screen's name and the current time, and a line at the bottom saying what the keys do there.</p>
+
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:settings}}" alt="The Settings list: Off, IR Remote, Date &amp; Time, Sounds, Fonts, Sleep Timer, Splash Image"><figcaption>The top list. The &darr; at the bottom right means more items below: Printer, States, USB Drive, Info.</figcaption></figure>
+</div>
+
+<h3>Moving around</h3>
+<ul>
+  <li><kbd>&uarr;</kbd> <kbd>&darr;</kbd> move through a list. A <code>&gt;</code> at the right of an item means it opens another list; other items show their current value there.</li>
+  <li><kbd>ENTER</kbd> chooses the highlighted item.</li>
+  <li><kbd>EXIT</kbd> or <kbd>&larr;</kbd> goes back one level. On the top list, <kbd>&larr;</kbd> returns to the calculator.</li>
+  <li><kbd>EXIT</kbd> on <strong>Off</strong>, or <kbd>SHIFT</kbd> then <kbd>EXIT</kbd> anywhere, turns the calculator off.</li>
+  <li>Numbers are typed with the digit keys into the blanks (<code>__:__</code>); <kbd>&larr;</kbd> (Bsp) deletes the last digit, <kbd>ENTER</kbd> accepts, <kbd>EXIT</kbd> cancels.</li>
+  <li>The menu turns the calculator off after the Sleep Timer, just as the calculator screen does.</li>
+</ul>
+<p>The settings are saved when you change them, and are kept when the calculator is turned off, reset or reflashed.</p>
+
+<h3 id="set-off">Off</h3>
+<p>Turns the calculator off. <kbd>ENTER</kbd> or <kbd>EXIT</kbd> on this item does it.</p>
+
+<h3 id="set-ir">IR Remote</h3>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:ir_remote}}" alt="IR Remote list with two remotes"><figcaption>The remotes in <code>/IR</code> on the drive. <kbd>ENTER</kbd> uses one.</figcaption></figure>
+</div>
+<p>Turns the calculator into an infrared remote control. Choose a remote, and the screen shows a map of the keyboard with each key's label. Pressing a key sends its code, repeated for as long as it's held. Press <kbd>ON</kbd> to return to the calculator. With no remotes on the drive, the screen says to copy <code>.ir</code> files into the <code>IR</code> folder.</p>
+<p>A remote is a <code>.ir</code> file in the Flipper Zero format, with two extra lines for each key:</p>
+<ul>
+  <li><code>button: RxCy</code>: the key the code goes on, by row R (0&ndash;6, from the top) and column C (0&ndash;5, from the left). The top two rows have 6 keys, the others 5. R0C5 is XEQ, R2C0 is ENTER. R6C0 is the ON key, which leaves the remote, so it can't be used.</li>
+  <li><code>label:</code> the text shown on that key: 5 characters fit, 6 in the rows from <kbd>&uarr;</kbd> <kbd>7</kbd> <kbd>8</kbd> <kbd>9</kbd> down, 10 on <kbd>ENTER</kbd>.</li>
+</ul>
+<p>Every other line is Flipper's own: <code>name:</code> (what the code does, shown at the top when it's sent), <code>protocol:</code>, <code>address:</code> and <code>command:</code>. Lines starting with <code>#</code> are notes. A small example, a Samsung TV's power, OK and volume-up keys:</p>
+<pre><code># Samsung TV, three keys
+name: Power
+label: Power
+button: R0C0
+protocol: Samsung32
+address: 07 00 00 00
+command: 02 00 00 00
+#
+name: OK
+label: OK
+button: R2C0
+protocol: Samsung32
+address: 07 00 00 00
+command: 68 00 00 00
+#
+name: Volume Up
+label: Vol+
+button: R6C4
+protocol: Samsung32
+address: 07 00 00 00
+command: 07 00 00 00</code></pre>
+<p>Power goes on the top-left key, OK on <kbd>ENTER</kbd>, and Vol+ on <kbd>+</kbd>. A key with no entry stays blank and does nothing.</p>
+<p><strong>Where to get codes.</strong> The <a href="https://github.com/Lucaslhm/Flipper-IRDB">Flipper-IRDB</a> collection has <code>.ir</code> files for most TVs, players, amplifiers and air conditioners. Download the file for your device, add a <code>button:</code> line (and a <code>label:</code>) to each code you want on a key, and copy it into <code>/IR</code>. Entries without a <code>button:</code> are skipped, so the file can stay otherwise as it is. Flipper's own description of the format is in its <a href="https://developer.flipper.net/flipperzero/doxygen/infrared_file_format.html">developer documentation</a>.</p>
+<p>Supported protocols: NEC, NECext, NEC42, NEC42ext, Samsung32, RC5, RC5X, RC6, SIRC, SIRC15, SIRC20, Kaseikyo, RCA and Pioneer. Raw recordings (<code>type: raw</code>) can't be sent, and the calculator can't learn codes: it has no infrared receiver.</p>
+
+<h3 id="set-datetime">Date &amp; Time</h3>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:date_time}}" alt="Date &amp; Time list with the current values"><figcaption>Each item shows its current value.</figcaption></figure>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Item</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>Set Time</td><td>Type the hours and minutes, then press <kbd>ENTER</kbd> when the seconds reach :00 (the screen says &ldquo;Enter at :00&rdquo;). In 12-hour format, then choose AM or PM.</td></tr>
+<tr><td>Time Format</td><td>24-Hour or 12-Hour.</td></tr>
+<tr><td>Set Date</td><td>Type the date, in the blanks of the current date format.</td></tr>
+<tr><td>Date Format</td><td>YYYY-MM-DD, DD.MM.YYYY, MM/DD/YYYY, or DOW-MON-DAY (for example <code>WED-OCT-21</code>).</td></tr>
+<tr><td>Time Calibration</td><td>Corrects a clock that runs fast or slow. See below.</td></tr>
+</tbody>
+</table></div>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:set_time}}" alt="Set Time: Now 11:42 AM. Enter at :00, with blanks __:__"><figcaption>Set Time.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:set_date}}" alt="Set Date with blanks in the date format"><figcaption>Set Date.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:time_format}}" alt="Time Format: 24-Hour or 12-Hour"><figcaption>Time Format.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:date_format}}" alt="Date Format: four formats"><figcaption>Date Format.</figcaption></figure>
+</div>
+<p>The formats are the calculator's own: Plus42's DMY, MDY, YMD, CLK12 and CLK24 commands change them too, and the setting follows. DOW-MON-DAY is a PX-42F-Plus format; to Plus42 it counts as MDY. The status bar (with HEADER off), the settings menu's title bar and the splash screen's clock use these formats.</p>
+
+<h4>Time Calibration</h4>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:time_calibration}}" alt="Time Calibration: Correction and Measured"><figcaption>The correction in use, and what has been measured.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:correction}}" alt="Correction: Clock Runs Slow, Clock Runs Fast, No Correction"><figcaption>Correction, set by hand.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:exact_time}}" alt="Exact Time: Now 11:42:05 AM. Enter on it, with blanks __:__:__"><figcaption>Measured: entering the exact time.</figcaption></figure>
+</div>
+<ul>
+  <li><strong>Correction:</strong> choose Clock Runs Slow, Clock Runs Fast or No Correction, then type how many seconds a day it loses or gains, to a tenth of a second.</li>
+  <li><strong>Measured:</strong> lets the calculator measure its own drift. Type the exact time to the second (hours, minutes, seconds) and press <kbd>ENTER</kbd> exactly at that second. Do it again after a day or more, and at least 6 hours later: the calculator then shows how many seconds a day it gained or lost, and offers to apply that as the correction. Once something is measured, Measured offers <strong>Apply</strong> or <strong>Enter Exact Time</strong>. Setting the time exactly from a computer counts too.</li>
+</ul>
+<p class="note">The clock keeps running while the calculator is off, but a full reset (the RESET button, or a flat battery) loses the time.</p>
+
+<h3 id="set-sounds">Sounds</h3>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:sounds}}" alt="Sounds: Key Sound Typewriter, Boot Sound On, On Sound On, Off Sound On"><figcaption>The sound settings.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:key_sound}}" alt="Key Sound list: Off, Typewriter (marked), Tick, Tock, Glass, Pop, Beep"><figcaption>Key Sound. The <code>&lt;</code> marks the one in use.</figcaption></figure>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Item</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>Key Sound</td><td>The sound each key press makes, or Off. See below.</td></tr>
+<tr><td>Boot Sound</td><td>On or Off: a sound when the calculator starts from scratch (after a reset or a reflash). <kbd>ENTER</kbd> toggles it, and plays it when turned on.</td></tr>
+<tr><td>On Sound</td><td>On or Off: a sound when you turn the calculator on.</td></tr>
+<tr><td>Off Sound</td><td>On or Off: a sound when it turns off.</td></tr>
+</tbody>
+</table></div>
+
+<h4>Key Sound</h4>
+<p>The list shows Off, the built-in key sounds, then any of your own on the drive. <kbd>ENTER</kbd> chooses one and plays it. There are two kinds:</p>
+<ul>
+  <li><strong>A single sound</strong> (Tick, Tock, Glass, Pop, Beep, Free42): every key makes the same sound.</li>
+  <li><strong>A set</strong> (built in: Typewriter): three sounds, chosen by what the key does. Choosing a set plays all three in order.</li>
+</ul>
+<div class="table-wrap"><table>
+<thead><tr><th>Sound in a set</th><th>Keys</th><th>Typewriter</th></tr></thead>
+<tbody>
+<tr><td>Entry</td><td>0&ndash;9, <kbd>.</kbd>, <kbd>E</kbd>, <kbd>CHS</kbd>, <kbd>&larr;</kbd> (backspace and CLX), <kbd>SHIFT</kbd>, <kbd>&uarr;</kbd> <kbd>&darr;</kbd>, <kbd>EXIT</kbd>; and every key while typing ALPHA text or a command's argument (<code>STO 01</code>, <code>XEQ "NAME"</code>).</td><td>A letter key.</td></tr>
+<tr><td>Operation</td><td>Everything that runs a command: + &minus; &times; &divide;, SIN, COS, TAN, LOG, LN, &radic;, 1/x, &Sigma;+, x&lt;&gt;y, R&darr;, STO, RCL, XEQ, R/S, the menu keys, and every shifted key.</td><td>A heavier, lower key.</td></tr>
+<tr><td>ENTER</td><td><kbd>ENTER</kbd>.</td><td>A brighter key, with a ringing metal tail.</td></tr>
+</tbody>
+</table></div>
+<p>In the settings menu, <kbd>ENTER</kbd> makes the ENTER sound and every other key the entry sound.</p>
+<p><strong>Your own key sounds.</strong> Copy WAV files into <code>/SOUNDS/KEY</code> on the drive:</p>
+<ul>
+  <li>A single sound: <code>/SOUNDS/KEY/&lt;name&gt;.wav</code>, at most 250 ms.</li>
+  <li>A set: a folder <code>/SOUNDS/KEY/&lt;name&gt;/</code> with <code>ENTRY.wav</code>, <code>OP.wav</code> and <code>ENTER.wav</code>, at most 100 ms each. A missing <code>OP.wav</code> sounds like <code>ENTRY.wav</code>, and a missing <code>ENTER.wav</code> like <code>OP.wav</code>.</li>
+</ul>
+<p>Longer sounds are cut short with a fade. Short sounds (30&ndash;60 ms) suit fast typing best, because each key press cuts off the sound before it.</p>
+
+<h4>Other sounds</h4>
+<p>All the calculator's sounds are WAV files in <code>/SOUNDS</code> on the drive. Replace any of them with your own:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>File</th><th>Played</th></tr></thead>
+<tbody>
+<tr><td><code>BOOT.wav</code></td><td>Starting from scratch (Boot Sound).</td></tr>
+<tr><td><code>ON.wav</code>, <code>OFF.wav</code></td><td>Turning on and off (On Sound, Off Sound).</td></tr>
+<tr><td><code>TONES/TONE0.wav</code> &hellip; <code>TONE9.wav</code></td><td>The TONE 0&ndash;9 commands (and BEEP).</td></tr>
+<tr><td><code>ERROR.wav</code></td><td>An error.</td></tr>
+</tbody>
+</table></div>
+<p>Any WAV that Audacity exports works: PCM (8, 16, 24 or 32-bit) or 32-bit float, mono or stereo, any sample rate. Every sound is played at full volume, whatever its level in the file. A deleted file comes back as the built-in one at the next start. A built-in sound you haven't replaced is updated by itself when a new firmware changes it. Sounds you've replaced are never touched.</p>
+
+<h3 id="set-fonts">Fonts</h3>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:fonts}}" alt="Fonts: Large Font (10x16), Small Font (8x12), Mini Font (6x8), all Built-In"><figcaption>The three fonts and the one each uses.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:font_large}}" alt="Large Font list: Built-In, Rounded"><figcaption>A font's list: Built-In, then the sheets in its folder.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:font_large_preview}}" alt="Preview of the large font: all its characters"><figcaption>The preview of the large font.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:font_mini_preview}}" alt="Preview of the mini font: all its characters"><figcaption>The preview of the mini font.</figcaption></figure>
+</div>
+<p>Choose a font to see its list. <kbd>ENTER</kbd> on a font shows all 128 of its characters. Press <kbd>ENTER</kbd> again to use it, or <kbd>EXIT</kbd> to keep the one you had. A sheet of the wrong size is refused, with the size it should be. See <a href="#fonts">The three fonts</a>.</p>
+
+<h3 id="set-sleep">Sleep Timer</h3>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:sleep_timer}}" alt="Sleep Timer: Off after 10 min. 0 = Off, with blanks ___ min"><figcaption>Sleep Timer.</figcaption></figure>
+</div>
+<p>Turns the calculator off after this many minutes without a key press: 0 to 999, where 0 means never. The default is 10 minutes, the HP-42S's own. The timer doesn't run while a program runs, while Plus42's "continuous on" (flag 44) is set, or while a computer is connected over USB.</p>
+
+<h3 id="set-splash">Splash Image</h3>
+<p>The picture the screen shows while the calculator is off, with the date and time across the top, updated every minute.</p>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:splash}}" alt="Splash Image: Timer 10 min, Image Built-In"><figcaption>The two splash settings.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:splash_timer}}" alt="Splash Timer: Shown for 10 min. 0 = Off"><figcaption>Timer.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:splash_image}}" alt="Splash Image list: Built-In, a screenshot, Mountains"><figcaption>Image: Built-In, then the PNGs in <code>/SPLASH</code>.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:splash_preview}}" alt="Preview of the built-in splash: a frame with a checkered band, under a bar with the date and time"><figcaption>A preview, as it looks while off.</figcaption></figure>
+</div>
+<ul>
+  <li><strong>Timer:</strong> how many minutes the picture stays up after turning off, 0 to 999. After that the screen goes blank. With 0, it's blank straight away. The default is 10.</li>
+  <li><strong>Image:</strong> <strong>Built-In</strong>, or a PNG from <code>/SPLASH</code> on the drive. <kbd>ENTER</kbd> on an image shows it full screen, as it will look. Press <kbd>ENTER</kbd> again to use it, or <kbd>EXIT</kbd> to go back. The best size is 250 &times; 122 pixels, and the PNG must not be interlaced. A screenshot works as is.</li>
+</ul>
+<p>Showing the picture costs a little battery while off: about 200 &micro;A against 135 &micro;A blank.</p>
+
+<h3 id="set-printer">Printer</h3>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:printer}}" alt="Printer: Off, USB Serial"><figcaption>Printer.</figcaption></figure>
+</div>
+<ul>
+  <li><strong>Off:</strong> printing commands do nothing (Plus42's PROFF).</li>
+  <li><strong>USB Serial:</strong> printing goes to a second USB serial port named <strong>PX-42F Printer</strong>. Open it in a terminal program on the computer to see the output. Choosing it also turns Plus42's printer on (PRON).</li>
+</ul>
+
+<h3 id="set-states">States</h3>
+<p>A state is a complete copy of the calculator's memory (stack, variables, programs, settings) in a file. States are kept on the drive in <code>/STATE</code> as <code>&lt;name&gt;.p42</code> files, the same format the desktop Plus42 uses.</p>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:states}}" alt="States: Save State, Load State, Rename State, Delete State"><figcaption>States.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:save_state}}" alt="Save State: a name prompt with the suggested name 20261021-114205"><figcaption>Save State, with the suggested name.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:load_state}}" alt="Load State: a list of saved states"><figcaption>Load State: the saved states.</figcaption></figure>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Item</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>Save State</td><td>Saves the memory under a name of up to 16 characters. The suggested name is the date and time (YYYYMMDD-HHMMSS). To type your own, delete it with <kbd>&larr;</kbd>, then type letters with the keys as in ALPHA mode, and digits with <kbd>SHIFT</kbd> and the digit key. Saving over an existing name asks first.</td></tr>
+<tr><td>Load State</td><td>Replaces the calculator's memory with a saved state, after asking.</td></tr>
+<tr><td>Rename State</td><td>Gives a saved state a new name.</td></tr>
+<tr><td>Delete State</td><td>Deletes a saved state, after asking. It can't be undone.</td></tr>
+</tbody>
+</table></div>
+<p class="note">Plus42 can't read Free42 states (<code>.f42</code>). Programs can move between the two as <code>.raw</code> files.</p>
+
+<h3 id="set-usb">USB Drive</h3>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:usb_drive}}" alt="USB Drive: Connected: drive PX-42F"><figcaption>USB Drive, with a computer connected.</figcaption></figure>
+</div>
+<p>Lets a computer open the calculator's drive, named <strong>PX-42F</strong>, through the USB cable, to copy states, images, fonts, sounds and remotes in and out. The screen says &ldquo;Waiting for a computer...&rdquo; until one opens it. While it's open, the calculator stays out of the drive. <strong>Eject the drive on the computer before pressing <kbd>EXIT</kbd></strong>. On leaving, the calculator saves what was written and reloads the splash image, sounds and fonts, in case they were changed.</p>
+
+<h3 id="set-info">Info</h3>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:info}}" alt="Info: Plus42 1.4a, Thomas Okken; Port Alex Garza; Decimal Intel 2.0 Update 1; Firmware; Battery; Stack"><figcaption>Info.</figcaption></figure>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Line</th><th>Shows</th></tr></thead>
+<tbody>
+<tr><td>Plus42</td><td>The Plus42 version, by Thomas Okken.</td></tr>
+<tr><td>Port</td><td>Alex Garza, who brought Plus42 to the PX-42F.</td></tr>
+<tr><td>Decimal</td><td>The Intel Decimal Floating-Point Math Library the calculator computes with: 34-digit decimal arithmetic, like the Decimal versions of Plus42.</td></tr>
+<tr><td>Firmware</td><td>The firmware version and the date it was built.</td></tr>
+<tr><td>Battery</td><td>The battery voltage now.</td></tr>
+<tr><td>Stack</td><td>The most of the firmware's working memory (its stack) used so far, out of 32,768 bytes. This is for diagnosing problems.</td></tr>
+</tbody>
+</table></div>
+
+<!-- ============================================================ -->
+<h2 id="drive">7. Files on the drive</h2>
+
+<p>Everything the calculator reads from or writes to its drive, as seen in <a href="#set-usb">USB Drive</a>. The calculator makes the folders by itself.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Folder</th><th>Holds</th></tr></thead>
+<tbody>
+<tr><td><code>/STATE</code></td><td>Saved states, <code>&lt;name&gt;.p42</code>. See <a href="#set-states">States</a>.</td></tr>
+<tr><td><code>/SPLASH</code></td><td>Splash images, PNG. See <a href="#set-splash">Splash Image</a>.</td></tr>
+<tr><td><code>/SCREENSHOTS</code></td><td>Screenshots, PNG. See <a href="#keys">Special keys</a>.</td></tr>
+<tr><td><code>/FONTS/LARGE</code>, <code>/FONTS/SMALL</code>, <code>/FONTS/MINI</code></td><td>Font sheets, PNG. See <a href="#font-sheets">Making your own font</a>.</td></tr>
+<tr><td><code>/SOUNDS</code></td><td>Every sound, WAV. Key sounds are in <code>/SOUNDS/KEY</code>. <code>BUILTIN.TXT</code> is the calculator's own record of the built-in sounds it wrote; leave it alone. See <a href="#set-sounds">Sounds</a>.</td></tr>
+<tr><td><code>/IR</code></td><td>Remotes, <code>.ir</code>. See <a href="#set-ir">IR Remote</a>.</td></tr>
+</tbody>
+</table></div>
+
+<!-- ============================================================ -->
+<h2 id="back">8. The back of the calculator</h2>
+
+<p>Looking at the calculator from behind, the openings are, from left to right:</p>
+
+<svg class="back-view" viewBox="0 0 620 170" role="img" aria-label="The back of the calculator, from left to right: IR LED, reset button, USB-C port, boot button, charge indicator LED">
+  <rect class="body" x="10" y="20" width="600" height="60" rx="14"/>
+  <!-- IR LED -->
+  <circle class="part" cx="80" cy="50" r="10"/>
+  <circle class="ink" cx="80" cy="50" r="4"/>
+  <!-- RESET -->
+  <circle class="part" cx="200" cy="50" r="7"/>
+  <!-- USB-C -->
+  <rect class="part" x="275" y="40" width="70" height="20" rx="10"/>
+  <rect class="ink" x="290" y="47" width="40" height="6" rx="3"/>
+  <!-- BOOT -->
+  <circle class="part" cx="420" cy="50" r="7"/>
+  <!-- charge LED -->
+  <circle class="part" cx="540" cy="50" r="7"/>
+  <line class="lead" x1="80" y1="62" x2="80" y2="104"/>
+  <line class="lead" x1="200" y1="59" x2="200" y2="104"/>
+  <line class="lead" x1="310" y1="62" x2="310" y2="104"/>
+  <line class="lead" x1="420" y1="59" x2="420" y2="104"/>
+  <line class="lead" x1="540" y1="59" x2="540" y2="104"/>
+  <text x="80" y="124" text-anchor="middle">IR LED</text>
+  <text x="80" y="142" text-anchor="middle" class="small">IR Remote</text>
+  <text x="200" y="124" text-anchor="middle">RESET</text>
+  <text x="200" y="142" text-anchor="middle" class="small">restart</text>
+  <text x="310" y="124" text-anchor="middle">USB-C</text>
+  <text x="310" y="142" text-anchor="middle" class="small">charging, data</text>
+  <text x="420" y="124" text-anchor="middle">BOOT</text>
+  <text x="420" y="142" text-anchor="middle" class="small">firmware update</text>
+  <text x="540" y="124" text-anchor="middle">Charge LED</text>
+  <text x="540" y="142" text-anchor="middle" class="small">red / green</text>
+</svg>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Opening</th><th>What it's for</th></tr></thead>
+<tbody>
+<tr><td>IR LED</td><td>The infrared light that sends a remote's codes. Point it at the device. See <a href="#set-ir">IR Remote</a>.</td></tr>
+<tr><td>RESET button</td><td>Restarts the calculator. Use it only if the calculator stops responding to its keys. The calculator comes back with its memory as it was when it was last turned on, if that can be recovered; the clock's time is lost, so set it again in <a href="#set-datetime">Date &amp; Time</a>. It's also used to <a href="#updating">update the firmware</a>.</td></tr>
+<tr><td>USB-C</td><td>Charges the battery, and connects to a computer: the <a href="#set-usb">USB Drive</a>, the <a href="#set-printer">printer</a> port, and firmware updates.</td></tr>
+<tr><td>BOOT button</td><td>Held down while pressing RESET, it starts the firmware update mode. See <a href="#updating">Updating the firmware</a>.</td></tr>
+<tr><td>Charge LED</td><td>Red while charging, green when charged. See <a href="#charging">Charging</a>.</td></tr>
+</tbody>
+</table></div>
+
+<!-- ============================================================ -->
+<h2 id="charging">9. Charging</h2>
+
+<p>The calculator runs on a built-in 1100 mAh lithium-ion battery, charged through the USB-C port from any USB charger or computer.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Charge LED</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>Red</td><td>Charging.</td></tr>
+<tr><td>Green</td><td>Charged: the battery is full.</td></tr>
+</tbody>
+</table></div>
+<ul>
+  <li>The calculator can be used while it charges.</li>
+  <li>The battery gauge at the right of the status bar shows the charge in four bars. <a href="#set-info">Settings &rarr; Info</a> shows the battery voltage: about 4.2 V when full.</li>
+  <li>When the battery is nearly empty, about 3.45 V, the calculator turns itself off to protect it. Its memory is kept while some charge remains, so charge it soon, then turn it on again. Left empty for long, the battery can run out completely, and the memory and the clock's time are lost: save important work as a <a href="#set-states">state</a>.</li>
+  <li>Turned off, the calculator uses very little power, about 135 &micro;A, or 200 &micro;A while the splash picture is showing. A full charge lasts months turned off, and many hours of use.</li>
+  <li>While a computer is connected over USB, the <a href="#set-sleep">Sleep Timer</a> doesn't turn the calculator off.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="updating">10. Updating the firmware</h2>
+
+<p>New firmware comes as a single <code>.uf2</code> file. Installing it takes a USB-C cable and a computer (Windows, macOS or Linux); no software is needed.</p>
+
+<p class="note">An update restarts the calculator, and its memory (stack, variables, programs) may not come back. Save it first: <a href="#set-states">Settings &rarr; States &rarr; Save State</a>. Saved states, splash images, fonts, sounds and remotes are on the calculator's drive, which an update doesn't touch, and so are the settings.</p>
+
+<ol class="steps">
+  <li>Connect the calculator to the computer with the USB-C cable.</li>
+  <li>Press and hold the <strong>BOOT</strong> button.</li>
+  <li>While holding BOOT, press and release the <strong>RESET</strong> button.</li>
+  <li>Release BOOT. A new drive named <strong>RP2350</strong> appears on the computer: that's the update mode. The calculator's screen doesn't change meanwhile, and its keys do nothing.</li>
+  <li>Drag the <code>.uf2</code> file onto the RP2350 drive.</li>
+  <li>Wait. When the copy finishes, the drive disappears by itself and the calculator starts the new firmware. The computer may warn that the drive was removed without ejecting it; that's normal here.</li>
+  <li>If you saved your memory, load it back: <a href="#set-states">Settings &rarr; States &rarr; Load State</a>. Check the time in <a href="#set-datetime">Date &amp; Time</a>.</li>
+</ol>
+<p>To check the update, <a href="#set-info">Settings &rarr; Info</a> shows the firmware version and the date it was built.</p>
+<p>To leave update mode without installing anything, press <strong>RESET</strong>.</p>
+
+<footer>
+  <p>PX-42F-Plus. Plus42 by Thomas Okken; port to the PX-42F by Alex Garza. Decimal arithmetic by the Intel Decimal Floating-Point Math Library.</p>
+</footer>
+
+</main>
+</body>
+</html>

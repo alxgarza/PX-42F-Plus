@@ -89,21 +89,23 @@ def decaying(n, rate, start_s, attack_s, decay_s):
     return env
 
 
-def typewriter(rate):
+def typewriter(rate, length_s=0.045, clack_hz=2600, clack_at=0.009, clack_decay=0.0035,
+               ring_hz=(3150, 4720), ring_decay=0.008):
     """The key's light tick, then ~9ms later the type bar's clack: a burst of
-    band-passed noise with a short metallic ring."""
+    band-passed noise with a short metallic ring. The defaults are a letter
+    key; a lower, later, longer clack is a heavier key."""
     rnd = random.Random(42)
-    n = int(0.045 * rate)
+    n = int(length_s * rate)
     noise = [rnd.uniform(-1, 1) for _ in range(n)]
     tick = bandpass(noise, 4500, 1.2, rate)
     tick_env = decaying(n, rate, 0.0, 0.0002, 0.0012)
-    clack = bandpass(noise[::-1], 2600, 0.9, rate)
-    clack_env = decaying(n, rate, 0.009, 0.0003, 0.0035)
-    ring_env = decaying(n, rate, 0.009, 0.0003, 0.008)
+    clack = bandpass(noise[::-1], clack_hz, 0.9, rate)
+    clack_env = decaying(n, rate, clack_at, 0.0003, clack_decay)
+    ring_env = decaying(n, rate, clack_at, 0.0003, ring_decay)
     out = []
     for i in range(n):
         t = i / rate
-        ring = 0.5 * math.sin(2 * math.pi * 3150 * t) + 0.3 * math.sin(2 * math.pi * 4720 * t)
+        ring = 0.5 * math.sin(2 * math.pi * ring_hz[0] * t) + 0.3 * math.sin(2 * math.pi * ring_hz[1] * t)
         out.append(0.35 * tick[i] * tick_env[i] + clack[i] * clack_env[i] + 0.25 * ring * ring_env[i])
     return out
 
@@ -142,17 +144,27 @@ SQUEAK_HZ = 1865
 def sounds():
     """(path in /SOUNDS, samples, rate), in the order the Key Sound list shows."""
     k = 32000
+    tick = render([(2200, 0, 0.006, 1.00, 0.0005), (5400, 0, 0.003, 0.35, 0.0005)],
+                  0.030, sine_wave, k)                              # a tap on wood
+    tock = render([(1200, 0, 0.009, 1.00, 0.0008), (3100, 0, 0.004, 0.30, 0.0008)],
+                  0.040, sine_wave, k)                              # deeper, rounder wood
+    pop = render([(700, 0, 0.008, 1.00, 0.0015), (1400, 0, 0.004, 0.25, 0.0015)],
+                 0.035, sine_wave, k)                               # a soft, low bubble
     out = [
-        ("KEY/Tick.wav", render([(2200, 0, 0.006, 1.00, 0.0005), (5400, 0, 0.003, 0.35, 0.0005)],
-                                0.030, sine_wave, k), k),           # a tap on wood
-        ("KEY/Tock.wav", render([(1200, 0, 0.009, 1.00, 0.0008), (3100, 0, 0.004, 0.30, 0.0008)],
-                                0.040, sine_wave, k), k),           # deeper, rounder wood
+        # A key sound set (sounds.h): a letter key for typing, a heavier key
+        # for operations, a brighter one whose metallic ring carries on, for
+        # ENTER.
+        ("KEY/Typewriter/ENTRY.wav", typewriter(k), k),
+        ("KEY/Typewriter/OP.wav", typewriter(k, length_s=0.060, clack_hz=1700, clack_at=0.012,
+                                             clack_decay=0.006, ring_hz=(2300, 3500), ring_decay=0.012), k),
+        ("KEY/Typewriter/ENTER.wav", typewriter(k, length_s=0.080, clack_hz=4200, clack_at=0.006,
+                                                clack_decay=0.004, ring_hz=(3700, 5550), ring_decay=0.030), k),
+        ("KEY/Tick.wav", tick, k),
+        ("KEY/Tock.wav", tock, k),
         ("KEY/Glass.wav", render([(2637, 0, 0.012, 1.00, 0.0004), (6900, 0, 0.006, 0.40, 0.0004)],
                                  0.045, sine_wave, k), k),          # a small bell, inharmonic overtone
-        ("KEY/Pop.wav", render([(700, 0, 0.008, 1.00, 0.0015), (1400, 0, 0.004, 0.25, 0.0015)],
-                               0.035, sine_wave, k), k),            # a soft, low bubble
+        ("KEY/Pop.wav", pop, k),
         ("KEY/Beep.wav", render([(2400, 0, 0, 1.00, 0.002)], 0.015, full_wave, k), k),  # classic short beep
-        ("KEY/Typewriter.wav", typewriter(k), k),
     ]
     click, click_rate = free42_click()
     out.append(("KEY/Free42.wav", click, click_rate))
@@ -182,17 +194,21 @@ def main():
             '#include "pico.h"', '#include "sounds.h"', ""]
     entries = []
     total = 0
-    for i, (path, samples, rate) in enumerate(sounds()):
+    arrays = {}  # the same WAV under two names is stored once
+    for path, samples, rate in sounds():
         data = wav_bytes(samples, rate)
-        total += len(data)
         print("%-20s %6d bytes, %5.0f ms, %d Hz" % (path, len(data), 1000 * (len(data) - 44) / 2 / rate, rate))
         if wav_dir:
             dest = os.path.join(wav_dir, path)
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             with open(dest, "wb") as f:
                 f.write(data)
-        lines = ["    " + ", ".join("0x%02x" % b for b in data[j:j + 20]) + "," for j in range(0, len(data), 20)]
-        body.append("static const uint8_t sound_%d[] = {\n%s\n};\n" % (i, "\n".join(lines)))
+        if data not in arrays:
+            i = arrays[data] = len(arrays)
+            total += len(data)
+            lines = ["    " + ", ".join("0x%02x" % b for b in data[j:j + 20]) + "," for j in range(0, len(data), 20)]
+            body.append("static const uint8_t sound_%d[] = {\n%s\n};\n" % (i, "\n".join(lines)))
+        i = arrays[data]
         entries.append('    {"%s", sound_%d, sizeof(sound_%d)},' % (path, i, i))
     body.append("const builtin_sound_t builtin_sounds[] = {\n%s\n};\n" % "\n".join(entries))
     body.append("const unsigned builtin_sound_count = count_of(builtin_sounds);\n")

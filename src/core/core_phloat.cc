@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,7 +23,7 @@
 
 #include "core_phloat.h"
 #include "core_helpers.h"
-#include "shell.h"
+#include "core_display.h"
 
 #ifndef BCD_MATH
 // We need these locally for BID128->double conversion
@@ -82,7 +82,8 @@ int string2phloat(const char *buf, int buflen, phloat *d) {
         return 0;
     }
 
-    // Strip thousands separators, convert comma to dot if
+    // First, convert from HP-42S format to bcdfloat format:
+    // strip thousands separators, convert comma to dot if
     // appropriate, and convert char(24) to 'E'.
     // Also, reject numbers with more than MAX_MANT_DIGITS digits in the mantissa.
     char buf2[100];
@@ -740,6 +741,12 @@ Phloat floor(Phloat p) {
     return Phloat(res);
 }
 
+Phloat ceil(Phloat p) {
+    BID_UINT128 res;
+    bid128_round_integral_positive(&res, &p.val);
+    return Phloat(res);
+}
+
 Phloat fma(Phloat x, Phloat y, Phloat z) {
     BID_UINT128 res;
     bid128_fma(&res, &x.val, &y.val, &z.val);
@@ -1092,14 +1099,14 @@ int phloat2string(phloat pd, char *buf, int buflen, int base_mode, int digits,
             n &= (1ULL << wsize) - 1;
 
         if (base_mode == 2 && base == 2) {
-            int maxbits = 44;
+            int maxbits = disp_r * disp_c;
             if (mode_bin_sep)
                 maxbits = ((maxbits + 1) * 4) / 5;
             if (inexact)
                 maxbits--;
             if (too_big)
                 maxbits--;
-            int8 mask = -1LL << maxbits;
+            int8 mask = maxbits >= 64 ? 0 : -1LL << maxbits;
             if ((n & mask) != 0) {
                 // Too many bits; won't fit. Use hex instead.
                 string2buf(buf, buflen, &chars_so_far, "hex ", 4);

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,9 +23,11 @@
 #include "core_commands2.h"
 #include "core_commands5.h"
 #include "core_display.h"
+#include "core_equations.h"
 #include "core_helpers.h"
 #include "core_main.h"
 #include "core_math1.h"
+#include "core_parser.h"
 #include "core_sto_rcl.h"
 #include "core_variables.h"
 
@@ -527,7 +529,7 @@ int docmd_integ(arg_struct *arg) {
     if (!program_running())
         clear_all_rtns();
     string_copy(reg_alpha, &reg_alpha_length, arg->val.text, arg->length);
-    return start_integ(arg->val.text, arg->length);
+    return start_integ(0, arg->val.text, arg->length);
 }
 
 int docmd_linsigma(arg_struct *arg) {
@@ -536,16 +538,15 @@ int docmd_linsigma(arg_struct *arg) {
 }
 
 int docmd_pgmslv(arg_struct *arg) {
-    int err;
     if (arg->type == ARGTYPE_IND_NUM
             || arg->type == ARGTYPE_IND_STK
             || arg->type == ARGTYPE_IND_STR) {
-        err = resolve_ind_arg(arg);
+        int err = resolve_ind_arg(arg);
         if (err != ERR_NONE)
             return err;
     }
     if (arg->type == ARGTYPE_STR) {
-        int prgm;
+        pgm_index prgm;
         int4 pc;
         if (!find_global_label(arg, &prgm, &pc))
             return ERR_LABEL_NOT_FOUND;
@@ -555,17 +556,24 @@ int docmd_pgmslv(arg_struct *arg) {
         return ERR_INVALID_TYPE;
 }
 
+int docmd_eqnslv(arg_struct *arg) {
+    vartype_equation *eq;
+    int err = get_arg_equation(arg, &eq);
+    if (err != ERR_NONE)
+        return err;
+    return set_solve_eqn((vartype *) eq);
+}
+
 int docmd_pgmint(arg_struct *arg) {
-    int err;
     if (arg->type == ARGTYPE_IND_NUM
             || arg->type == ARGTYPE_IND_STK
             || arg->type == ARGTYPE_IND_STR) {
-        err = resolve_ind_arg(arg);
+        int err = resolve_ind_arg(arg);
         if (err != ERR_NONE)
             return err;
     }
     if (arg->type == ARGTYPE_STR) {
-        int prgm;
+        pgm_index prgm;
         int4 pc;
         if (!find_global_label(arg, &prgm, &pc))
             return ERR_LABEL_NOT_FOUND;
@@ -575,8 +583,21 @@ int docmd_pgmint(arg_struct *arg) {
         return ERR_INVALID_TYPE;
 }
 
+int docmd_eqnint(arg_struct *arg) {
+    vartype_equation *eq;
+    int err = get_arg_equation(arg, &eq);
+    if (err != ERR_NONE)
+        return err;
+    return set_integ_eqn((vartype *) eq);
+}
+
 int appmenu_exitcallback_3(int menuid, bool exitall) {
     if (menuid == MENU_NONE && !exitall) {
+        if (varmenu_eqn != NULL) {
+            if (mode_varmenu_whence == CATSECT_TOP)
+                set_menu(MENULEVEL_APP, MENU_NONE);
+            return eqn_start(-1);
+        }
         set_menu(MENULEVEL_APP, MENU_CATALOG);
         set_cat_section(CATSECT_PGM_SOLVE);
     } else
@@ -586,13 +607,16 @@ int appmenu_exitcallback_3(int menuid, bool exitall) {
 
 int docmd_pgmslvi(arg_struct *arg) {
     if (arg->type == ARGTYPE_STR) {
+        eqn_end();
+        pgm_index prgm;
+        int4 pc;
         int idx;
-        if (!find_global_label_index(arg, &idx))
+        if (!find_global_label(arg, &prgm, &pc, &idx))
             return ERR_LABEL_NOT_FOUND;
-        if (!label_has_mvar(idx))
+        if (!label_has_mvar(prgm.dir, idx))
             return ERR_NO_MENU_VARIABLES;
         set_solve_prgm(arg->val.text, arg->length);
-        string_copy(varmenu, &varmenu_length, arg->val.text, arg->length);
+        config_varmenu_lbl(arg->val.text, arg->length);
         varmenu_row = 0;
         varmenu_role = 1;
         set_menu(MENULEVEL_APP, MENU_VARMENU);
@@ -602,8 +626,34 @@ int docmd_pgmslvi(arg_struct *arg) {
         return ERR_INVALID_TYPE;
 }
 
+int docmd_eqnslvi(arg_struct *arg) {
+    if (arg->type == ARGTYPE_EQN) {
+        eqn_end();
+        int idx = arg->val.num;
+        if (!has_parameters(eq_dir->prgms[idx].eq_data))
+            return ERR_NO_MENU_VARIABLES;
+        vartype *eq = new_equation(eq_dir->prgms[idx].eq_data);
+        int err = set_solve_eqn(eq);
+        if (err != ERR_NONE) {
+            free_vartype(eq);
+            return err;
+        }
+        config_varmenu_eqn(eq);
+        free_vartype(eq);
+        varmenu_row = 0;
+        varmenu_role = 1;
+        mode_varmenu = true;
+        set_menu(MENULEVEL_APP, MENU_VARMENU);
+        set_appmenu_exitcallback(3);
+        return ERR_NONE;
+    } else
+        return ERR_INVALID_TYPE;
+}
+
 int appmenu_exitcallback_4(int menuid, bool exitall) {
     if (menuid == MENU_NONE && !exitall) {
+        if (varmenu_eqn != NULL)
+            return eqn_start(-1);
         set_menu(MENULEVEL_APP, MENU_CATALOG);
         set_cat_section(CATSECT_PGM_INTEG);
     } else
@@ -613,7 +663,8 @@ int appmenu_exitcallback_4(int menuid, bool exitall) {
 
 int appmenu_exitcallback_5(int menuid, bool exitall) {
     if (menuid == MENU_NONE && !exitall) {
-        get_integ_prgm(varmenu, &varmenu_length);
+        free_vartype(varmenu_eqn);
+        get_integ_prgm_eqn(varmenu, &varmenu_length, &varmenu_eqn);
         varmenu_row = 0;
         varmenu_role = 2;
         set_menu(MENULEVEL_APP, MENU_VARMENU);
@@ -625,21 +676,46 @@ int appmenu_exitcallback_5(int menuid, bool exitall) {
 
 int docmd_pgminti(arg_struct *arg) {
     if (arg->type == ARGTYPE_STR) {
+        eqn_end();
+        pgm_index prgm;
+        int4 pc;
         int idx;
-        if (!find_global_label_index(arg, &idx))
+        if (!find_global_label(arg, &prgm, &pc, &idx))
             return ERR_LABEL_NOT_FOUND;
-        if (!label_has_mvar(idx))
+        if (!label_has_mvar(prgm.dir, idx))
             return ERR_NO_MENU_VARIABLES;
         set_integ_prgm(arg->val.text, arg->length);
-        string_copy(varmenu, &varmenu_length, arg->val.text, arg->length);
+        config_varmenu_lbl(arg->val.text, arg->length);
         varmenu_row = 0;
         varmenu_role = 2;
         set_menu(MENULEVEL_APP, MENU_VARMENU);
         set_appmenu_exitcallback(4);
-        clear_row(0);
-        draw_string(0, 0, "Set Vars; Select \3var", 21);
-        flags.f.message = 1;
-        flags.f.two_line_message = 0;
+        draw_message(0, "Set Vars; Select \3var", 21, false);
+        mode_varmenu = true;
+        return ERR_NONE;
+    } else
+        return ERR_INVALID_TYPE;
+}
+
+int docmd_eqninti(arg_struct *arg) {
+    if (arg->type == ARGTYPE_EQN) {
+        eqn_end();
+        int idx = arg->val.num;
+        if (!has_parameters(eq_dir->prgms[idx].eq_data))
+            return ERR_NO_MENU_VARIABLES;
+        vartype *eq = new_equation(eq_dir->prgms[idx].eq_data);
+        int err = set_integ_eqn(eq);
+        if (err != ERR_NONE) {
+            free_vartype(eq);
+            return err;
+        }
+        config_varmenu_eqn(eq);
+        free_vartype(eq);
+        varmenu_row = 0;
+        varmenu_role = 2;
+        set_menu(MENULEVEL_APP, MENU_VARMENU);
+        set_appmenu_exitcallback(4);
+        draw_message(0, "Set Vars; Select \3var", 21, false);
         mode_varmenu = true;
         return ERR_NONE;
     } else
@@ -1853,8 +1929,6 @@ int docmd_hexsep(arg_struct *arg) {
 
 int docmd_solve(arg_struct *arg) {
     int err;
-    vartype *v;
-    phloat x1, x2;
     if (arg->type == ARGTYPE_IND_NUM
             || arg->type == ARGTYPE_IND_STK
             || arg->type == ARGTYPE_IND_STR) {
@@ -1865,51 +1939,26 @@ int docmd_solve(arg_struct *arg) {
     if (arg->type != ARGTYPE_STR)
         return ERR_INVALID_TYPE;
 
-    v = recall_var(arg->val.text, arg->length);
-    if (v == 0)
-        x1 = 0;
-    else if (v->type == TYPE_REAL)
-        x1 = ((vartype_real *) v)->x;
-    else if (v->type == TYPE_STRING)
-        return ERR_ALPHA_DATA_IS_INVALID;
-    else
-        return ERR_INVALID_TYPE;
-
-    if (stack[sp]->type == TYPE_REAL)
-        x2 = ((vartype_real *) stack[sp])->x;
-    else if (stack[sp]->type == TYPE_STRING)
-        return ERR_ALPHA_DATA_IS_INVALID;
-    else
-        return ERR_INVALID_TYPE;
+    vartype *v = recall_var(arg->val.text, arg->length);
 
     if (!program_running())
         clear_all_rtns();
     string_copy(reg_alpha, &reg_alpha_length, arg->val.text, arg->length);
-    return start_solve(arg->val.text, arg->length, x1, x2);
+    return start_solve(0, arg->val.text, arg->length, v, stack[sp]);
 }
 
 int docmd_vmsolve(arg_struct *arg) {
-    vartype *v;
-    phloat x1, x2;
     if (arg->type != ARGTYPE_STR)
         return ERR_INVALID_TYPE;
 
-    v = recall_var(arg->val.text, arg->length);
-    if (v == NULL) {
-        x1 = 0;
-        x2 = 1;
-    } else if (v->type == TYPE_REAL) {
-        x1 = ((vartype_real *) v)->x;
-        if (!get_shadow(arg->val.text, arg->length, &x2))
-            x2 = x1;
-    } else if (v->type == TYPE_STRING)
-        return ERR_ALPHA_DATA_IS_INVALID;
-    else
-        return ERR_INVALID_TYPE;
+    vartype *v1 = recall_var(arg->val.text, arg->length);
+    vartype *v2 = NULL;
+    if (v1 != NULL && (v1->type == TYPE_REAL || v1->type == TYPE_UNIT))
+        v2 = get_shadow(arg->val.text, arg->length);
 
     clear_all_rtns();
     string_copy(reg_alpha, &reg_alpha_length, arg->val.text, arg->length);
-    return start_solve(arg->val.text, arg->length, x1, x2);
+    return start_solve(0, arg->val.text, arg->length, v1, v2);
 }
 
 int docmd_to_dec(arg_struct *arg) {

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,8 +21,23 @@
 #include "core_globals.h"
 #include "core_helpers.h"
 #include "core_display.h"
+#include "core_parser.h"
 #include "core_variables.h"
 
+
+equation_data::~equation_data() {
+    free(text);
+    delete ev;
+    delete map;
+}
+
+bool pgm_index::is_editable() {
+    return dir == cwd->id;
+}
+
+bool pgm_index::is_locked() {
+    return dir_list[dir]->prgms[idx].locked;
+}
 
 // We cache vartype_real, vartype_complex, and vartype_string instances, to
 // cut down on the malloc/free overhead.
@@ -183,6 +198,147 @@ vartype *new_list(int4 size) {
     return (vartype *) list;
 }
 
+equation_data *new_equation_data(const char *text, int4 length, bool compat_mode, int *errpos, int eqn_index) {
+    *errpos = -1;
+    if (eqn_index == -1) {
+        for (int i = 0; i < eq_dir->prgms_count; i++) {
+            equation_data *eqd = eq_dir->prgms[i].eq_data;
+            if (eqd == NULL)
+                continue;
+            if (!eqd->compatModeEmbedded && eqd->compatMode != compat_mode)
+                continue;
+            if (!string_equals(eqd->text, eqd->length, text, length))
+                continue;
+            return eqd;
+        }
+        eqn_index = new_eqn_idx();
+        if (eqn_index == -1)
+            return NULL;
+    }
+    equation_data *eqd = new (std::nothrow) equation_data;
+    if (eqd == NULL)
+        return NULL;
+    eqd->length = length;
+    eqd->text = (char *) malloc(length);
+    if (eqd->text == NULL && length != 0) {
+        delete eqd;
+        return NULL;
+    }
+    memcpy(eqd->text, text, length);
+    eqd->ev = Parser::parse(std::string(text, length), &compat_mode, &eqd->compatModeEmbedded, errpos);
+    if (eqd->ev == NULL) {
+        delete eqd;
+        return NULL;
+    }
+    eqd->eqn_index = eqn_index;
+    eqd->compatMode = compat_mode;
+
+    CodeMap *map = new (std::nothrow) CodeMap;
+    eq_dir->prgms[eqn_index].eq_data = eqd;
+    Parser::generateCode(eqd->ev, eq_dir->prgms + eqn_index, map);
+    if (map != NULL && map->getSize() == -1) {
+        delete map;
+        map = NULL;
+    }
+    eqd->map = map;
+    if (eq_dir->prgms[eqn_index].text == NULL) {
+        // Code generator failure
+        eq_dir->prgms[eqn_index].eq_data = NULL;
+        delete eqd;
+        return NULL;
+    }
+
+    return eqd;
+}
+
+vartype *new_equation(const char *text, int4 len, bool compat_mode, int *errpos) {
+    *errpos = -1;
+    vartype_equation *eq = (vartype_equation *) malloc(sizeof(vartype_equation));
+    if (eq == NULL)
+        return NULL;
+    equation_data *eqd = new_equation_data(text, len, compat_mode, errpos, -1);
+    if (eqd == NULL) {
+        free(eq);
+        return NULL;
+    } else {
+        eq->type = TYPE_EQUATION;
+        eq->data = eqd;
+        eqd->refcount++;
+        return (vartype *) eq;
+    }
+}
+
+vartype *new_equation(equation_data *eqd) {
+    vartype_equation *eq = (vartype_equation *) malloc(sizeof(vartype_equation));
+    if (eq == NULL)
+        return NULL;
+    eq->type = TYPE_EQUATION;
+    eq->data = eqd;
+    eqd->refcount++;
+    return (vartype *) eq;
+}
+
+vartype *new_unit(phloat value, const char *text, int4 length) {
+    if (length == 0)
+        return new_real(value);
+    vartype_unit *u = (vartype_unit *) malloc(sizeof(vartype_unit));
+    if (u == NULL)
+        return NULL;
+    u->text = (char *) malloc(length);
+    if (u->text == NULL && length != 0) {
+        free(u);
+        return NULL;
+    }
+    u->type = TYPE_UNIT;
+    u->x = value;
+    memcpy(u->text, text, length);
+    for (int i = 0; i < length; i++) {
+        char c = text[i];
+        if (c == '\0')
+            c = '/';
+        else if (c == '\1')
+            c = '*';
+        else if (c == '^')
+            c = '\36';
+        u->text[i] = c;
+    }
+    u->length = length;
+    return (vartype *) u;
+}
+
+vartype *new_dir_ref(int4 dir) {
+    vartype_dir_ref *r = (vartype_dir_ref *) malloc(sizeof(vartype_dir_ref));
+    if (r == NULL)
+        return NULL;
+    r->type = TYPE_DIR_REF;
+    r->dir = dir;
+    return (vartype *) r;
+}
+
+vartype *new_pgm_ref(int4 dir, int4 pgm) {
+    vartype_pgm_ref *r = (vartype_pgm_ref *) malloc(sizeof(vartype_pgm_ref));
+    if (r == NULL)
+        return NULL;
+    r->type = TYPE_PGM_REF;
+    r->dir = dir;
+    r->pgm = pgm;
+    return (vartype *) r;
+}
+
+vartype *new_var_ref(int4 dir, const char *name, int length) {
+    if (length < 1 || length > 7)
+        return NULL;
+    vartype_var_ref *r = (vartype_var_ref *) malloc(sizeof(vartype_var_ref));
+    if (r == NULL)
+        return NULL;
+    r->type = TYPE_VAR_REF;
+    r->dir = dir;
+    for (int i = 0; i < length; i++)
+        r->name[i] = name[i];
+    r->length = length;
+    return (vartype *) r;
+}
+
 void free_vartype(vartype *v) {
     if (v == NULL)
         return;
@@ -241,6 +397,24 @@ void free_vartype(vartype *v) {
                 free(list->array);
             }
             free(list);
+            break;
+        }
+        case TYPE_EQUATION: {
+            vartype_equation *eq = (vartype_equation *) v;
+            remove_equation_reference(eq->data->eqn_index);
+            free(eq);
+            break;
+        }
+        case TYPE_UNIT: {
+            vartype_unit *u = (vartype_unit *) v;
+            free(u->text);
+            free(u);
+            break;
+        }
+        case TYPE_DIR_REF:
+        case TYPE_PGM_REF:
+        case TYPE_VAR_REF: {
+            free(v);
             break;
         }
     }
@@ -309,6 +483,13 @@ bool put_matrix_string(vartype_realmatrix *rm, int i, const char *text, int4 len
     return true;
 }
 
+void put_matrix_phloat(vartype_realmatrix *rm, int i, phloat value) {
+    if (rm->array->is_string[i] == 2)
+        free(*(void **) &rm->array->data[i]);
+    rm->array->is_string[i] = 0;
+    rm->array->data[i] = value;
+}
+
 vartype *dup_vartype(const vartype *v) {
     if (v == NULL)
         return NULL;
@@ -353,6 +534,53 @@ vartype *dup_vartype(const vartype *v) {
             *list2 = *list;
             list->array->refcount++;
             return (vartype *) list2;
+        }
+        case TYPE_EQUATION: {
+            vartype_equation *eq = (vartype_equation *) v;
+            vartype_equation *eq2 = (vartype_equation *) malloc(sizeof(vartype_equation));
+            if (eq2 == NULL)
+                return NULL;
+            *eq2 = *eq;
+            eq->data->refcount++;
+            return (vartype *) eq2;
+        }
+        case TYPE_UNIT: {
+            vartype_unit *u = (vartype_unit *) v;
+            vartype_unit *u2 = (vartype_unit *) malloc(sizeof(vartype_unit));
+            if (u2 == NULL)
+                return NULL;
+            *u2 = *u;
+            u2->text = (char *) malloc(u->length);
+            if (u2->text == NULL && u->length != 0) {
+                free(u2);
+                return NULL;
+            }
+            memcpy(u2->text, u->text, u->length);
+            return (vartype *) u2;
+        }
+        case TYPE_DIR_REF: {
+            vartype_dir_ref *r = (vartype_dir_ref *) v;
+            vartype_dir_ref *r2 = (vartype_dir_ref *) malloc(sizeof(vartype_dir_ref));
+            if (r2 == NULL)
+                return NULL;
+            *r2 = *r;
+            return (vartype *) r2;
+        }
+        case TYPE_PGM_REF: {
+            vartype_pgm_ref *r = (vartype_pgm_ref *) v;
+            vartype_pgm_ref *r2 = (vartype_pgm_ref *) malloc(sizeof(vartype_pgm_ref));
+            if (r2 == NULL)
+                return NULL;
+            *r2 = *r;
+            return (vartype *) r2;
+        }
+        case TYPE_VAR_REF: {
+            vartype_var_ref *r = (vartype_var_ref *) v;
+            vartype_var_ref *r2 = (vartype_var_ref *) malloc(sizeof(vartype_var_ref));
+            if (r2 == NULL)
+                return NULL;
+            *r2 = *r;
+            return (vartype *) r2;
         }
         default:
             return NULL;
@@ -468,189 +696,430 @@ bool disentangle(vartype *v) {
         case TYPE_REAL:
         case TYPE_COMPLEX:
         case TYPE_STRING:
+        case TYPE_EQUATION:
         default:
             return true;
     }
 }
 
-int lookup_var(const char *name, int namelength) {
-    int i, j;
-    for (i = vars_count - 1; i >= 0; i--) {
-        if ((vars[i].flags & (VAR_HIDDEN | VAR_PRIVATE)) != 0)
-            continue;
-        if (vars[i].length == namelength) {
-            for (j = 0; j < namelength; j++)
-                if (vars[i].name[j] != name[j])
-                    goto nomatch;
-            return i;
-        }
-        nomatch:;
-    }
-    return -1;
-}
-
-vartype *recall_var(const char *name, int namelength) {
-    int varindex = lookup_var(name, namelength);
-    if (varindex == -1)
+vartype *vloc::value() {
+    if (idx == -1)
         return NULL;
+    else if (dir <= 0)
+        return local_vars[idx].value;
     else
-        return vars[varindex].value;
+        return dir_list[dir]->vars[idx].value;
 }
 
-bool ensure_var_space(int n) {
-    int nc = vars_count + n;
-    if (nc > vars_capacity) {
-        var_struct *nv = (var_struct *) realloc(vars, nc * sizeof(var_struct));
+void vloc::set_value(vartype *v) {
+    if (dir <= 0)
+        local_vars[idx].value = v;
+    else
+        dir_list[dir]->vars[idx].value = v;
+}
+
+bool vloc::writable() {
+    return idx != -1 && (dir <= 0 || dir == cwd->id);
+}
+
+vloc lookup_var(const char *name, int namelength, bool no_locals, bool no_ancestors) {
+    if (!no_locals) {
+        for (int i = local_vars_count - 1; i >= 0; i--) {
+            if ((local_vars[i].flags & VAR_PRIVATE) != 0)
+                continue;
+            if (local_vars[i].length == namelength) {
+                for (int j = 0; j < namelength; j++)
+                    if (local_vars[i].name[j] != name[j])
+                        goto nomatch;
+                return vloc(-local_vars[i].level, i);
+            }
+            nomatch:;
+        }
+    }
+    directory *dir = cwd;
+    do {
+        for (int i = dir->vars_count - 1; i >= 0; i--) {
+            if (dir->vars[i].length == namelength) {
+                for (int j = 0; j < namelength; j++)
+                    if (dir->vars[i].name[j] != name[j])
+                        goto nomatch2;
+                return vloc(dir->id, i);
+            }
+            nomatch2:;
+        }
+        if (no_ancestors)
+            return vloc();
+        dir = dir->parent;
+    } while (dir != NULL);
+    vartype_list *path = get_path();
+    if (path == NULL)
+        return vloc();
+    for (int i = 0; i < path->size; i++) {
+        vartype *v = path->array->data[i];
+        if (v->type != TYPE_DIR_REF)
+            continue;
+        dir = get_dir(((vartype_dir_ref *) v)->dir);
+        if (dir == NULL)
+            continue;
+        for (int j = dir->vars_count - 1; j >= 0; j--) {
+            if (dir->vars[j].length == namelength) {
+                for (int k = 0; k < namelength; k++)
+                    if (dir->vars[j].name[k] != name[k])
+                        goto nomatch3;
+                return vloc(dir->id, j);
+            }
+            nomatch3:;
+        }
+    }
+    return vloc();
+}
+
+vartype *recall_var(const char *name, int namelength, bool *writable) {
+    vloc idx = lookup_var(name, namelength);
+    if (writable != NULL)
+        *writable = idx.writable();
+    return idx.value();
+}
+
+vartype *recall_global_var(const char *name, int namelength, bool *writable) {
+    vloc idx = lookup_var(name, namelength, true);
+    if (writable != NULL)
+        *writable = idx.writable();
+    return idx.value();
+}
+
+equation_data *find_equation_data(const char *name, int namelength) {
+    vartype *v = recall_var("EQNS", 4);
+    if (v == NULL)
+        return NULL;
+    if (v->type != TYPE_LIST)
+        return NULL;
+    vartype_list *eqns = (vartype_list *) v;
+    std::string s(name, namelength);
+    for (int i = 0; i < eqns->size; i++) {
+        v = eqns->array->data[i];
+        if (v->type == TYPE_EQUATION) {
+            vartype_equation *eq = (vartype_equation *) v;
+            equation_data *eqd = eq->data;
+            if (eqd->ev != NULL && eqd->ev->eqnName() == s)
+                return eqd;
+        }
+    }
+    return NULL;
+}
+
+std::vector<std::string> get_equation_names() {
+    std::vector<std::string> res;
+    vartype *v = recall_var("EQNS", 4);
+    if (v == NULL)
+        return res;
+    if (v->type != TYPE_LIST)
+        return res;
+    vartype_list *eqns = (vartype_list *) v;
+    for (int i = 0; i < eqns->size; i++) {
+        v = eqns->array->data[i];
+        if (v->type == TYPE_EQUATION) {
+            vartype_equation *eq = (vartype_equation *) v;
+            equation_data *eqd = eq->data;
+            if (eqd->ev != NULL && eqd->ev->eqnName().length() > 0)
+                res.push_back(eqd->ev->eqnName());
+        }
+    }
+    return res;
+}
+
+std::vector<int> get_equation_indexes() {
+    std::vector<int> res;
+    vartype *v = recall_var("EQNS", 4);
+    if (v == NULL)
+        return res;
+    if (v->type != TYPE_LIST)
+        return res;
+    vartype_list *eqns = (vartype_list *) v;
+    for (int i = 0; i < eqns->size; i++) {
+        v = eqns->array->data[i];
+        if (v->type == TYPE_EQUATION) {
+            vartype_equation *eq = (vartype_equation *) v;
+            equation_data *eqd = eq->data;
+            if (eqd->ev != NULL && eqd->ev->eqnName().length() > 0)
+                res.push_back(i);
+        }
+    }
+    return res;
+}
+
+static int store_params2(std::vector<std::string> *params, bool lenient) {
+    if (stack[sp - 1]->type != TYPE_REAL)
+        return ERR_INVALID_TYPE;
+    phloat x = ((vartype_real *) stack[sp - 1])->x;
+    if (x < 0 || x >= 2147483648.0)
+        return ERR_INVALID_DATA;
+    int4 n = to_int4(x);
+    if (sp < n + 1)
+        return ERR_STACK_DEPTH_ERROR;
+
+    int nparams = params == NULL ? 0 : (int) params->size();
+    if (n < nparams)
+        return ERR_TOO_FEW_ARGUMENTS;
+    bool stack_params = false;
+    if (n > nparams) {
+        if (nparams != 0 || !lenient)
+            return ERR_TOO_MANY_ARGUMENTS;
+        stack_params = true;
+    }
+    if (!ensure_var_space(nparams))
+        return ERR_INSUFFICIENT_MEMORY;
+    int vsp = sp - nparams - 1;
+
+    if (flags.f.trace_print && flags.f.printer_exists) {
+        char buf[24];
+        int ptr = 0;
+        string2buf(buf, 24, &ptr, "\17PAR: ", 6);
+        ptr += int2string(n, buf + ptr, 24 - ptr);
+        if (n > 0)
+            string2buf(buf, 24, &ptr, stack_params ? " STK" : " VAR", 4);
+        string2buf(buf, 24, &ptr, " PARAM", 6);
+        if (n != 1)
+            char2buf(buf, 24, &ptr, 'S');
+        print_text(buf, ptr, true);
+    }
+
+    for (int i = 0; i < nparams; i++) {
+        std::string p = (*params)[i];
+        store_var(p.c_str(), (int) p.length(), stack[vsp++], true);
+        if (flags.f.trace_print && flags.f.printer_exists)
+            print_one_var(p.c_str(), (int) p.length());
+    }
+    free_vartype(stack[sp - 1]);
+    free_vartype(lastx);
+    lastx = stack[sp];
+    sp -= nparams + 2;
+    print_trace();
+    return ERR_NONE;
+}
+
+int store_params() {
+    if (!flags.f.big_stack)
+        return ERR_INVALID_CONTEXT;
+    if (stack[sp]->type == TYPE_STRING) {
+        vartype_string *name = (vartype_string *) stack[sp];
+        if (name->length > 7)
+            return ERR_NAME_TOO_LONG;
+        std::vector<std::string> params = get_mvars(name->txt(), name->length);
+        return store_params2(&params, true);
+    } else if (stack[sp]->type == TYPE_EQUATION) {
+        vartype_equation *eq = (vartype_equation *) stack[sp];
+        equation_data *eqd = eq->data;
+        std::vector<std::string> *params = eqd->ev->eqnParamNames();
+        return store_params2(params, false);
+    } else {
+        return ERR_INVALID_TYPE;
+    }
+}
+
+bool ensure_var_space(int n, bool do_root) {
+    directory *dir = do_root ? root : cwd;
+    int nc = dir->vars_count + n;
+    if (nc > dir->vars_capacity) {
+        var_struct *nv = (var_struct *) realloc(dir->vars, nc * sizeof(var_struct));
         if (nv == NULL)
             return false;
-        vars_capacity = nc;
-        vars = nv;
+        dir->vars_capacity = nc;
+        dir->vars = nv;
     }
     return true;
 }
 
-int store_var(const char *name, int namelength, vartype *value, bool local) {
-    int varindex = lookup_var(name, namelength);
-    int i;
-    if (varindex == -1) {
-        /* Name not found; create new global or local */
-        if (vars_count == vars_capacity) {
-            int nc = vars_capacity + 25;
-            var_struct *nv = (var_struct *) realloc(vars, nc * sizeof(var_struct));
+int store_var(const char *name, int namelength, vartype *value, bool local /* = false */, bool global /* = false */) {
+    vloc varindex = lookup_var(name, namelength, global, true);
+    if (varindex.not_found()) {
+        if (local)
+            goto do_local;
+        /* Create new global */
+        if (cwd->vars_count == cwd->vars_capacity) {
+            int nc = cwd->vars_capacity + 25;
+            var_struct *nv = (var_struct *) realloc(cwd->vars, nc * sizeof(var_struct));
             if (nv == NULL)
                 return ERR_INSUFFICIENT_MEMORY;
-            vars_capacity = nc;
-            vars = nv;
+            cwd->vars_capacity = nc;
+            cwd->vars = nv;
         }
-        varindex = vars_count++;
-        vars[varindex].length = namelength;
-        for (i = 0; i < namelength; i++)
-            vars[varindex].name[i] = name[i];
-        vars[varindex].level = local ? get_rtn_level() : -1;
-        vars[varindex].flags = 0;
-    } else if (local && vars[varindex].level < get_rtn_level()) {
-        /* Create local that hides an existing variable */
-        if (vars_count == vars_capacity) {
-            int nc = vars_capacity + 25;
-            var_struct *nv = (var_struct *) realloc(vars, nc * sizeof(var_struct));
+        int idx = cwd->vars_count++;
+        var_struct *gv = cwd->vars + idx;
+        string_copy(gv->name, &gv->length, name, namelength);
+        gv->value = value;
+    } else if (local && varindex.level() < get_rtn_level()) {
+        do_local:
+        /* Create new local */
+        if (local_vars_count == local_vars_capacity) {
+            int nc = local_vars_capacity + 25;
+            var_struct *nv = (var_struct *) realloc(local_vars, nc * sizeof(var_struct));
             if (nv == NULL)
                 return ERR_INSUFFICIENT_MEMORY;
-            vars_capacity = nc;
-            vars = nv;
+            local_vars_capacity = nc;
+            local_vars = nv;
         }
-        vars[varindex].flags |= VAR_HIDDEN;
-        varindex = vars_count++;
-        vars[varindex].length = namelength;
-        for (i = 0; i < namelength; i++)
-            vars[varindex].name[i] = name[i];
-        vars[varindex].level = get_rtn_level();
-        vars[varindex].flags = VAR_HIDING;
+        int idx = local_vars_count++;
+        var_struct *lv = local_vars + idx;
+        string_copy(lv->name, &lv->length, name, namelength);
+        lv->level = get_rtn_level();
+        lv->flags = 0;
+        lv->value = value;
     } else {
-        /* Update existing variable */
-        if (matedit_mode == 1 &&
-                matedit_level == vars[varindex].level &&
-                string_equals(name, namelength, matedit_name, matedit_length)) {
-            if (value->type == TYPE_REALMATRIX
-                    || value->type == TYPE_COMPLEXMATRIX
-                    || value->type == TYPE_LIST) {
+        /* Update existing vaiable */
+        if ((matedit_mode == 1 || matedit_mode == 3)
+                && matedit_dir == varindex.dir
+                && string_equals(name, namelength, matedit_name, matedit_length)) {
+            if (matedit_mode == 1)
                 matedit_i = matedit_j = 0;
-            } else {
-                matedit_mode = 0;
-                free(matedit_stack);
-                matedit_stack = NULL;
-                matedit_stack_depth = 0;
-            }
+            else
+                return ERR_RESTRICTED_OPERATION;
         }
-        free_vartype(vars[varindex].value);
+        free_vartype(varindex.value());
+        varindex.set_value(value);
     }
-    vars[varindex].value = value;
     update_catalog();
     return ERR_NONE;
 }
 
-bool purge_var(const char *name, int namelength, bool global, bool local) {
-    int varindex = lookup_var(name, namelength);
-    if (varindex == -1)
+/* This function exists for storing REGS and EQNS. Different semantics in two
+ * ways: it will update existing instances, even outside the current directory;
+ * and if there is no existing instance, it will create a new one in the root
+ * directory, not the current directory.
+ */
+int store_root_var(const char *name, int namelength, vartype *value) {
+    vloc varindex = lookup_var(name, namelength);
+    if (varindex.not_found()) {
+        directory *saved_cwd = cwd;
+        cwd = root;
+        int err = store_var(name, namelength, value, false, true);
+        cwd = saved_cwd;
+        if (err == ERR_NONE)
+            update_catalog();
+        return err;
+    } else {
+        free_vartype(varindex.value());
+        varindex.set_value(value);
+        return ERR_NONE;
+    }
+}
+
+bool purge_var(const char *name, int namelength, bool force, bool global, bool local) {
+    vloc varindex = lookup_var(name, namelength, false, !force);
+    if (varindex.not_found())
         return true;
-    if (vars[varindex].level == -1) {
+    if (varindex.level() == -1) {
         if (!global)
             // Asked to delete a local, but found a global;
             // not an error, but don't delete.
+            return true;
+        if (varindex.dir != cwd->id && !force)
+            // Won't delete global var not in the current dir
             return true;
     } else {
         if (!local)
             // Asked to delete a global, but found a local;
             // that's an error.
             return false;
-        if (vars[varindex].level != get_rtn_level())
+        if (varindex.level() != get_rtn_level())
             // Found a local at a lower level;
             // not an error, but don't delete.
             return true;
     }
-    if (matedit_mode == 1
-            && matedit_level == vars[varindex].level
-            && string_equals(matedit_name, matedit_length, name, namelength)) {
-        matedit_mode = 0;
-        free(matedit_stack);
-        matedit_stack = NULL;
-        matedit_stack_depth = 0;
+    if (matedit_mode == 3 && matedit_dir == varindex.dir
+            && string_equals(matedit_name, matedit_length, name, namelength))
+        // Deleting var in use by EDITN is not allowed
+        return false;
+    free_vartype(varindex.value());
+    if (varindex.dir <= 0) {
+        for (int i = varindex.idx; i < local_vars_count - 1; i++)
+            local_vars[i] = local_vars[i + 1];
+        local_vars_count--;
+    } else {
+        directory *dir = dir_list[varindex.dir];
+        for (int i = varindex.idx; i < dir->vars_count - 1; i++)
+            dir->vars[i] = dir->vars[i + 1];
+        dir->vars_count--;
     }
-    free_vartype(vars[varindex].value);
-    if ((vars[varindex].flags & VAR_HIDING) != 0) {
-        for (int i = varindex - 1; i >= 0; i--)
-            if ((vars[i].flags & VAR_HIDDEN) != 0 && string_equals(vars[i].name, vars[i].length, name, namelength)) {
-                vars[i].flags &= ~VAR_HIDDEN;
-                break;
-            }
-    }
-    for (int i = varindex; i < vars_count - 1; i++)
-        vars[i] = vars[i + 1];
-    vars_count--;
     update_catalog();
     return true;
 }
 
-void purge_all_vars() {
-    int i;
-    for (i = 0; i < vars_count; i++)
-        free_vartype(vars[i].value);
-    vars_count = 0;
+static bool var_exists(int section, int type) {
+    if (section == CATSECT_VARS_ONLY)
+        return true;
+    switch (type) {
+        case TYPE_REAL:
+            return section == CATSECT_REAL || section == CATSECT_REAL_ONLY;
+        case TYPE_STRING:
+            return section == CATSECT_REAL || section == CATSECT_REAL_ONLY || section == CATSECT_LIST_STR_ONLY;
+        case TYPE_COMPLEX:
+            return section == CATSECT_CPX;
+        case TYPE_REALMATRIX:
+        case TYPE_COMPLEXMATRIX:
+            return section == CATSECT_MAT || section == CATSECT_MAT_ONLY
+                || section == CATSECT_MAT_LIST || section == CATSECT_MAT_LIST_ONLY;
+        case TYPE_LIST:
+            return section == CATSECT_LIST || section == CATSECT_LIST_ONLY
+                || section == CATSECT_LIST_STR_ONLY
+                || section == CATSECT_MAT_LIST || section == CATSECT_MAT_LIST_ONLY;
+        case TYPE_EQUATION:
+            return section == CATSECT_EQN || section == CATSECT_EQN_ONLY;
+        case TYPE_UNIT:
+        case TYPE_DIR_REF:
+        case TYPE_PGM_REF:
+        case TYPE_VAR_REF:
+            return section == CATSECT_OTHER;
+    }
+    return false;
 }
 
 bool vars_exist(int section) {
-    int i;
-    for (i = 0; i < vars_count; i++) {
-        if ((vars[i].flags & (VAR_HIDDEN | VAR_PRIVATE)) != 0)
-            continue;
-        if (section == -1)
+    bool show_ancestors = show_nonlocal_vars(section);
+    for (int i = 0; i < local_vars_count; i++)
+        if ((local_vars[i].flags & (VAR_HIDDEN | VAR_PRIVATE)) == 0
+                && var_exists(section, local_vars[i].value->type))
             return true;
-        switch (vars[i].value->type) {
-            case TYPE_REAL:
-                if (section == CATSECT_REAL)
-                    return true;
-                else
-                    break;
-            case TYPE_STRING:
-                if (section == CATSECT_REAL || section == CATSECT_LIST_STR_ONLY)
-                    return true;
-                else
-                    break;
-            case TYPE_COMPLEX:
-                if (section == CATSECT_CPX)
-                    return true;
-                else
-                    break;
-            case TYPE_REALMATRIX:
-            case TYPE_COMPLEXMATRIX:
-                if (section == CATSECT_MAT || section == CATSECT_MAT_LIST)
-                    return true;
-                else
-                    break;
-            case TYPE_LIST:
-                if (section == CATSECT_LIST_STR_ONLY || section == CATSECT_MAT_LIST || section == CATSECT_LIST)
-                    return true;
-                else
-                    break;
+    directory *dir = cwd;
+    do {
+        for (int i = 0; i < dir->vars_count; i++)
+            if (var_exists(section, dir->vars[i].value->type))
+                return true;
+        if (!show_ancestors)
+            return false;
+        dir = dir->parent;
+    } while (dir != NULL);
+    vartype_list *path = get_path();
+    if (path == NULL)
+        return false;
+    for (int i = 0; i < path->size; i++) {
+        vartype *v = path->array->data[i];
+        if (v->type != TYPE_DIR_REF)
+            continue;
+        dir = get_dir(((vartype_dir_ref *) v)->dir);
+        if (dir == NULL)
+            continue;
+        for (int j = 0; j < dir->vars_count; j++)
+            if (var_exists(section, dir->vars[i].value->type))
+                return true;
+    }
+    return false;
+}
+
+bool named_eqns_exist() {
+    vartype *v = recall_var("EQNS", 4);
+    if (v == NULL)
+        return false;
+    if (v->type != TYPE_LIST)
+        return false;
+    vartype_list *eqns = (vartype_list *) v;
+    for (int i = 0; i < eqns->size; i++) {
+        v = eqns->array->data[i];
+        if (v->type == TYPE_EQUATION) {
+            vartype_equation *eq = (vartype_equation *) v;
+            equation_data *eqd = eq->data;
+            if (eqd->ev != NULL && eqd->ev->eqnName().length() > 0)
+                return true;
         }
     }
     return false;
@@ -709,68 +1178,135 @@ int matrix_copy(vartype *dst, const vartype *src) {
         return ERR_INVALID_TYPE;
 }
 
-static int lookup_private_var(const char *name, int namelength) {
-    int level = get_rtn_level();
+static vloc lookup_private_var(const char *name, int namelength, bool allow_calling_frames, int level = -1) {
+    if (level == -1)
+        level = get_rtn_level();
     int i, j;
-    for (i = vars_count - 1; i >= 0; i--) {
-        int vlevel = vars[i].level;
+    for (i = local_vars_count - 1; i >= 0; i--) {
+        int vlevel = local_vars[i].level;
         if (vlevel == -1)
             continue;
-        if (vlevel < level)
+        if (!allow_calling_frames && vlevel < level)
             break;
-        if ((vars[i].flags & VAR_PRIVATE) == 0)
+        if ((local_vars[i].flags & VAR_PRIVATE) == 0)
             continue;
-        if (vars[i].length == namelength) {
+        if (local_vars[i].length == namelength) {
             for (j = 0; j < namelength; j++)
-                if (vars[i].name[j] != name[j])
+                if (local_vars[i].name[j] != name[j])
                     goto nomatch;
-            return i;
+            return vloc(-local_vars[i].level, i);
         }
         nomatch:;
     }
-    return -1;
+    return vloc();
 }
 
-vartype *recall_private_var(const char *name, int namelength) {
-    int varindex = lookup_private_var(name, namelength);
-    if (varindex == -1)
-        return NULL;
-    else
-        return vars[varindex].value;
+vartype *recall_private_var(const char *name, int namelength, bool allow_calling_frames) {
+    return lookup_private_var(name, namelength, allow_calling_frames).value();
+}
+
+vartype *recall_private_var_from_level(const char *name, int namelength, int level) {
+    return lookup_private_var(name, namelength, false, level).value();
 }
 
 vartype *recall_and_purge_private_var(const char *name, int namelength) {
-    int varindex = lookup_private_var(name, namelength);
-    if (varindex == -1)
+    vloc varindex = lookup_private_var(name, namelength, false);
+    if (varindex.not_found())
         return NULL;
-    vartype *ret = vars[varindex].value;
-    for (int i = varindex; i < vars_count - 1; i++)
-        vars[i] = vars[i + 1];
-    vars_count--;
+    vartype *ret = varindex.value();
+    for (int i = varindex.idx; i < local_vars_count - 1; i++)
+        local_vars[i] = local_vars[i + 1];
+    local_vars_count--;
     return ret;
 }
 
 int store_private_var(const char *name, int namelength, vartype *value) {
-    int varindex = lookup_private_var(name, namelength);
+    vloc varindex = lookup_private_var(name, namelength, false);
     int i;
-    if (varindex == -1) {
-        if (vars_count == vars_capacity) {
-            int nc = vars_capacity + 25;
-            var_struct *nv = (var_struct *) realloc(vars, nc * sizeof(var_struct));
+    if (varindex.not_found()) {
+        if (local_vars_count == local_vars_capacity) {
+            int nc = local_vars_capacity + 25;
+            var_struct *nv = (var_struct *) realloc(local_vars, nc * sizeof(var_struct));
             if (nv == NULL)
                 return ERR_INSUFFICIENT_MEMORY;
-            vars_capacity = nc;
-            vars = nv;
+            local_vars_capacity = nc;
+            local_vars = nv;
         }
-        varindex = vars_count++;
-        vars[varindex].length = namelength;
+        int idx = local_vars_count++;
+        local_vars[idx].length = namelength;
         for (i = 0; i < namelength; i++)
-            vars[varindex].name[i] = name[i];
-        vars[varindex].level = get_rtn_level();
-        vars[varindex].flags = VAR_PRIVATE;
+            local_vars[idx].name[i] = name[i];
+        local_vars[idx].level = get_rtn_level();
+        local_vars[idx].flags = VAR_PRIVATE;
+        local_vars[idx].value = value;
     } else {
-        free_vartype(vars[varindex].value);
+        free_vartype(varindex.value());
+        varindex.set_value(value);
     }
-    vars[varindex].value = value;
     return ERR_NONE;
+}
+
+int store_stack_reference(vartype *v) {
+    vartype *v2 = dup_vartype(v);
+    if (v2 == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    int err = store_private_var("REF", 3, v2);
+    if (err != ERR_NONE)
+        free_vartype(v2);
+    return err;
+}
+
+void reparse_all_equations() {
+    // NOTE: We can safely assume that re-parsing all equations will succeed,
+    // because we re-parse all equations anyway when the state file is loaded,
+    // in order to re-create their parse trees. (The generated code and the
+    // code map are loaded from the state file.) This means that parser changes
+    // that cause formerly valid equations to become invalid will be caught by
+    // unpersist_vartype(), and those equations will be converted to strings,
+    // before we even get here. The re-parsing we're doing here is in order to
+    // re-generate the code, in cases when code generator bugs have been fixed
+    // or the semantics of generated code have changed.
+    for (int4 i = 0; i < eq_dir->prgms_capacity; i++) {
+        prgm_struct *prgm = eq_dir->prgms + i;
+        if (prgm->text == NULL)
+            continue;
+        prgm_struct old_prgm = *prgm;
+        equation_data *old_eqd = old_prgm.eq_data;
+        prgm->size = prgm->capacity = 0;
+        prgm->text = NULL;
+        prgm->eq_data = NULL;
+        int errpos = -1;
+        equation_data *new_eqd = new_equation_data(old_eqd->text, old_eqd->length, flags.f.eqn_compat, &errpos, i);
+        if (new_eqd == NULL) {
+            // Should never happen, but now that we're here, let's at least
+            // try to handle it gracefully, by keeping the old equation.
+            *prgm = old_prgm;
+        } else {
+            // I can't just replace the old equation_data object, because of
+            // all the vartype_equation objects referencing it. Hence, we
+            // copy the parse tree and code map from the new equation_data
+            // into the old one, and then delete the new one.
+            delete old_eqd->ev;
+            delete old_eqd->map;
+            old_eqd->ev = new_eqd->ev;
+            old_eqd->map = new_eqd->map;
+            new_eqd->ev = NULL;
+            new_eqd->map = NULL;
+            delete new_eqd;
+            free(old_prgm.text);
+            prgm->eq_data = old_prgm.eq_data;
+        }
+    }
+}
+
+void remove_equation_reference(int4 id) {
+    equation_data *eqd = eq_dir->prgms[id].eq_data;
+    if (--(eqd->refcount) > 0)
+        return;
+    equation_deleted(id);
+    count_embed_references(eq_dir, id, false);
+    free(eq_dir->prgms[id].text);
+    eq_dir->prgms[id].text = NULL;
+    eq_dir->prgms[id].eq_data = NULL;
+    delete eqd;
 }

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -26,6 +26,7 @@
 #include "core_main.h"
 #include "core_math1.h"
 #include "core_math2.h"
+#include "core_parser.h"
 #include "core_sto_rcl.h"
 #include "core_variables.h"
 #include "shell.h"
@@ -367,7 +368,7 @@ int docmd_seed(arg_struct *arg) {
 }
 
 int docmd_lbl(arg_struct *arg) {
-    if (!flags.f.message)
+    if (mode_message_lines == 0)
         fly_goose();
     return ERR_NONE;
 }
@@ -395,8 +396,8 @@ int docmd_input(arg_struct *arg) {
             return err;
     }
 
-    err = generic_rcl(arg, &v);
-    if (err == ERR_NONEXISTENT) {
+    err = generic_rcl(arg, &v, true);
+    if (err == ERR_NONEXISTENT || err == ERR_VARIABLE_NOT_WRITABLE) {
         v = new_real(0);
         if (v == NULL)
             return ERR_INSUFFICIENT_MEMORY;
@@ -426,6 +427,8 @@ int docmd_input(arg_struct *arg) {
         int size = input_length + 1;
         switch (v->type) {
             case TYPE_STRING: size += ((vartype_string *) v)->length + 2; break;
+            case TYPE_EQUATION: size += ((vartype_equation *) v)->data->length + 2; break;
+            case TYPE_UNIT: size += ((vartype_unit *) v)->length + 100; break;
             default: size += 100;
         }
         char *buf = (char *) malloc(size);
@@ -465,41 +468,61 @@ int view_helper(arg_struct *arg, bool print) {
     switch (arg->type) {
         case ARGTYPE_NUM: {
             int num = arg->val.num;
-            char2buf(buf, 22, &bufptr, 'R');
+            char2buf(buf, 64, &bufptr, 'R');
             if (num < 10)
-                char2buf(buf, 22, &bufptr, '0');
-            bufptr += int2string(num, buf + bufptr, 22 - bufptr);
+                char2buf(buf, 64, &bufptr, '0');
+            bufptr += int2string(num, buf + bufptr, 64 - bufptr);
             break;
         }
         case ARGTYPE_STK:
-            string2buf(buf, 22, &bufptr, "ST ", 3);
-            char2buf(buf, 22, &bufptr, arg->val.stk);
+            string2buf(buf, 64, &bufptr, "ST ", 3);
+            char2buf(buf, 64, &bufptr, arg->val.stk);
             break;
         case ARGTYPE_STR:
-            string2buf(buf, 22, &bufptr, arg->val.text, arg->length);
+            string2buf(buf, 64, &bufptr, arg->val.text, arg->length);
             break;
     }
-    char2buf(buf, 22, &bufptr, '=');
+    char2buf(buf, 64, &bufptr, '=');
     int part2 = bufptr;
 
-    bufptr += vartype2string(v, buf + bufptr, 22 - bufptr);
-    clear_row(0);
-    draw_string(0, 0, buf, bufptr);
-    flush_display();
-    flags.f.message = 1;
-    flags.f.two_line_message = 0;
+    int vlength;
+    if (v->type == TYPE_STRING) {
+        vartype_string *s = (vartype_string *) v;
+        vlength = s->length + 2;
+    } else if (v->type == TYPE_EQUATION) {
+        vartype_equation *eq = (vartype_equation *) v;
+        vlength = eq->data->length + 2;
+    } else {
+        vlength = 42; // max length of complex number
+    }
+    char *sbuf = NULL;
+    char *pbuf = buf;
+    int maxlen = disp_r * disp_c;
+    int slen = bufptr + vlength;
+    if (slen > maxlen)
+        slen = maxlen;
+    if (slen > 64) {
+        sbuf = (char *) malloc(slen);
+        if (sbuf == NULL) {
+            slen = 64;
+        } else {
+            memcpy(sbuf, buf, bufptr);
+            pbuf = sbuf;
+        }
+    }
+    bufptr += vartype2string(v, pbuf + bufptr, slen - bufptr);
+    draw_long_message(0, pbuf, bufptr);
+    free(sbuf);
+    bufptr = part2;
 
     err = ERR_NONE;
     if (print && (flags.f.printer_enable || !program_running())) {
         if (flags.f.printer_exists) {
             set_annunciators(-1, -1, 1, -1, -1, -1);
-            bufptr = part2;
-            char *sbuf = NULL;
-            char *pbuf = buf;
-            int slen = 64;
-            if (v->type == TYPE_STRING) {
-                vartype_string *s = (vartype_string *) v;
-                slen = bufptr + s->length + 2;
+            sbuf = NULL;
+            pbuf = buf;
+            slen = bufptr + vlength;
+            if (slen > 64) {
                 sbuf = (char *) malloc(slen);
                 if (sbuf == NULL) {
                     slen = 64;
@@ -523,40 +546,8 @@ int docmd_view(arg_struct *arg) {
     return view_helper(arg, 1);
 }
 
-static void aview_helper(const char *text, int length) {
-#define DISP_ROWS 2
-#define DISP_COLUMNS 22
-    int line_start[DISP_ROWS];
-    int line_length[DISP_ROWS];
-    int line = 0;
-    int i;
-    line_start[0] = 0;
-    for (i = 0; i < length; i++) {
-        if (text[i] == 10) {
-            if (line == DISP_ROWS - 1)
-                break;
-            line_length[line] = i - line_start[line];
-            line_start[++line] = i + 1;
-        } else if (i == line_start[line] + DISP_COLUMNS) {
-            if (line == DISP_ROWS - 1)
-                break;
-            line_length[line] = i - line_start[line];
-            line_start[++line] = i;
-        }
-    }
-    line_length[line] = i - line_start[line];
-    flags.f.message = 1;
-    flags.f.two_line_message = line == 1;
-    clear_row(0);
-    if (flags.f.two_line_message || program_running())
-        clear_row(1);
-    for (i = 0; i <= line; i++)
-        draw_string(0, i, text + line_start[i], line_length[i]);
-    flush_display();
-}
-
 int docmd_aview(arg_struct *arg) {
-    aview_helper(reg_alpha, reg_alpha_length);
+    alpha_view_helper(reg_alpha, reg_alpha_length);
     if (flags.f.printer_enable || !program_running()) {
         if (flags.f.printer_exists)
             docmd_pra(arg);
@@ -573,7 +564,7 @@ int docmd_xeq(arg_struct *arg) {
             return err;
         err = docmd_gto(arg);
         if (err != ERR_NONE) {
-            int dummy1;
+            pgm_index dummy1;
             int4 dummy2;
             bool dummy3;
             pop_rtn_addr(&dummy1, &dummy2, &dummy3);
@@ -581,18 +572,22 @@ int docmd_xeq(arg_struct *arg) {
             save_csld();
         return err;
     } else {
+        directory *dir = cwd;
         int err = docmd_gto(arg);
         if (err != ERR_NONE)
             return err;
-        else
-            save_csld();
         clear_all_rtns();
+        save_csld();
+        // GTO with ARGTYPE_LBLINDEX (which can only happen in RUN mode),
+        // sets the current directory to the target's containing directory.
+        // XEQ shouldn't do this, hence:
+        cwd = dir;
         return ERR_RUN;
     }
 }
 
 int docmd_prompt(arg_struct *arg) {
-    aview_helper(reg_alpha, reg_alpha_length);
+    alpha_view_helper(reg_alpha, reg_alpha_length);
     if (flags.f.printer_enable && flags.f.printer_exists
             && (flags.f.trace_print || flags.f.normal_print))
         docmd_pra(arg);
@@ -606,6 +601,7 @@ int docmd_pse(arg_struct *arg) {
         redisplay();
         pending_command = saved_command;
         mode_pause = true;
+        keybuf_head = keybuf_tail;
     }
     return ERR_NONE;
 }
@@ -757,9 +753,12 @@ static int generic_loop(arg_struct *arg, bool isg) {
                 return ERR_INVALID_TYPE;
         }
         case ARGTYPE_STR: {
-            vartype *v = recall_var(arg->val.text, arg->length);
+            bool writable;
+            vartype *v = recall_var(arg->val.text, arg->length, &writable);
             if (v == NULL)
                 return ERR_NONEXISTENT;
+            else if (!writable)
+                return ERR_VARIABLE_NOT_WRITABLE;
             else if (v->type == TYPE_REAL)
                 return generic_loop_helper(&((vartype_real *) v)->x, isg);
             else if (v->type == TYPE_STRING)
@@ -844,7 +843,7 @@ int docmd_agraph(arg_struct *arg) {
                 phloat y = ((vartype_real *) stack[sp - 1])->x;
                 draw_pattern(x, y, reg_alpha, reg_alpha_length);
                 flush_display();
-                flags.f.message = flags.f.two_line_message = 1;
+                mode_message_lines = ALL_LINES;
                 return ERR_NONE;
             } else if (stack[sp - 1]->type == TYPE_STRING)
                 return ERR_ALPHA_DATA_IS_INVALID;
@@ -856,7 +855,7 @@ int docmd_agraph(arg_struct *arg) {
             phloat y = ((vartype_complex *) stack[sp])->im;
             draw_pattern(x, y, reg_alpha, reg_alpha_length);
             flush_display();
-            flags.f.message = flags.f.two_line_message = 1;
+            mode_message_lines = ALL_LINES;
             return ERR_NONE;
         }
         case TYPE_COMPLEXMATRIX: {
@@ -867,7 +866,7 @@ int docmd_agraph(arg_struct *arg) {
                 draw_pattern(cm->array->data[i], cm->array->data[i + 1],
                              reg_alpha, reg_alpha_length);
             flush_display();
-            flags.f.message = flags.f.two_line_message = 1;
+            mode_message_lines = ALL_LINES;
             return ERR_NONE;
         }
         case TYPE_STRING:
@@ -880,25 +879,27 @@ int docmd_agraph(arg_struct *arg) {
 static void pixel_helper(phloat dx, phloat dy) {
     dx = dx < 0 ? -floor(-dx + 0.5) : floor(dx + 0.5);
     dy = dy < 0 ? -floor(-dy + 0.5) : floor(dy + 0.5);
-    int x = dx < -132 ? -132 : dx > 132 ? 132 : to_int(dx);
-    int y = dy < -17 ? -17 : dy > 17 ? 17 : to_int(dy);
+    int w1 = disp_w + 1;
+    int x = dx < -w1 ? -w1 : dx > w1 ? w1 : to_int(dx);
+    int h1 = disp_h + 1;
+    int y = dy < -h1 ? -h1 : dy > h1 ? h1 : to_int(dy);
     int i;
     int dot = 1;
     if (x < 0) {
         x = -x;
-        if (x >= 1 && x <= 131)
-            for (i = 0; i < 16; i++)
+        if (x >= 1 && x <= disp_w)
+            for (i = 0; i < disp_h; i++)
                 draw_pixel(x - 1, i);
         dot = 0;
     }
     if (y < 0) {
         y = -y;
-        if (y >= 1 && y <= 16)
-            for (i = 0; i < 131; i++)
+        if (y >= 1 && y <= disp_h)
+            for (i = 0; i < disp_w; i++)
                 draw_pixel(i, y - 1);
         dot = 0;
     }
-    if (dot && x >= 1 && x <= 131 && y >= 1 && y <= 16)
+    if (dot && x >= 1 && x <= disp_w && y >= 1 && y <= disp_h)
         draw_pixel(x - 1, y - 1);
 }
 
@@ -908,7 +909,7 @@ int docmd_pixel(arg_struct *arg) {
             pixel_helper(((vartype_real *) stack[sp])->x,
                          ((vartype_real *) stack[sp - 1])->x);
             flush_display();
-            flags.f.message = flags.f.two_line_message = 1;
+            mode_message_lines = ALL_LINES;
             return ERR_NONE;
         } else if (stack[sp - 1]->type == TYPE_STRING)
             return ERR_ALPHA_DATA_IS_INVALID;
@@ -918,7 +919,7 @@ int docmd_pixel(arg_struct *arg) {
         pixel_helper(((vartype_complex *) stack[sp])->re,
                      ((vartype_complex *) stack[sp])->im);
         flush_display();
-        flags.f.message = flags.f.two_line_message = 1;
+        mode_message_lines = ALL_LINES;
         return ERR_NONE;
     } else if (stack[sp]->type == TYPE_COMPLEXMATRIX) {
         vartype_complexmatrix *m = (vartype_complexmatrix *) stack[sp];
@@ -927,7 +928,7 @@ int docmd_pixel(arg_struct *arg) {
         for (i = 0; i < size; i += 2)
             pixel_helper(m->array->data[i], m->array->data[i + 1]);
         flush_display();
-        flags.f.message = flags.f.two_line_message = 1;
+        mode_message_lines = ALL_LINES;
         return ERR_NONE;
     } else if (stack[sp]->type == TYPE_STRING)
         return ERR_ALPHA_DATA_IS_INVALID;
@@ -962,13 +963,6 @@ int docmd_mvar(arg_struct *arg) {
 }
 
 int docmd_varmenu(arg_struct *arg) {
-    int saved_prgm = current_prgm;
-    int prgm;
-    int4 pc;
-    int command;
-    arg_struct arg2;
-    int i;
-
     if (arg->type == ARGTYPE_IND_NUM
             || arg->type == ARGTYPE_IND_STK
             || arg->type == ARGTYPE_IND_STR) {
@@ -976,21 +970,15 @@ int docmd_varmenu(arg_struct *arg) {
         if (err != ERR_NONE)
             return err;
     }
+    return start_varmenu_lbl(arg->val.text, arg->length, 0);
+}
 
-    if (!find_global_label(arg, &prgm, &pc))
-        return ERR_LABEL_NOT_FOUND;
-    pc += get_command_length(prgm, pc);
-    current_prgm = prgm;
-    get_next_command(&pc, &command, &arg2, 0, NULL);
-    current_prgm = saved_prgm;
-    if (command != CMD_MVAR)
-        return ERR_NO_MENU_VARIABLES;
-    varmenu_length = arg->length;
-    for (i = 0; i < varmenu_length; i++)
-        varmenu[i] = arg->val.text[i];
-    varmenu_row = 0;
-    varmenu_role = 0;
-    return set_menu_return_err(MENULEVEL_APP, MENU_VARMENU, false);
+int docmd_eqnmenu(arg_struct *arg) {
+    vartype_equation *eq;
+    int err = get_arg_equation(arg, &eq);
+    if (err != ERR_NONE)
+        return err;
+    return start_varmenu_eqn((vartype *) eq, 0);
 }
 
 int docmd_getkey(arg_struct *arg) {
@@ -1003,10 +991,24 @@ int docmd_getkey(arg_struct *arg) {
 int docmd_menu(arg_struct *arg) {
     if (!program_running())
         return ERR_RESTRICTED_OPERATION;
+    if (mode_appmenu == MENU_PROGRAMMABLE)
+        mode_appmenu = MENU_NONE;
     set_menu(MENULEVEL_PLAIN, MENU_PROGRAMMABLE);
     mode_plainmenu_sticky = true;
     return ERR_NONE;
 }
+
+int docmd_menu1(arg_struct *arg) {
+    if (!program_running())
+        return ERR_RESTRICTED_OPERATION;
+    return set_menu_return_err(MENULEVEL_APP, MENU_PROGRAMMABLE, false);
+}
+
+/*
+ * Note: Cheerfully casting to vartype_real * here, even though the parameter
+ * can also be a unit object. This is OK because the unit object has its
+ * numerical component at the same offset as the real object.
+ */
 
 int docmd_x_eq_0(arg_struct *arg) {
     return ((vartype_real *) stack[sp])->x == 0 ? ERR_YES : ERR_NO;
@@ -1041,31 +1043,19 @@ int docmd_x_ne_y(arg_struct *arg) {
 }
 
 int docmd_x_lt_y(arg_struct *arg) {
-    if (((vartype_real *) stack[sp])->x < ((vartype_real *) stack[sp - 1])->x)
-        return ERR_YES;
-    else
-        return ERR_NO;
+    return generic_comparison(stack[sp], stack[sp - 1], 'L');
 }
 
 int docmd_x_gt_y(arg_struct *arg) {
-    if (((vartype_real *) stack[sp])->x > ((vartype_real *) stack[sp - 1])->x)
-        return ERR_YES;
-    else
-        return ERR_NO;
+    return generic_comparison(stack[sp], stack[sp - 1], 'G');
 }
 
 int docmd_x_le_y(arg_struct *arg) {
-    if (((vartype_real *) stack[sp])->x <= ((vartype_real *) stack[sp - 1])->x)
-        return ERR_YES;
-    else
-        return ERR_NO;
+    return generic_comparison(stack[sp], stack[sp - 1], 'l');
 }
 
 int docmd_x_ge_y(arg_struct *arg) {
-    if (((vartype_real *) stack[sp])->x >= ((vartype_real *) stack[sp - 1])->x)
-        return ERR_YES;
-    else
-        return ERR_NO;
+    return generic_comparison(stack[sp], stack[sp - 1], 'g');
 }
 
 struct sigma_label_spec {
@@ -1140,22 +1130,23 @@ int docmd_prsigma(arg_struct *arg) {
 }
 
 int docmd_prp(arg_struct *arg) {
-    int prgm_index;
-    if (arg->type == ARGTYPE_LBLINDEX)
-        prgm_index = labels[arg->val.num].prgm;
-    else if (arg->type == ARGTYPE_STR) {
+    pgm_index prgm;
+    if (arg->type == ARGTYPE_LBLINDEX) {
+        directory *dir = get_dir(arg->target);
+        prgm.set(dir->id, dir->labels[arg->val.num].prgm);
+    } else if (arg->type == ARGTYPE_STR) {
         if (arg->length == 0)
-            prgm_index = current_prgm;
+            prgm = current_prgm;
         else {
             int4 pc;
-            if (!find_global_label(arg, &prgm_index, &pc))
+            if (!find_global_label(arg, &prgm, &pc))
                 return ERR_LABEL_NOT_FOUND;
         }
     } else
         return ERR_INVALID_TYPE;
     if (!flags.f.printer_exists)
         return ERR_PRINTING_IS_DISABLED;
-    return print_program(prgm_index, -1, -1, false);
+    return print_program(prgm, -1, -1, false);
 }
 
 static vartype *prv_var;
@@ -1186,17 +1177,31 @@ int docmd_prv(arg_struct *arg) {
         set_annunciators(-1, -1, 1, -1, -1, -1);
         string2buf(lbuf, 8, &llen, arg->val.text, arg->length);
         char2buf(lbuf, 8, &llen, '=');
-        if (v->type == TYPE_STRING) {
-            vartype_string *s = (vartype_string *) v;
-            char *sbuf = (char *) malloc(s->length + 2);
+        if (v->type == TYPE_STRING || v->type == TYPE_EQUATION) {
+            const char *text;
+            int4 length;
+            char d;
+            if (v->type == TYPE_STRING) {
+                vartype_string *s = (vartype_string *) v;
+                text = s->txt();
+                length = s->length;
+                d = '"';
+            } else {
+                vartype_equation *eq = (vartype_equation *) v;
+                equation_data *eqd = eq->data;
+                text = eqd->text;
+                length = eqd->length;
+                d = '\'';
+            }
+            char *sbuf = (char *) malloc(length + 2);
             if (sbuf == NULL) {
                 set_annunciators(-1, -1, 0, -1, -1, -1);
                 return ERR_INSUFFICIENT_MEMORY;
             }
-            sbuf[0] = '"';
-            memcpy(sbuf + 1, s->txt(), s->length);
-            sbuf[s->length + 1] = '"';
-            print_wide(lbuf, llen, sbuf, s->length + 2);
+            sbuf[0] = d;
+            memcpy(sbuf + 1, text, length);
+            sbuf[length + 1] = d;
+            print_wide(lbuf, llen, sbuf, length + 2);
             free(sbuf);
         } else {
             rlen = vartype2string(v, rbuf, 100);
@@ -1296,16 +1301,29 @@ static int prv_worker(bool interrupted) {
         llen = int2string(i + 1, lbuf, 32);
         char2buf(lbuf, 32, &llen, '=');
         vartype *v = list->array->data[i];
-        if (v->type == TYPE_STRING) {
-            vartype_string *s = (vartype_string *) v;
-            char *sbuf = (char *) malloc(s->length + 2);
+        if (v->type == TYPE_STRING || v->type == TYPE_EQUATION) {
+            char *text;
+            int4 len;
+            char d;
+            if (v->type == TYPE_STRING) {
+                vartype_string *s = (vartype_string *) v;
+                text = s->txt();
+                len = s->length;
+                d = '"';
+            } else {
+                vartype_equation *eq = (vartype_equation *) v;
+                text = eq->data->text;
+                len = eq->data->length;
+                d = eq->data->compatMode ? '`' : '\'';
+            }
+            char *sbuf = (char *) malloc(len + 2);
             if (sbuf == NULL) {
                 print_wide(lbuf, llen, "<Low Mem>", 9);
             } else {
-                sbuf[0] = '"';
-                memcpy(sbuf + 1, s->txt(), s->length);
-                sbuf[s->length + 1] = '"';
-                print_wide(lbuf, llen, sbuf, s->length + 2);
+                sbuf[0] = d;
+                memcpy(sbuf + 1, text, len);
+                sbuf[len + 1] = d;
+                print_wide(lbuf, llen, sbuf, len + 2);
                 free(sbuf);
             }
         } else {
@@ -1404,51 +1422,12 @@ int docmd_prstk(arg_struct *arg) {
     return ERR_NONE;
 }
 
-static int pra_helper(bool trace, const char *text, int length) {
-    if (!trace && !flags.f.printer_enable && program_running())
-        return ERR_NONE;
-    if (!flags.f.printer_exists)
-        return ERR_PRINTING_IS_DISABLED;
-    set_annunciators(-1, -1, 1, -1, -1, -1);
-    if (length == 0)
-        print_text(NULL, 0, true);
-    else {
-        int line_start = 0;
-        int width = flags.f.double_wide_print ? 12 : 24;
-        int i;
-        for (i = 0; i < length; i++) {
-            if (text[i] == 10) {
-                print_text(text + line_start, i - line_start, true);
-                line_start = i + 1;
-            } else if (i == line_start + width) {
-                print_text(text + line_start, i - line_start, true);
-                line_start = i;
-            }
-        }
-        if (line_start < length
-                || (line_start > 0 && text[line_start - 1] == 10))
-            print_text(text + line_start,
-                       length - line_start, true);
-    }
-    set_annunciators(-1, -1, 0, -1, -1, -1);
-    return ERR_NONE;
-}
-
 int docmd_pra(arg_struct *arg) {
     // arg == NULL if we're called to do TRACE mode auto-print
-    return pra_helper(arg == NULL, reg_alpha, reg_alpha_length);
-}
-
-int docmd_xview(arg_struct *arg) {
-    vartype_string *s = (vartype_string *) stack[sp];
-    aview_helper(s->txt(), s->length);
-    if (flags.f.printer_enable || !program_running()) {
-        if (flags.f.printer_exists)
-            pra_helper(false, s->txt(), s->length);
-        else
-            return ERR_STOP;
-    }
-    return ERR_NONE;
+    if (arg != NULL && !flags.f.printer_enable && program_running())
+        return ERR_NONE;
+    else
+        return alpha_print_helper(reg_alpha, reg_alpha_length);
 }
 
 int docmd_prx(arg_struct *arg) {
@@ -1459,18 +1438,50 @@ int docmd_prx(arg_struct *arg) {
         return ERR_PRINTING_IS_DISABLED;
     else {
         set_annunciators(-1, -1, 1, -1, -1, -1);
-        if (stack[sp]->type == TYPE_STRING) {
-            vartype_string *s = (vartype_string *) stack[sp];
-            char *lbuf = (char *) malloc(s->length + 2);
+        if (stack[sp]->type == TYPE_STRING || stack[sp]->type == TYPE_EQUATION) {
+            const char *text;
+            int length;
+            char d;
+            if (stack[sp]->type == TYPE_STRING) {
+                vartype_string *s = (vartype_string *) stack[sp];
+                text = s->txt();
+                length = s->length;
+                d = '"';
+            } else {
+                vartype_equation *eq = (vartype_equation *) stack[sp];
+                equation_data *eqd = eq->data;
+                text = eqd->text;
+                length = eqd->length;
+                d = '\'';
+            }
+            char *lbuf = (char *) malloc(length + 2);
             if (lbuf == NULL) {
                 set_annunciators(-1, -1, 0, -1, -1, -1);
                 return ERR_INSUFFICIENT_MEMORY;
             }
-            lbuf[0] = '"';
-            memcpy(lbuf + 1, s->txt(), s->length);
-            lbuf[s->length + 1] = '"';
-            print_right(lbuf, s->length + 2, "***", 3);
+            lbuf[0] = d;
+            memcpy(lbuf + 1, text, length);
+            lbuf[length + 1] = d;
+            print_right(lbuf, length + 2, "***", 3);
             free(lbuf);
+        } else if (stack[sp]->type == TYPE_UNIT) {
+            char buf[100];
+            int len;
+            vartype_unit *u = (vartype_unit *) stack[sp];
+            u->type = TYPE_REAL;
+            len = vartype2string((vartype *) u, buf, 100);
+            u->type = TYPE_UNIT;
+            char *text = (char *) malloc(len + 1 + u->length);
+            if (text == NULL) {
+                set_annunciators(-1, -1, 0, -1, -1, -1);
+                return ERR_INSUFFICIENT_MEMORY;
+            }
+            memcpy(text, buf, len);
+            text[len] = '_';
+            memcpy(text + len + 1, u->text, u->length);
+            bool left = len > (flags.f.double_wide_print ? 12 : 24);
+            print_lines(text, len + 1 + u->length, left);
+            free(text);
         } else {
             char buf[100];
             int len;
@@ -1516,8 +1527,8 @@ int docmd_prusr(arg_struct *arg) {
     else {
         set_annunciators(-1, -1, 1, -1, -1, -1);
         print_text(NULL, 0, true);
-        prusr_state = 0;
-        prusr_index = vars_count - 1;
+        prusr_state = arg == NULL ? 2 : 0;
+        prusr_index = cwd->vars_count - 1;
         mode_interruptible = prusr_worker;
         mode_stoppable = true;
         return ERR_INTERRUPTIBLE;
@@ -1530,38 +1541,40 @@ static int prusr_worker(bool interrupted) {
         return ERR_STOP;
     }
 
-    if (prusr_state == 0) {
-        char lbuf[8];
-        char rbuf[100];
-        int llen, rlen;
+    if (prusr_state != 1) {
         if (prusr_index < 0) {
-            if (vars_count > 0)
-                print_text(NULL, 0, true);
-            prusr_state = 1;
-            prusr_index = 0;
-            goto state1;
-        }
-        if ((vars[prusr_index].flags & (VAR_HIDDEN | VAR_PRIVATE)) == 0) {
-            llen = 0;
-            string2buf(lbuf, 8, &llen, vars[prusr_index].name,
-                                       vars[prusr_index].length);
-            char2buf(lbuf, 8, &llen, '=');
-            if (vars[prusr_index].value->type == TYPE_STRING) {
-                vartype_string *s = (vartype_string *) vars[prusr_index].value;
-                char *sbuf = (char *) malloc(s->length + 2);
-                if (sbuf == NULL) {
-                    print_wide(lbuf, llen, "<Low Mem>", 9);
-                } else {
-                    sbuf[0] = '"';
-                    memcpy(sbuf + 1, s->txt(), s->length);
-                    sbuf[s->length + 1] = '"';
-                    print_wide(lbuf, llen, sbuf, s->length + 2);
-                    free(sbuf);
-                }
+            if (prusr_state == 2) {
+                set_annunciators(-1, -1, 0, -1, -1, -1);
+                return ERR_NONE;
             } else {
-                rlen = vartype2string(vars[prusr_index].value, rbuf, 100);
-                print_wide(lbuf, llen, rbuf, rlen);
+                if (cwd->vars_count > 0)
+                    print_text(NULL, 0, true);
+                prusr_state = 1;
+                prusr_index = 0;
+                goto state1;
             }
+        }
+        char lbuf[8];
+        int llen = 0;
+        string2buf(lbuf, 8, &llen, cwd->vars[prusr_index].name,
+                                   cwd->vars[prusr_index].length);
+        char2buf(lbuf, 8, &llen, '=');
+        if (cwd->vars[prusr_index].value->type == TYPE_STRING) {
+            vartype_string *s = (vartype_string *) cwd->vars[prusr_index].value;
+            char *sbuf = (char *) malloc(s->length + 2);
+            if (sbuf == NULL) {
+                print_wide(lbuf, llen, "<Low Mem>", 9);
+            } else {
+                sbuf[0] = '"';
+                memcpy(sbuf + 1, s->txt(), s->length);
+                sbuf[s->length + 1] = '"';
+                print_wide(lbuf, llen, sbuf, s->length + 2);
+                free(sbuf);
+            }
+        } else {
+            char rbuf[100];
+            int rlen = vartype2string(cwd->vars[prusr_index].value, rbuf, 100);
+            print_wide(lbuf, llen, rbuf, rlen);
         }
         prusr_index--;
     } else {
@@ -1569,19 +1582,19 @@ static int prusr_worker(bool interrupted) {
         int len;
         state1:
         len = 0;
-        if (prusr_index >= labels_count) {
+        if (prusr_index >= cwd->labels_count) {
             set_annunciators(-1, -1, 0, -1, -1, -1);
             return ERR_NONE;
         }
-        if (labels[prusr_index].length == 0) {
-            if (prusr_index == labels_count - 1)
+        if (cwd->labels[prusr_index].length == 0) {
+            if (prusr_index == cwd->labels_count - 1)
                 string2buf(buf, 13, &len, ".END.", 5);
             else
                 string2buf(buf, 13, &len, "END", 3);
         } else {
             string2buf(buf, 13, &len, "LBL \"", 5);
-            string2buf(buf, 13, &len, labels[prusr_index].name,
-                                      labels[prusr_index].length);
+            string2buf(buf, 13, &len, cwd->labels[prusr_index].name,
+                                      cwd->labels[prusr_index].length);
             char2buf(buf, 13, &len, '"');
         }
         print_text(buf, len, true);
@@ -1617,9 +1630,9 @@ int docmd_prlcd(arg_struct *arg) {
         return ERR_PRINTING_IS_DISABLED;
     else {
         set_annunciators(-1, -1, 1, -1, -1, -1);
-        print_display();
+        int err = print_display();
         set_annunciators(-1, -1, 0, -1, -1, -1);
-        return ERR_NONE;
+        return err;
     }
 }
 
@@ -1677,18 +1690,18 @@ int docmd_gto(arg_struct *arg) {
             return ERR_LABEL_NOT_FOUND;
         else {
             pc = arg->target;
-            prgm_highlight_row = 1;
+            move_prgm_highlight(1);
             return ERR_NONE;
         }
     }
 
     if (arg->type == ARGTYPE_STR) {
-        int new_prgm;
+        pgm_index new_prgm;
         int4 new_pc;
         if (find_global_label(arg, &new_prgm, &new_pc)) {
             current_prgm = new_prgm;
             pc = new_pc;
-            prgm_highlight_row = 1;
+            move_prgm_highlight(1);
             return ERR_NONE;
         } else
             return ERR_LABEL_NOT_FOUND;
@@ -1705,16 +1718,16 @@ int docmd_gto(arg_struct *arg) {
                 return ERR_LABEL_NOT_FOUND;
             else {
                 pc = target_pc;
-                prgm_highlight_row = 1;
+                move_prgm_highlight(1);
                 return ERR_NONE;
             }
         } else {
-            int newprgm;
+            pgm_index newprgm;
             int4 newpc;
             if (find_global_label(arg, &newprgm, &newpc)) {
                 current_prgm = newprgm;
                 pc = newpc;
-                prgm_highlight_row = 1;
+                move_prgm_highlight(1);
                 return ERR_NONE;
             } else
                 return ERR_LABEL_NOT_FOUND;
@@ -1723,9 +1736,11 @@ int docmd_gto(arg_struct *arg) {
 
     if (arg->type == ARGTYPE_LBLINDEX) {
         int labelindex = arg->val.num;
-        current_prgm = labels[labelindex].prgm;
-        pc = labels[labelindex].pc;
-        prgm_highlight_row = 1;
+        directory *dir = get_dir(arg->target);
+        current_prgm.set(dir->id, dir->labels[labelindex].prgm);
+        pc = dir->labels[labelindex].pc;
+        move_prgm_highlight(1);
+        cwd = dir;
         return ERR_NONE;
     }
 
@@ -1765,27 +1780,30 @@ int docmd_string(arg_struct *arg) {
 
 int docmd_gtodot(arg_struct *arg) {
     if (arg->type == ARGTYPE_NUM) {
-        pc = line2pc(arg->val.num);
         clear_all_rtns();
-        prgm_highlight_row = 1;
+        pc = line2pc(arg->val.num);
+        move_prgm_highlight(1);
         return ERR_NONE;
     } else if (arg->type == ARGTYPE_STR) {
-        int new_prgm;
+        pgm_index new_prgm;
         int4 new_pc;
         if (find_global_label(arg, &new_prgm, &new_pc)) {
+            clear_all_rtns();
             current_prgm = new_prgm;
             pc = new_pc;
-            clear_all_rtns();
-            prgm_highlight_row = 1;
+            move_prgm_highlight(1);
+            cwd = get_dir(current_prgm.dir);
             return ERR_NONE;
         } else
             return ERR_LABEL_NOT_FOUND;
     } else if (arg->type == ARGTYPE_LBLINDEX) {
-        int labelindex = arg->val.num;
-        current_prgm = labels[labelindex].prgm;
-        pc = labels[labelindex].pc;
         clear_all_rtns();
-        prgm_highlight_row = 1;
+        int labelindex = arg->val.num;
+        directory *dir = get_dir(arg->target);
+        current_prgm.set(dir->id, dir->labels[labelindex].prgm);
+        pc = dir->labels[labelindex].pc;
+        move_prgm_highlight(1);
+        cwd = dir;
         return ERR_NONE;
     } else
         return ERR_INVALID_TYPE;
@@ -1863,16 +1881,7 @@ int docmd_dim_t(arg_struct *arg) {
 }
 
 static int assign_helper(int num, arg_struct *arg) {
-    if (arg->type == ARGTYPE_COMMAND) {
-        /* For backward compatibility only; we don't allow this type
-         * of assignment command to be created anymore, but we do want
-         * programs that already contain such commands to continue
-         * working.
-         */
-        const command_spec *cs = &cmd_array[arg->val.cmd];
-        assign_custom_key(num, cs->name, cs->name_length);
-    } else
-        assign_custom_key(num, arg->val.text, arg->length);
+    assign_custom_key(num, arg->val.text, arg->length);
     flags.f.local_label = 0;
     return ERR_NONE;
 }
@@ -2062,11 +2071,39 @@ int docmd_key9x(arg_struct *arg) {
 
 int docmd_vmsto(arg_struct *arg) {
     /* STO variant that is invoked from a VARMENU */
+
+    /* If overwriting an existing value that has a unit, with a new value
+     * without a unit, apply the old unit to the new value. Note that this
+     * means that if the user specifically wants to replace a value with a unit
+     * with a value without one, they'll have to use the regular STO, or clear
+     * the existing variable first.
+     */
+    if (arg->type != ARGTYPE_STR)
+        return ERR_INTERNAL_ERROR;
+    vartype *prev_x = NULL;
+    if (stack[sp]->type == TYPE_REAL) {
+        bool writable;
+        vartype *v = recall_var(arg->val.text, arg->length, &writable);
+        if (v != NULL && writable && v->type == TYPE_UNIT) {
+            v = dup_vartype(v);
+            if (v == NULL)
+                return ERR_INSUFFICIENT_MEMORY;
+            ((vartype_unit *) v)->x = ((vartype_real *) stack[sp])->x;
+            prev_x = stack[sp];
+            stack[sp] = v;
+        }
+    }
+
     int err = docmd_sto(arg);
     if (err == ERR_NONE)
         err = view_helper(arg, 0);
-    if (err == ERR_NONE)
+    if (err == ERR_NONE) {
+        free_vartype(prev_x);
         mode_varmenu = true;
+    } else if (prev_x != NULL) {
+        free_vartype(stack[sp]);
+        stack[sp] = prev_x;
+    }
     return err;
 }
 
@@ -2081,10 +2118,10 @@ int docmd_vmsto2(arg_struct *arg) {
     if (arg->type != ARGTYPE_STR)
         return ERR_INVALID_TYPE;
     v = recall_var(arg->val.text, arg->length);
-    if (v == NULL || v->type != TYPE_REAL)
+    if (v == NULL || (v->type != TYPE_REAL && v->type != TYPE_UNIT))
         remove_shadow(arg->val.text, arg->length);
     else
-        put_shadow(arg->val.text, arg->length, ((vartype_real *) v)->x);
+        put_shadow(arg->val.text, arg->length, v);
 
     return docmd_vmsto(arg);
 }
@@ -2115,9 +2152,8 @@ int docmd_sigma_reg_t(arg_struct *arg) {
 }
 
 int docmd_cld(arg_struct *arg) {
-    if (flags.f.message && mode_goose >= 0)
+    if (mode_message_lines > 0 && mode_goose >= 0)
         mode_goose = -1 - mode_goose;
-    flags.f.message = 0;
-    flags.f.two_line_message = 0;
+    clear_message();
     return ERR_NONE;
 }

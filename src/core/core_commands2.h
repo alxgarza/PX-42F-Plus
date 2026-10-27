@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Free42 -- an HP-42S calculator simulator
+ * Plus42 -- an enhanced HP-42S calculator simulator
  * Copyright (C) 2004-2026  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
@@ -39,7 +39,6 @@ int docmd_input(arg_struct *arg);
 int view_helper(arg_struct *arg, bool print);
 int docmd_view(arg_struct *arg);
 int docmd_aview(arg_struct *arg);
-int docmd_xview(arg_struct *arg);
 int docmd_xeq(arg_struct *arg);
 int docmd_prompt(arg_struct *arg);
 int docmd_pse(arg_struct *arg);
@@ -53,8 +52,10 @@ int docmd_beep(arg_struct *arg);
 int docmd_tone(arg_struct *arg);
 int docmd_mvar(arg_struct *arg);
 int docmd_varmenu(arg_struct *arg);
+int docmd_eqnmenu(arg_struct *arg);
 int docmd_getkey(arg_struct *arg);
 int docmd_menu(arg_struct *arg);
+int docmd_menu1(arg_struct *arg);
 int docmd_x_eq_0(arg_struct *arg);
 int docmd_x_ne_0(arg_struct *arg);
 int docmd_x_lt_0(arg_struct *arg);
