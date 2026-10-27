@@ -21,6 +21,11 @@ extern "C" {
  * disk is unusable (see flashdisk_init()); every other call then fails. */
 bool statefs_init(void);
 bool statefs_ready(void);
+/* Settings -> USB Drive -> Format Drive: every file gone, an empty FAT
+ * drive mounted -- also when the drive wasn't FAT (statefs_init() leaves
+ * those alone). Its own folders are made again; the rest is the
+ * caller's (the built-in sounds, IR, PROGRAMS). */
+bool statefs_format(void);
 
 /* Writes anything still cached to flash. Call after saving or loading, so
  * a power loss can't lose it. */
@@ -33,6 +38,10 @@ bool statefs_state_exists(const char *name);
 bool statefs_file_exists(const char *path);
 /* Makes a folder (fine if it's there already). */
 void statefs_mkdir(const char *path);
+/* Sets or clears a file's read-only attribute -- what a computer sees in
+ * USB Drive mode; the calculator itself has to clear it to write over the
+ * file. */
+bool statefs_set_readonly(const char *path, bool readonly);
 
 /* By state name (no extension). Both write to flash before returning.
  * Rename fails if new_name is already taken. */

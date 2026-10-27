@@ -50,6 +50,20 @@ static bool mount(void) {
 
 /* ===================== mounting ===================== */
 
+/* An empty drive: FAT, no partition table, a "superfloppy", which is what
+ * removable drives usually are and every OS reads. Mounted after. */
+static bool format(void) {
+    static BYTE work[FF_MAX_SS];
+    const MKFS_PARM opt = {FM_FAT | FM_SFD, 0, 0, 0, 0};
+    if (f_mkfs("", &opt, work, sizeof(work)) != FR_OK)
+        return false;
+    flashdisk_flush_all();
+    if (f_mount(&fs, "", 1) != FR_OK)
+        return false;
+    f_setlabel(VOLUME_LABEL);
+    return true;
+}
+
 bool statefs_init(void) {
     debug_checkpoint(CKPT_FS_INIT, 0);
     if (!flashdisk_init())
@@ -57,13 +71,11 @@ bool statefs_init(void) {
 
     FRESULT r = f_mount(&fs, "", 1);
     if (r == FR_NO_FILESYSTEM) {
-        /* First boot (blank flash): format -- FAT, no partition table, a
-         * "superfloppy", which is what removable drives usually are and
-         * every OS reads. Only if it really is blank: a drive that just
-         * can't be read -- reformatted as exFAT on a computer, or its
-         * first sector cut off by a power loss -- is left alone (not
-         * mounted; USB Disk mode still hands it to a computer, to rescue
-         * the files or format it), not silently wiped. */
+        /* First boot (blank flash): format. Only if it really is blank: a
+         * drive that just can't be read -- reformatted as exFAT on a
+         * computer, or its first sector cut off by a power loss -- is left
+         * alone (not mounted; USB Drive still hands it to a computer, and
+         * Format Drive is there), not silently wiped. */
         static BYTE work[FF_MAX_SS];
         if (!flashdisk_read(0, work, sizeof(work)))
             return false;
@@ -72,16 +84,24 @@ bool statefs_init(void) {
                 printf("The drive isn't FAT and isn't blank -- left as it is, not formatted.\n");
                 return false;
             }
-        const MKFS_PARM opt = {FM_FAT | FM_SFD, 0, 0, 0, 0};
-        if (f_mkfs("", &opt, work, sizeof(work)) != FR_OK)
+        if (!format())
             return false;
-        flashdisk_flush_all();
-        if (f_mount(&fs, "", 1) != FR_OK)
-            return false;
-        f_setlabel(VOLUME_LABEL);
     } else if (r != FR_OK) {
         return false;
     }
+    mounted = true;
+    after_mount();
+    return true;
+}
+
+bool statefs_format(void) {
+    if (flashdisk_block_count() == 0)
+        return false;
+    if (mounted)
+        f_mount(NULL, "", 0);
+    mounted = false;
+    if (!format())
+        return false;
     mounted = true;
     after_mount();
     return true;
@@ -107,6 +127,10 @@ bool statefs_file_exists(const char *path) {
 void statefs_mkdir(const char *path) {
     if (mounted)
         f_mkdir(path); /* FR_EXIST when it's already there -- fine */
+}
+
+bool statefs_set_readonly(const char *path, bool readonly) {
+    return mounted && f_chmod(path, readonly ? AM_RDO : 0, AM_RDO) == FR_OK;
 }
 
 bool statefs_state_exists(const char *name) {

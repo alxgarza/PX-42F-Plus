@@ -253,10 +253,18 @@ void power_deep_off(uint8_t on_row, uint8_t on_col, uint64_t splash_until_ms) {
     power_down(wake_pin, alarm_ms, lposc_hz);
 }
 
+/* This boot is from a power-down (power_woke_from_off()). */
+static bool from_off;
+
 bool power_off_wake(void) {
-    bool timer_wake = (powman_hw->chip_reset & POWMAN_CHIP_RESET_HAD_SWCORE_PD_BITS)
-                      && (powman_hw->last_swcore_pwrup & PWRUP_ALARM_BIT)
-                      && powman_hw->scratch[SCRATCH_MAGIC] == OFF_WAKE_MAGIC;
+    /* CHIP_RESET records POWMAN's last reset, and a flash or a crash's
+     * restart doesn't reset POWMAN: HAD_SWCORE_PD stayed set through every
+     * one of them after the first OFF, and they all looked like ON (no boot
+     * screen, no boot sound). The magic is set just before each power-down
+     * and cleared at every boot, so only a boot straight from one has it. */
+    from_off = (powman_hw->chip_reset & POWMAN_CHIP_RESET_HAD_SWCORE_PD_BITS)
+               && powman_hw->scratch[SCRATCH_MAGIC] == OFF_WAKE_MAGIC;
+    bool timer_wake = from_off && (powman_hw->last_swcore_pwrup & PWRUP_ALARM_BIT);
     /* Whatever this boot is, the wakes are over unless set up again below:
      * no alarm left armed while the calculator is on, and should anything
      * here crash, the next boot is an ordinary one, not this. */
@@ -294,6 +302,17 @@ bool power_off_wake(void) {
     power_down(wake_pin, next_wake(now_ms, until_ms), lposc_hz);
 }
 
+/* main.c wraps the ROM's function to stop core 1 first, for picotool's
+ * request on core 0 -- called from core 1, that would stop the caller. */
+void __real_rom_reset_usb_boot_extra(int pin, uint32_t disable_mask, bool active_low) __attribute__((noreturn));
+
+void power_update_mode(void) {
+    /* Nothing on this core feeds the watchdog any more: the ROM arms it
+     * for its own restart. */
+    watchdog_disable();
+    __real_rom_reset_usb_boot_extra(-1, 0, false);
+}
+
 bool power_woke_from_off(void) {
-    return (powman_hw->chip_reset & POWMAN_CHIP_RESET_HAD_SWCORE_PD_BITS) != 0;
+    return from_off;
 }

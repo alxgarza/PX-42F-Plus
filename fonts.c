@@ -1,6 +1,7 @@
 #include "fonts.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "hardware/watchdog.h"
@@ -8,6 +9,7 @@
 #include "font_10x16.h"
 #include "font_6x8.h"
 #include "fontsheet.h"
+#include "pngwrite.h"
 #include "settings.h"
 #include "statefs.h"
 
@@ -72,11 +74,67 @@ int fonts_list(font_kind_t kind, char names[][FONT_NAME_MAX + 1], int max) {
     return statefs_list_files(kinds[kind].dir, ".png", (char *) names, FONT_NAME_MAX + 1, max);
 }
 
+static bool file_write(void *ctx, const uint8_t *data, size_t len) {
+    return fwrite(data, 1, len, (FILE *) ctx) == len;
+}
+
+/* png_write_1bit()'s output checked against a file instead of written. */
+static bool file_compare(void *ctx, const uint8_t *data, size_t len) {
+    uint8_t buf[64];
+    while (len > 0) {
+        size_t n = len < sizeof(buf) ? len : sizeof(buf);
+        if (fread(buf, 1, n, (FILE *) ctx) != n || memcmp(buf, data, n) != 0)
+            return false;
+        data += n;
+        len -= n;
+    }
+    return true;
+}
+
+/* /FONTS/BUILTIN/LARGE.png etc.: the built-in font as a sheet, to copy to a
+ * computer and start a new font from. Read-only, and outside LARGE/SMALL/
+ * MINI so Settings -> Fonts doesn't list the built-in font twice. Written
+ * only when it isn't there or isn't the built-in font any more (a new
+ * firmware's font, or a computer changed it): most boots only read it. */
+static void write_builtin_sheet(int kind) {
+    const display_font_t *font = kinds[kind].builtin;
+    int gap = kinds[kind].gap;
+    int width = FONT_SHEET_WIDTH(font->width, gap), height = FONT_SHEET_HEIGHT(font->height, gap);
+    int stride = (width + 7) / 8;
+    uint8_t *sheet = (uint8_t *) malloc((size_t) stride * (size_t) height);
+    if (sheet == NULL)
+        return;
+    font_sheet_draw(font, gap, sheet, stride);
+
+    char path[48];
+    snprintf(path, sizeof(path), "%s/%s.png", FONTS_BUILTIN_DIR, kinds[kind].dir + sizeof(FONTS_DIR));
+    FILE *f = statefs_fopen(path, "rb");
+    bool same = f != NULL && png_write_1bit(sheet, width, height, stride, file_compare, f) && fgetc(f) == EOF;
+    if (f != NULL)
+        fclose(f);
+    if (!same) {
+        statefs_set_readonly(path, false);
+        f = statefs_fopen(path, "wb");
+        bool ok = f != NULL && png_write_1bit(sheet, width, height, stride, file_write, f);
+        if (f != NULL)
+            ok = fclose(f) == 0 && ok;
+        if (ok)
+            statefs_set_readonly(path, true);
+        else
+            statefs_remove(path); /* half a file */
+        statefs_sync();
+    }
+    free(sheet);
+}
+
 void fonts_init(void) {
     if (statefs_ready()) { /* the folders to put font sheets in */
         statefs_mkdir(FONTS_DIR);
-        for (int kind = 0; kind < FONT_KINDS; kind++)
+        statefs_mkdir(FONTS_BUILTIN_DIR);
+        for (int kind = 0; kind < FONT_KINDS; kind++) {
             statefs_mkdir(kinds[kind].dir);
+            write_builtin_sheet(kind);
+        }
     }
     for (int kind = 0; kind < FONT_KINDS; kind++) {
         char error[40];

@@ -16,6 +16,7 @@ share a draw path with font_10x16.
 import re
 import sys
 
+sys.dont_write_bytecode = True  # no __pycache__ in the source folders
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from gen_font import pack_bits_msb_first  # noqa: E402
 

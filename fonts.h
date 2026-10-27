@@ -23,9 +23,10 @@ extern "C" {
  *   /FONTS/SMALL/<name>.png   128 x 96:  16 x 8 glyphs of 8 x 12, no gaps
  *   /FONTS/MINI/<name>.png    96 x 64:   16 x 8 glyphs of 6 x 8, no gaps
  *
- * (fontsheet.h; the sizes are fixed -- the screen layout is built on them.
- * The built-in fonts' own sheets, to start a new one from, are
- * fonts/font_10x16.png, font_12x8.png and font_6x8.png in the source.)
+ * (fontsheet.h; the sizes are fixed -- the screen layout is built on them.)
+ * The built-in fonts' own sheets, to start a new one from, are on the drive
+ * too, read-only: /FONTS/BUILTIN/LARGE.png, SMALL.png and MINI.png (from
+ * fonts/font_10x16.png, font_12x8.png and font_6x8.png in the source).
  *
  * Only free42_app.cc draws with these. The settings menu, the boot and
  * crash screens and the splash clock keep the built-in fonts: the menu has
@@ -34,6 +35,7 @@ extern "C" {
 extern display_font_t font_small, font_large, font_mini;
 
 #define FONTS_DIR     "/FONTS"
+#define FONTS_BUILTIN_DIR FONTS_DIR "/BUILTIN"
 #define FONT_NAME_MAX 28
 
 typedef enum { FONT_SMALL, FONT_LARGE, FONT_MINI, FONT_KINDS } font_kind_t;

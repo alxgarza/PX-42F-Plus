@@ -61,14 +61,14 @@ In **USB Drive** mode the calculator appears on a computer as a drive named
 | `STATE/` | Calculator states (`.f42`), the same format as Free42 on a computer |
 | `SPLASH/` | Splash images: any PNG, best at 250 × 122 pixels |
 | `SOUNDS/` | WAV files: `KEY/` key clicks (up to 250 ms), `TONES/TONE0`–`9` for TONE and BEEP, `BOOT`, `ON`, `OFF`, `ERROR` |
-| `FONTS/` | Font sheets: `LARGE/` (175 × 135 PNG) and `SMALL/` (128 × 96 PNG) |
+| `FONTS/` | Font sheets: `LARGE/` (175 × 135 PNG), `SMALL/` (128 × 96 PNG), `MINI/` (96 × 64 PNG); `BUILTIN/` has the built-in fonts' sheets, read-only |
 | `SCREENSHOTS/` | Screenshots, 250 × 122 PNG, named by date and time |
 | `IR/` | Remote controls (`.ir`), below |
 
 Sounds can be any PCM or float WAV, at any sample rate; the calculator
 normalizes and converts them. A font sheet is the 128 HP-42S characters in a
-grid 16 across and 8 down: copy [`fonts/font_10x16.png`](fonts/font_10x16.png)
-(large) or [`fonts/font_12x8.png`](fonts/font_12x8.png) (small) and redraw it.
+grid 16 across and 8 down: copy one from `FONTS/BUILTIN/` (`LARGE.png`,
+`SMALL.png`, `MINI.png`) to the computer and redraw it.
 
 ### The remote control
 
@@ -153,11 +153,15 @@ encoders on the computer, with AddressSanitizer. The infrared test vectors in
 - **Calculator running and connected:** `tools/flash.sh` restarts it into its
   bootloader with `picotool`, loads the firmware and waits for it to come
   back. No buttons needed.
+- **On the calculator, without a computer program:** Settings → USB Drive →
+  Update Firmware saves the memory, then the `RP2350` drive appears: copy
+  `PX-42F-Plus.uf2` onto it. The memory and the time come back.
 - **Calculator off or not responding:** hold BOOT, press RESET, and copy
-  `PX-42F-Plus.uf2` to the `RP2350` drive that appears.
+  `PX-42F-Plus.uf2` to the `RP2350` drive that appears. RESET clears the
+  memory.
 
-Flashing restarts the calculator, so its memory is lost unless it was turned
-off first.
+`tools/flash.sh` restarts the calculator, so its memory is lost unless it was
+turned off first.
 
 ## Project layout
 

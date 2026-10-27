@@ -43,5 +43,9 @@ tools/menu_shots/build.sh "$TMP/menu_shots"
     ENTER shot:import_programs EXIT \
     DOWN ENTER shot:export_programs ENTER shot:export_name EXIT \
   EXIT \
-  DOWN ENTER shot:usb_drive EXIT \
+  DOWN ENTER shot:usb_menu \
+    ENTER shot:usb_drive EXIT \
+    DOWN ENTER shot:format_drive EXIT \
+    DOWN ENTER shot:update_firmware EXIT \
+  EXIT \
   DOWN ENTER shot:info EXIT

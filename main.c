@@ -73,6 +73,9 @@
  * its caller's r4 with the top word of a number). */
 static uint32_t core1_stack[CORE1_STACK_WORDS] __attribute__((aligned(16)));
 
+/* This boot came from the RESET button (core1_main()): Memory Clear. */
+static bool reset_button;
+
 /* ===================== GPIO pin assignment =====================
  * Board: the PX-42F's own (boards/px42f.h) -- RP2350A, 16MB flash, no
  * wireless chip. GP23-25 and GP29 carry WL_* net labels on the PCB but
@@ -184,6 +187,15 @@ static void handle_serial_command(const char *cmd) {
                "(off, with the correction)\n",
                (unsigned long) at_fast, CPUCLOCK_FAST_MV, (unsigned long) at_slow, CPUCLOCK_SLOW_MV,
                (unsigned long) off_hz, POWER_OFF_MV);
+        uint32_t why = powman_hw->chip_reset;
+        printf("last reset: 0x%08lx (%s)\n", (unsigned long) why,
+               reset_button                                           ? "RESET button: Memory Clear"
+               : why & POWMAN_CHIP_RESET_HAD_RUN_LOW_BITS             ? "a restart since the RESET button"
+               : power_woke_from_off()                                ? "ON from OFF"
+               : why & POWMAN_CHIP_RESET_HAD_SWCORE_PD_BITS           ? "a restart since the last OFF"
+               : why & POWMAN_CHIP_RESET_HAD_WATCHDOG_RESET_SWCORE_BITS ? "watchdog or bootloader restart"
+               : why & POWMAN_CHIP_RESET_HAD_POR_BITS                 ? "power-up"
+                                                                      : "other");
         uint32_t waits, key_waits;
         idle_stats(&waits, &key_waits);
         printf("idle waits on battery: %lu (ended by a key: %lu)\n", (unsigned long) waits, (unsigned long) key_waits);
@@ -219,6 +231,30 @@ static void handle_serial_command(const char *cmd) {
     }
 }
 
+/* After the RESET button the Hello screen stays up until a key is pressed
+ * (it only dismisses the screen) -- true -- or the Sleep Timer runs out:
+ * false, turn off. Not on a computer's USB, as in the main loop. */
+static bool hello_wait(void) {
+    absolute_time_t since = get_absolute_time();
+    uint8_t row, col;
+    while (!keyboard_scan(&row, &col)) {
+        watchdog_update();
+        absolute_time_t until = make_timeout_time_ms(60000);
+        if (px_settings.sleep_minutes != 0 && !idle_usb_host_active()) {
+            absolute_time_t off = delayed_by_ms(since, (uint32_t) px_settings.sleep_minutes * 60000u);
+            if (time_reached(off))
+                return false;
+            until = idle_earliest(until, off);
+        }
+        idle_wait(until);
+    }
+    while (keyboard_scan(&row, &col)) { /* not a keypress for the calculator */
+        watchdog_update();
+        sleep_ms(10);
+    }
+    return true;
+}
+
 static void core1_main(void)
 {
     /* First thing: the speaker MOSFET's gate must be actively held low
@@ -227,7 +263,7 @@ static void core1_main(void)
     release_psram_cs();
     settings_load();
 
-    rtc_clock_init();
+    bool clock_stopped = rtc_clock_init();
     battery_init();
     display_init();
 
@@ -246,6 +282,17 @@ static void core1_main(void)
      * UF2 copy) and for watchdog_reboot() -- those showed "WATCHDOG RESET"
      * with whatever checkpoint was left from before. */
     bool hung = watchdog_enable_caused_reboot();
+    /* The RESET button pulls the chip's RUN pin low (PINOUT.html), which
+     * POWMAN records -- unlike every other restart: ON, a crash, the
+     * watchdog, leaving the bootloader after a flash. Pressed on purpose,
+     * so it means Memory Clear (free42_init()); the others bring the
+     * memory back. But the record is of POWMAN's last reset, and only RUN,
+     * a power-up or a brown-out reset POWMAN: after a RESET press it said
+     * RUN pin through every flash and crash restart that followed, and the
+     * first flash after a RESET cleared the memory. Those reset the
+     * always-on timer too, the others don't -- so a RESET press is the RUN
+     * record with the clock stopped. */
+    reset_button = clock_stopped && (powman_hw->chip_reset & POWMAN_CHIP_RESET_HAD_RUN_LOW_BITS) != 0;
     bool crashed = crash_report_take(crash1, crash2, crash3, sizeof(crash1),
                                      debug_checkpoint_name(watchdog_hw->scratch[0]), hung);
     keyboard_init();
@@ -280,7 +327,10 @@ static void core1_main(void)
                 sleep_ms(10);
         }
     }
-    bool boot_sound = !woke_from_off && !crashed;
+    /* Every start but ON after OFF (that's ON.wav): a reset, a flash, a
+     * crash's restart. No setting: it's the calculator's own sound, but
+     * /SOUNDS/BOOT.wav can be replaced. */
+    bool boot_sound = !woke_from_off;
 
     /* Swallow the ON press that woke it (or the key that dismissed the
      * crash report): the main loop would otherwise take it, still held, as
@@ -369,14 +419,18 @@ static void core1_main(void)
     debug_checkpoint(CKPT_BOOT_SOUNDS, 0);
     sounds_init(use_sound_files);
     debug_checkpoint(CKPT_BOOT_SOUND, 0);
-    if (boot_sound && px_settings.boot_sound)
+    if (boot_sound)
         sounds_play_boot();
     powman_hw->scratch[6] = 0;
     watchdog_update();
 
+    bool hello_off = reset_button && !crashed && !hello_wait();
+
     /* Start the Free42 core -- with its memory from before OFF, if any --
      * and draw the stack. */
-    free42_init(crashed);
+    free42_init(crashed, reset_button);
+    if (hello_off)
+        free42_request_powerdown(); /* the main loop's first pass turns it off */
     debug_checkpoint(CKPT_ON_SOUND, 0);
     if (woke_from_off && !crashed && px_settings.on_sound)
         sounds_play_on(); /* turned on with ON: the stack is already back on screen */

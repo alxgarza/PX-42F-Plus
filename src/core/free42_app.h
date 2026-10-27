@@ -16,7 +16,7 @@ extern "C" {
  * ON), otherwise from Memory Clear. after_crash: this boot follows a fault
  * or watchdog reset, so the saved memory isn't kept for another go. Call
  * once, after statefs_init(), before free42_process_char(). */
-void free42_init(bool after_crash);
+void free42_init(bool after_crash, bool memory_clear);
 
 /* Feeds one character in (typed over the serial console) as if it were an
  * HP-42S keypress, then prints the resulting 4-level stack.
@@ -142,6 +142,11 @@ bool free42_export_programs(int index, const char *path);
 /* Adds the programs in the file at path to the calculator's. Returns how
  * many programs that added, or -1 if the file couldn't be read. */
 int free42_import_programs(const char *path);
+/* Before Update Firmware (power_update_mode()): the memory to the drive,
+ * where the next boot takes it from (free42_init()) -- the RAM copy is
+ * dropped, or that one, as of the last ON, would come back instead. False
+ * if it couldn't be saved. */
+bool free42_save_for_update(void);
 /* The core's complaint about a file (shell_message()): noted for the two above. */
 void free42_core_message(const char *message);
 

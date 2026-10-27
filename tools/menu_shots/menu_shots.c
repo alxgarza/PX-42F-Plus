@@ -28,6 +28,7 @@
 #include "keyboard.h"
 #include "keyhold.h"
 #include "pngwrite.h"
+#include "power.h"
 #include "remote.h"
 #include "rtc.h"
 #include "settings.h"
@@ -208,6 +209,18 @@ px_settings_t px_settings;
 void settings_save(void) {
 }
 
+void settings_save_pending(void) {
+}
+
+bool free42_save_for_update(void) {
+    return true;
+}
+
+/* The real one never comes back: the boot ROM takes over. */
+void power_update_mode(void) {
+    exit(0);
+}
+
 void settings_save_later(void) {
 }
 
@@ -307,6 +320,10 @@ bool statefs_file_exists(const char *path) {
 void statefs_mkdir(const char *path) {
 }
 
+bool statefs_format(void) {
+    return true;
+}
+
 int statefs_remove(const char *name) {
     return 0;
 }
@@ -384,7 +401,6 @@ int main(int argc, char **argv) {
             .sleep_minutes = 10,
             .splash_minutes = 10,
             .key_sound = "Typewriter",
-            .boot_sound = true,
             .on_sound = true,
             .off_sound = true,
             .date_format = RTC_WMD,

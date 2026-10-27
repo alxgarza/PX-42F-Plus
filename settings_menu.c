@@ -31,6 +31,7 @@
 #include "keyhold.h"
 #include "remote.h"
 #include "icons.h"
+#include "power.h"
 
 #ifndef PICO_PROGRAM_VERSION_STRING
 #define PICO_PROGRAM_VERSION_STRING "?"
@@ -977,7 +978,6 @@ static edit_result_t do_key_sound(void) {
 
 enum {
     SOUND_KEY,
-    SOUND_BOOT,
     SOUND_ON,
     SOUND_OFF,
     SOUND_COUNT
@@ -985,7 +985,6 @@ enum {
 
 static const char *const sound_items[SOUND_COUNT] = {
         "Key Sound",
-        "Boot Sound",
         "On Sound",
         "Off Sound",
 };
@@ -998,9 +997,6 @@ static void sound_value(int item, char *buf, size_t size) {
             else
                 snprintf(buf, size, "%.13s..", key_sound_shown());
             break;
-        case SOUND_BOOT:
-            snprintf(buf, size, "%s", px_settings.boot_sound ? "On" : "Off");
-            break;
         case SOUND_ON:
             snprintf(buf, size, "%s", px_settings.on_sound ? "On" : "Off");
             break;
@@ -1010,8 +1006,9 @@ static void sound_value(int item, char *buf, size_t size) {
     }
 }
 
-/* All the sound settings. Boot, On and Off Sound toggle with ENTER, playing
- * the sound when turned on; the files are in /SOUNDS on the drive. */
+/* All the sound settings. On and Off Sound toggle with ENTER, playing the
+ * sound when turned on; the files are in /SOUNDS on the drive. The boot
+ * sound has no setting: it always plays (its file can be replaced). */
 static edit_result_t do_sounds(void) {
     static int selected = 0;
     while (true) {
@@ -1024,11 +1021,6 @@ static edit_result_t do_sounds(void) {
             case SOUND_KEY:
                 if (do_key_sound() == EDIT_POWER_OFF)
                     return EDIT_POWER_OFF;
-                break;
-            case SOUND_BOOT:
-                px_settings.boot_sound = !px_settings.boot_sound;
-                if (px_settings.boot_sound)
-                    sounds_play_boot();
                 break;
             case SOUND_ON:
                 px_settings.on_sound = !px_settings.on_sound;
@@ -1196,9 +1188,10 @@ static edit_result_t do_delete_state(void) {
     return show_result("Delete State", ok, line);
 }
 
-/* USB Drive -- like the DM42's USB disk mode: the computer gets the drive,
- * the calculator stays out of it, until the drive is ejected or EXIT. */
-static edit_result_t do_usb_disk(void) {
+/* Connect to Computer -- like the DM42's USB disk mode: the computer gets
+ * the drive, the calculator stays out of it, until the drive is ejected or
+ * EXIT. */
+static edit_result_t do_usb_connect(void) {
     if (!statefs_ready() && flashdisk_block_count() == 0)
         return no_disk();
 
@@ -1216,7 +1209,7 @@ static edit_result_t do_usb_disk(void) {
             was_mounted = host;
             redraw = false;
             display_clear();
-            draw_title("USB Drive");
+            draw_title("Connect to Computer");
             draw_line(0, host ? "Connected: drive \"PX-42F\"" : "Waiting for a computer...");
             draw_line(2, "States: STATE/<name>.p42");
             draw_line(3, "Splash images: SPLASH/*.png");
@@ -1242,12 +1235,93 @@ static edit_result_t do_usb_disk(void) {
         idle_since = get_absolute_time();
     }
 
-    show_busy("USB Drive", "Writing to flash...");
+    show_busy("Connect to Computer", "Writing to flash...");
     statefs_usb_end();
     splash_reload(); /* the chosen splash image may have been replaced */
     sounds_init(true); /* likewise the sounds -- and /SOUNDS made again if it was deleted */
     fonts_init(); /* and the fonts */
     return result;
+}
+
+/* Format Drive: an empty drive, asked twice -- also the way back from one
+ * that isn't FAT any more (statefs_init() leaves those alone). Then the
+ * folders, and the built-in sounds, as at the first boot. */
+static edit_result_t do_format_drive(void) {
+    if (flashdisk_block_count() == 0)
+        return no_disk();
+    static const char *const warning[] = {"Erase every file on the drive?", "", "States, programs, screenshots,",
+                                          "your sounds, fonts and splash", "images. Settings stay."};
+    edit_result_t r = show_message("Format Drive", warning, 5, "Enter:Format  Exit:Cancel");
+    if (r != EDIT_OK)
+        return r;
+    static const char *const sure[] = {"Are you sure?", "", "This cannot be undone."};
+    r = show_message("Format Drive", sure, 3, "Enter:Format  Exit:Cancel");
+    if (r != EDIT_OK)
+        return r;
+
+    show_busy("Format Drive", "Formatting...");
+    bool ok = statefs_format();
+    if (ok) {
+        statefs_mkdir(IR_DIR);
+        statefs_mkdir(PROGRAMS_DIR);
+        sounds_init(true); /* the built-ins written again */
+        fonts_init();      /* a font of the user's is gone: the built-in */
+        splash_reload();   /* likewise the splash image */
+        ok = statefs_sync();
+    }
+    return show_result("Format Drive", ok, ok ? "The drive is empty." : "Could not format the drive.");
+}
+
+/* Update Firmware: the boot ROM's update mode without the BOOT and RESET
+ * buttons -- the RP2350 drive, which takes PX-42F-Plus.uf2 and then starts
+ * it. The memory goes to the drive first and comes back after; the screen
+ * keeps the instructions while the processor is in the ROM. */
+static edit_result_t do_update_firmware(void) {
+    static const char *const how[] = {"The calculator becomes a drive", "named RP2350. Copy",
+                                      "PX-42F-Plus.uf2 onto it: the", "new firmware then starts, with",
+                                      "the memory as it is now."};
+    edit_result_t r = show_message("Update Firmware", how, 5, "Enter:Start  Exit:Cancel");
+    if (r != EDIT_OK)
+        return r;
+
+    show_busy("Update Firmware", "Saving the memory...");
+    settings_save_pending();
+    if (!free42_save_for_update()) {
+        error_beep();
+        static const char *const lost[] = {"Could not save the memory.", "", "Update anyway? The memory",
+                                           "will be lost."};
+        r = show_message("Update Firmware", lost, 4, "Enter:Update  Exit:Cancel");
+        if (r != EDIT_OK)
+            return r;
+    }
+
+    display_clear();
+    draw_title("Update Firmware");
+    draw_line(0, "Copy PX-42F-Plus.uf2 onto");
+    draw_line(1, "the RP2350 drive.");
+    draw_line(3, "To cancel, press RESET:");
+    draw_line(4, "that clears the memory.");
+    display_flush();
+    power_update_mode();
+}
+
+enum { USB_CONNECT, USB_FORMAT, USB_UPDATE, USB_COUNT };
+static const char *const usb_items[USB_COUNT] = {"Connect to Computer", "Format Drive", "Update Firmware"};
+
+static edit_result_t do_usb_drive(void) {
+    static int selected = 0;
+    while (true) {
+        int pick = run_list("USB Drive", usb_items, USB_COUNT, NULL, &selected, "Enter:Select  Exit:Back");
+        if (pick == LIST_POWER_OFF)
+            return EDIT_POWER_OFF;
+        if (pick == LIST_BACK)
+            return EDIT_CANCEL;
+        edit_result_t r = pick == USB_CONNECT  ? do_usb_connect()
+                          : pick == USB_FORMAT ? do_format_drive()
+                                               : do_update_firmware();
+        if (r == EDIT_POWER_OFF)
+            return r;
+    }
 }
 
 enum {
@@ -1786,7 +1860,7 @@ settings_menu_result_t settings_menu_run(void) {
                 r = do_programs();
                 break;
             case ITEM_USB:
-                r = do_usb_disk();
+                r = do_usb_drive();
                 break;
             case ITEM_INFO:
                 r = do_info();

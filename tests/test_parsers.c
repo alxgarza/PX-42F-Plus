@@ -429,6 +429,27 @@ static void test_png_write(int width, int height, const char *save_as) {
     free(s.data);
 }
 
+/* The sheet the calculator writes to /FONTS/BUILTIN (fonts.c): drawn from
+ * the built-in font, written as a PNG, it must load back as that font. */
+static void test_font_sheet_draw(const display_font_t *font, int gap) {
+    static uint8_t glyphs[FONT_SHEET_GLYPHS * 32];
+    int width = FONT_SHEET_WIDTH(font->width, gap), height = FONT_SHEET_HEIGHT(font->height, gap);
+    int stride = (width + 7) / 8;
+    uint8_t *sheet = malloc((size_t) stride * (size_t) height);
+    sink_t s = {malloc(8192), 0, 8192};
+    font_sheet_draw(font, gap, sheet, stride);
+    CHECK(png_write_1bit(sheet, width, height, stride, sink_write, &s), "%dx%d sheet: write failed", font->width,
+          font->height);
+    char error[64] = "";
+    memset(glyphs, 0xA5, sizeof(glyphs));
+    bool ok = load_sheet(s.data, s.size, font, gap, glyphs, error);
+    CHECK(ok, "%dx%d drawn sheet: %s", font->width, font->height, error);
+    CHECK(ok && memcmp(glyphs, font->data, (size_t) FONT_SHEET_GLYPHS * font->bytes_per_char) == 0,
+          "%dx%d drawn sheet loads as a different font", font->width, font->height);
+    free(sheet);
+    free(s.data);
+}
+
 /* ===================== infrared ===================== */
 
 /* Every protocol sends what the Flipper firmware sends for the same code
@@ -569,6 +590,9 @@ int main(int argc, char **argv) {
     test_font_sheet("fonts/font_10x16.png", &font_10x16, 1);
     test_font_sheet("fonts/font_6x8.png", &font_6x8, 0);
     test_png_write(250, 122, getenv("PNG_WRITE_OUT"));
+    test_font_sheet_draw(&font_8x12, 0);
+    test_font_sheet_draw(&font_10x16, 1);
+    test_font_sheet_draw(&font_6x8, 0);
     test_png_write(1, 1, NULL);
     test_png_write(17, 5, NULL);
     test_png_write(2040, 300, NULL);

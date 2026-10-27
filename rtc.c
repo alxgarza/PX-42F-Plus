@@ -65,7 +65,7 @@ void rtc_apply_trim(void) {
     powman_timer_set_1khz_tick_source_xosc_with_hz(trimmed(XOSC_HZ));
 }
 
-void rtc_clock_init(void) {
+bool rtc_clock_init(void) {
     /* Ticks from the 12MHz crystal, not the internal low-power RC
      * oscillator: the LPOSC isn't trimmed to a crystal and can drift by
      * minutes per day, too much for a calendar clock. The crystal keeps
@@ -79,7 +79,9 @@ void rtc_clock_init(void) {
         powman_timer_set_ms((uint64_t) days_from_civil(RTC_DEFAULT_YEAR, RTC_DEFAULT_MONTH, RTC_DEFAULT_DAY) * MS_PER_DAY
                             + ((uint64_t) RTC_DEFAULT_HOUR * 3600 + RTC_DEFAULT_MINUTE * 60) * 1000);
         powman_timer_start();
+        return true;
     }
+    return false;
 }
 
 void rtc_get_datetime(rtc_datetime_t *dt) {

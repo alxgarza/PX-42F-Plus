@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "font.h"
 #include "png1bit.h"
 
 #ifdef __cplusplus
@@ -21,6 +22,8 @@ extern "C" {
 #define FONT_SHEET_COLS   16
 #define FONT_SHEET_ROWS   8
 #define FONT_SHEET_GLYPHS (FONT_SHEET_COLS * FONT_SHEET_ROWS)
+#define FONT_SHEET_WIDTH(cell_w, gap)  (FONT_SHEET_COLS * (cell_w) + (FONT_SHEET_COLS - 1) * (gap))
+#define FONT_SHEET_HEIGHT(cell_h, gap) (FONT_SHEET_ROWS * (cell_h) + (FONT_SHEET_ROWS - 1) * (gap))
 
 /* Decodes a sheet into glyphs: FONT_SHEET_GLYPHS glyphs of
  * ceil(cell_w * cell_h / 8) bytes each, in display_font_t's packing
@@ -29,6 +32,11 @@ extern "C" {
  * for the duration. */
 bool font_sheet_load(const png_source_t *src, int cell_w, int cell_h, int gap, uint8_t *glyphs,
                      char *error, size_t error_size);
+
+/* The other way: a font (codes 0-127) drawn as its sheet, into sheet --
+ * FONT_SHEET_HEIGHT rows of stride bytes, MSB-first, 1 = ink; the gaps
+ * left blank. What /FONTS/BUILTIN on the drive is made of (fonts.c). */
+void font_sheet_draw(const display_font_t *font, int gap, uint8_t *sheet, int stride);
 
 #ifdef __cplusplus
 }

@@ -494,7 +494,7 @@ static void core_start(const char *path) {
     fit_display(true);
 }
 
-void free42_init(bool after_crash) {
+void free42_init(bool after_crash, bool memory_clear) {
     /* The memory saved at the last OFF, from RAM or, failing that, the
      * drive. It's kept after loading, so a crash later on comes back to it
      * (the memory as of this ON) instead of Memory Clear -- but not when
@@ -502,6 +502,16 @@ void free42_init(bool after_crash) {
      * and the file is deleted, so a state that crashes the calculator can
      * do it once more at most. */
     display_clear();
+    /* The RESET button (main.c): Memory Clear. Neither copy of the memory
+     * may come back at a later boot either -- the RAM one after a crash,
+     * the drive's when the RAM one is missing. */
+    if (memory_clear) {
+        ramstate_discard();
+        if (statefs_ready() && statefs_file_exists(OFF_STATE_FILE)) {
+            statefs_remove(OFF_STATE_FILE);
+            statefs_sync();
+        }
+    }
     bool from_ram = ramstate_valid();
     if (from_ram) {
         debug_checkpoint(CKPT_CORE_START, 0);
@@ -879,6 +889,14 @@ void free42_load_state(const char *path) {
     core_start(path);
     pump_running(core_powercycle());
     refresh();
+}
+
+bool free42_save_for_update(void) {
+    if (!statefs_ready())
+        return false;
+    core_save_state(OFF_STATE_FILE);
+    ramstate_discard();
+    return statefs_sync() && statefs_file_exists(OFF_STATE_FILE);
 }
 
 /* ============================ programs ============================ */

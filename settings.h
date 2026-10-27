@@ -29,7 +29,8 @@ typedef struct {
     uint8_t printer;         /* printer_target_t (printer.h): where Free42 prints */
     char key_sound[KEY_SOUND_NAME_MAX + 1]; /* sound on every keypress: /SOUNDS/KEY/<name>.wav
                                              * or the built-in of that name; "" = off */
-    bool boot_sound;         /* /SOUNDS/BOOT.wav at a cold boot */
+    bool unused;             /* was Boot Sound: BOOT.wav plays at every start now. Kept so
+                              * the older versions' records still line up. */
     bool on_sound;           /* /SOUNDS/ON.wav when turning on with ON */
     bool off_sound;          /* /SOUNDS/OFF.wav when turning off */
     /* Date & Time (rtc.h). The formats are Free42's own too (DMY/MDY/YMD,

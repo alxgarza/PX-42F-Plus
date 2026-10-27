@@ -55,7 +55,6 @@ px_settings_t px_settings;
 
 static const px_settings_t defaults = {
     .key_sound = "",
-    .boot_sound = true,
     .on_sound = true,
     .off_sound = true,
     .sleep_minutes = 10,  /* the HP-42S's own auto-off time */
@@ -126,7 +125,6 @@ void settings_load(void) {
         memcpy(px_settings.splash_image, o->splash_image, sizeof(px_settings.splash_image));
         px_settings.printer = o->printer;
         memcpy(px_settings.key_sound, o->key_sound, sizeof(px_settings.key_sound));
-        px_settings.boot_sound = o->boot_sound;
         px_settings.off_sound = o->off_sound;
         px_settings.date_format = o->date_format;
         px_settings.clock_24h = o->clock_24h;

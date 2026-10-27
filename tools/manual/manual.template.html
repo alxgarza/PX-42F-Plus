@@ -299,7 +299,7 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 <thead><tr><th>Codes</th><th>Characters</th></tr></thead>
 <tbody>
 <tr><td>0 &ndash; 15</td><td>&divide; &times; &radic; &int; &#9618; &Sigma; &#9654; &pi; &iquest; &le; LF &ge; &ne; &crarr; &darr; &rarr;</td></tr>
-<tr><td>16 &ndash; 31</td><td>&larr; &micro; &pound; &deg; &Aring; &Ntilde; &Auml; &#8737; &#7431; &AElig; &hellip; Esc &Ouml; &Uuml; &#9618; &bull;</td></tr>
+<tr><td>16 &ndash; 31</td><td>&larr; &micro; &pound; &deg; &Aring; &Ntilde; &Auml; &#8737; &#7431; &AElig; &hellip; Esc &Ouml; &Uuml; ^ &bull;</td></tr>
 <tr><td>94, 126</td><td>&uarr; (in place of ^), ~</td></tr>
 </tbody>
 </table></div>
@@ -320,7 +320,7 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 <tr><td>Mini</td><td><code>/FONTS/MINI/</code></td><td>96 &times; 64</td><td>6 &times; 8, no gaps</td></tr>
 </tbody>
 </table></div>
-<p>The easiest way to start is to copy the built-in font's own sheet and edit it. Copy the finished PNG into its folder with <a href="#set-usb">USB Drive</a>, then choose it in <a href="#set-fonts">Settings &rarr; Fonts</a>.</p>
+<p>The easiest way to start is from the built-in font's own sheet. It's on the drive, in <code>/FONTS/BUILTIN/</code>: <code>LARGE.png</code>, <code>SMALL.png</code> and <code>MINI.png</code>. Copy it to the computer and edit the copy. The originals are read-only, and the calculator writes them again if they go missing or change. If your computer keeps the copy read-only too (locked, on a Mac), clear that in the file's Get Info or Properties. Copy the finished PNG into its folder with <a href="#set-usb">USB Drive</a>, then choose it in <a href="#set-fonts">Settings &rarr; Fonts</a>.</p>
 <p class="note">The settings menu, the boot screen and the clock on the splash screen always use the built-in fonts. That way a font that turns out unreadable can always be undone.</p>
 
 <!-- ============================================================ -->
@@ -418,18 +418,18 @@ command: 07 00 00 00</code></pre>
 
 <h3 id="set-sounds">Sounds</h3>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:sounds}}" alt="Sounds: Key Sound Typewriter, Boot Sound On, On Sound On, Off Sound On"><figcaption>The sound settings.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:sounds}}" alt="Sounds: Key Sound Typewriter, On Sound On, Off Sound On"><figcaption>The sound settings.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:key_sound}}" alt="Key Sound list: Off, Typewriter (marked), Tick, Tock, Glass, Pop, Beep"><figcaption>Key Sound. The <code>&lt;</code> marks the one in use.</figcaption></figure>
 </div>
 <div class="table-wrap"><table>
 <thead><tr><th>Item</th><th>What it does</th></tr></thead>
 <tbody>
 <tr><td>Key Sound</td><td>The sound each key press makes, or Off. See below.</td></tr>
-<tr><td>Boot Sound</td><td>On or Off: a sound when the calculator starts from scratch (after a reset or a reflash). <kbd>ENTER</kbd> toggles it, and plays it when turned on.</td></tr>
 <tr><td>On Sound</td><td>On or Off: a sound when you turn the calculator on.</td></tr>
 <tr><td>Off Sound</td><td>On or Off: a sound when it turns off.</td></tr>
 </tbody>
 </table></div>
+<p>The boot sound has no setting. It always plays when the calculator starts: after the RESET button, a firmware update or a restart, but not when you turn it on with ON. To change it, replace <code>BOOT.wav</code> (see <a href="#other-sounds">Other sounds</a>).</p>
 
 <h4>Key Sound</h4>
 <p>The list shows Off, the built-in key sounds, then any of your own on the drive. <kbd>ENTER</kbd> chooses one and plays it. There are two kinds:</p>
@@ -453,12 +453,12 @@ command: 07 00 00 00</code></pre>
 </ul>
 <p>Longer sounds are cut short with a fade. Short sounds (30&ndash;60 ms) suit fast typing best, because each key press cuts off the sound before it.</p>
 
-<h4>Other sounds</h4>
+<h4 id="other-sounds">Other sounds</h4>
 <p>All the calculator's sounds are WAV files in <code>/SOUNDS</code> on the drive. Replace any of them with your own:</p>
 <div class="table-wrap"><table>
 <thead><tr><th>File</th><th>Played</th></tr></thead>
 <tbody>
-<tr><td><code>BOOT.wav</code></td><td>Starting from scratch (Boot Sound).</td></tr>
+<tr><td><code>BOOT.wav</code></td><td>Every start except turning on with ON: after RESET, a firmware update or a restart.</td></tr>
 <tr><td><code>ON.wav</code>, <code>OFF.wav</code></td><td>Turning on and off (On Sound, Off Sound).</td></tr>
 <tr><td><code>TONES/TONE0.wav</code> &hellip; <code>TONE9.wav</code></td><td>The TONE 0&ndash;9 commands (and BEEP).</td></tr>
 <tr><td><code>ERROR.wav</code></td><td>An error.</td></tr>
@@ -541,9 +541,18 @@ command: 07 00 00 00</code></pre>
 
 <h3 id="set-usb">USB Drive</h3>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:usb_drive}}" alt="USB Drive: Connected: drive PX-42F"><figcaption>USB Drive, with a computer connected.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:usb_menu}}" alt="USB Drive: Connect to Computer, Format Drive"><figcaption>USB Drive.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:usb_drive}}" alt="Connect to Computer: Connected: drive PX-42F"><figcaption>Connect to Computer, with a computer connected.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:format_drive}}" alt="Format Drive: Erase every file on the drive?"><figcaption>Format Drive asks first, then once more.</figcaption></figure>
 </div>
-<p>Lets a computer open the calculator's drive, named <strong>PX-42F</strong>, through the USB cable, to copy states, images, fonts, sounds and remotes in and out. The screen says &ldquo;Waiting for a computer...&rdquo; until one opens it. While it's open, the calculator stays out of the drive. <strong>Eject the drive on the computer before pressing <kbd>EXIT</kbd></strong>. On leaving, the calculator saves what was written and reloads the splash image, sounds and fonts, in case they were changed.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Item</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>Connect to Computer</td><td>Lets a computer open the calculator's drive, named <strong>PX-42F</strong>, through the USB cable, to copy states, programs, images, fonts, sounds and remotes in and out. The screen says &ldquo;Waiting for a computer...&rdquo; until one opens it. While it's open, the calculator stays out of the drive. <strong>Eject the drive on the computer before pressing <kbd>EXIT</kbd></strong>. On leaving, the calculator saves what was written and reloads the splash image, sounds and fonts, in case they were changed.</td></tr>
+<tr><td>Format Drive</td><td>Erases every file on the drive, after asking twice: states, programs, screenshots, your own sounds, fonts, splash images and remotes. The calculator's memory and settings stay. The folders and the built-in sounds are made again, as on the first start. Use it if the drive can't be read any more, for example after a computer reformatted it in a format the calculator doesn't read (such as exFAT).</td></tr>
+<tr><td>Update Firmware</td><td>Installs new firmware without the BOOT and RESET buttons, keeping the memory and the time. See <a href="#updating">Updating the firmware</a>.</td></tr>
+</tbody>
+</table></div>
 
 <h3 id="set-info">Info</h3>
 <div class="shots">
@@ -572,6 +581,7 @@ command: 07 00 00 00</code></pre>
 <tr><td><code>/SPLASH</code></td><td>Splash images, PNG. See <a href="#set-splash">Splash Image</a>.</td></tr>
 <tr><td><code>/SCREENSHOTS</code></td><td>Screenshots, PNG. See <a href="#keys">Special keys</a>.</td></tr>
 <tr><td><code>/FONTS/LARGE</code>, <code>/FONTS/SMALL</code>, <code>/FONTS/MINI</code></td><td>Font sheets, PNG. See <a href="#font-sheets">Making your own font</a>.</td></tr>
+<tr><td><code>/FONTS/BUILTIN</code></td><td>The built-in fonts as font sheets (<code>LARGE.png</code>, <code>SMALL.png</code>, <code>MINI.png</code>), read-only: copy them to start a font from.</td></tr>
 <tr><td><code>/SOUNDS</code></td><td>Every sound, WAV. Key sounds are in <code>/SOUNDS/KEY</code>. <code>BUILTIN.TXT</code> is the calculator's own record of the built-in sounds it wrote; leave it alone. See <a href="#set-sounds">Sounds</a>.</td></tr>
 <tr><td><code>/IR</code></td><td>Remotes, <code>.ir</code>. See <a href="#set-ir">IR Remote</a>.</td></tr>
 <tr><td><code>/PROGRAMS</code></td><td>Programs, <code>.raw</code>. See <a href="#set-programs">Programs</a>.</td></tr>
@@ -618,7 +628,7 @@ command: 07 00 00 00</code></pre>
 <thead><tr><th>Opening</th><th>What it's for</th></tr></thead>
 <tbody>
 <tr><td>IR LED</td><td>The infrared light that sends a remote's codes. Point it at the device. See <a href="#set-ir">IR Remote</a>.</td></tr>
-<tr><td>RESET button</td><td>Restarts the calculator. Use it only if the calculator stops responding to its keys. The calculator comes back with its memory as it was when it was last turned on, if that can be recovered; the clock's time is lost, so set it again in <a href="#set-datetime">Date &amp; Time</a>. It's also used to <a href="#updating">update the firmware</a>.</td></tr>
+<tr><td>RESET button</td><td>Restarts the calculator with its memory cleared. The Hello screen stays up until you press a key (or the Sleep Timer turns the calculator off), then Plus42 starts from Memory Clear. Use it when the calculator stops responding to its keys, or when its memory makes it crash at every start. Settings and everything on the drive stay, so a saved state can be loaded afterwards. The clock's time is lost too; set it again in <a href="#set-datetime">Date &amp; Time</a>. It's also used to <a href="#updating">update the firmware</a>.<br>The calculator restarts by itself after a crash, and then its memory comes back: only RESET clears it. To keep your work safe from it, save a <a href="#set-states">state</a> now and then.</td></tr>
 <tr><td>USB-C</td><td>Charges the battery, and connects to a computer: the <a href="#set-usb">USB Drive</a>, the <a href="#set-printer">printer</a> port, and firmware updates.</td></tr>
 <tr><td>BOOT button</td><td>Held down while pressing RESET, it starts the firmware update mode. See <a href="#updating">Updating the firmware</a>.</td></tr>
 <tr><td>Charge LED</td><td>Red while charging, green when charged. See <a href="#charging">Charging</a>.</td></tr>
@@ -647,21 +657,31 @@ command: 07 00 00 00</code></pre>
 <!-- ============================================================ -->
 <h2 id="updating">10. Updating the firmware</h2>
 
-<p>New firmware comes as a single <code>.uf2</code> file. Installing it takes a USB-C cable and a computer (Windows, macOS or Linux); no software is needed.</p>
+<p>New firmware comes as a single <code>.uf2</code> file. Installing it takes a USB-C cable and a computer (Windows, macOS or Linux); no software is needed. Saved states, program files, splash images, fonts, sounds, remotes and the settings are on the calculator's drive, which an update doesn't touch.</p>
 
-<p class="note">An update restarts the calculator, and its memory (stack, variables, programs) may not come back. Save it first: <a href="#set-states">Settings &rarr; States &rarr; Save State</a>. Saved states, program files, splash images, fonts, sounds and remotes are on the calculator's drive, which an update doesn't touch, and so are the settings.</p>
+<h3>From the settings menu</h3>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:update_firmware}}" alt="Update Firmware: The calculator becomes a drive named RP2350"><figcaption>Update Firmware.</figcaption></figure>
+</div>
+<ol class="steps">
+  <li>Connect the calculator to the computer with the USB-C cable.</li>
+  <li>Open <a href="#set-usb">Settings &rarr; USB Drive &rarr; Update Firmware</a> and press <kbd>ENTER</kbd>. The calculator saves its memory to the drive, then a new drive named <strong>RP2350</strong> appears on the computer: that's the update mode. The screen shows what to do, and the keys do nothing meanwhile.</li>
+  <li>Drag the <code>.uf2</code> file onto the RP2350 drive.</li>
+  <li>Wait. When the copy finishes, the drive disappears by itself and the calculator starts the new firmware, with its memory and the time as they were. The computer may warn that the drive was removed without ejecting it; that's normal here.</li>
+</ol>
 
+<h3>With the BOOT and RESET buttons</h3>
+<p>If the calculator doesn't respond, or to install firmware older than the Update Firmware item. This way clears the memory and the time, as any RESET does: save the memory first if you can (<a href="#set-states">Settings &rarr; States &rarr; Save State</a>).</p>
 <ol class="steps">
   <li>Connect the calculator to the computer with the USB-C cable.</li>
   <li>Press and hold the <strong>BOOT</strong> button.</li>
   <li>While holding BOOT, press and release the <strong>RESET</strong> button.</li>
-  <li>Release BOOT. A new drive named <strong>RP2350</strong> appears on the computer: that's the update mode. The calculator's screen doesn't change meanwhile, and its keys do nothing.</li>
-  <li>Drag the <code>.uf2</code> file onto the RP2350 drive.</li>
-  <li>Wait. When the copy finishes, the drive disappears by itself and the calculator starts the new firmware. The computer may warn that the drive was removed without ejecting it; that's normal here.</li>
-  <li>If you saved your memory, load it back: <a href="#set-states">Settings &rarr; States &rarr; Load State</a>. Check the time in <a href="#set-datetime">Date &amp; Time</a>.</li>
+  <li>Release BOOT. The <strong>RP2350</strong> drive appears.</li>
+  <li>Drag the <code>.uf2</code> file onto it, and wait for the calculator to start.</li>
+  <li>If you saved your memory, load it back: <a href="#set-states">Settings &rarr; States &rarr; Load State</a>. Set the time in <a href="#set-datetime">Date &amp; Time</a>.</li>
 </ol>
-<p>To check the update, <a href="#set-info">Settings &rarr; Info</a> shows the firmware version and the date it was built.</p>
-<p>To leave update mode without installing anything, press <strong>RESET</strong>.</p>
+
+<p>To check the update, <a href="#set-info">Settings &rarr; Info</a> shows the firmware version and the date it was built. To leave update mode without installing anything, press <strong>RESET</strong>. Like any RESET, it clears the calculator's memory.</p>
 
 <footer>
   <p>PX-42F-Plus. Plus42 by Thomas Okken; port to the PX-42F by Alex Garza. Decimal arithmetic by the Intel Decimal Floating-Point Math Library.</p>

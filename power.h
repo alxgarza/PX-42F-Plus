@@ -42,8 +42,14 @@ bool power_off_wake(void);
  * so the processors can be powered down. */
 void power_core0_poll(void);
 
-/* This boot is the wake from a deep power-off (the ON key). */
+/* This boot is the wake from a deep power-off (the ON key) -- as
+ * power_off_wake(), first thing at boot, found it. */
 bool power_woke_from_off(void);
+
+/* Restarts into the boot ROM's update mode, as BOOT + RESET does: the
+ * RP2350 drive, which takes a .uf2. Settings -> USB Drive -> Update
+ * Firmware, on core 1. Never returns. */
+void power_update_mode(void) __attribute__((noreturn));
 
 #ifdef __cplusplus
 }

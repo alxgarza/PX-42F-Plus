@@ -37,6 +37,10 @@ bool ramstate_valid(void);
  * brings the calculator back with its memory as of this load, not empty. */
 void ramstate_keep(void);
 
+/* Gone for good: the RESET button's Memory Clear (free42_init()). The
+ * checksum is broken too, or ramstate_keep() could bring it back. */
+void ramstate_discard(void);
+
 #ifdef __cplusplus
 }
 #endif

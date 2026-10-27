@@ -97,6 +97,12 @@ void ramstate_keep(void) {
         ram_state.magic = RAMSTATE_MAGIC;
 }
 
+void ramstate_discard(void) {
+    ram_state.magic = 0;
+    ram_state.length = 0;
+    ram_state.checksum = 0; /* an empty state's is FNV's start value, not 0 */
+}
+
 FILE *ramstate_fopen(const char *mode) {
     pos = 0;
     if (mode[0] == 'w') {
