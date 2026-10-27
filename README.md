@@ -140,7 +140,7 @@ ninja -C build
 
 If `ninja` isn't on your PATH, use the one the extension installed: add
 `-DCMAKE_MAKE_PROGRAM=$HOME/.pico-sdk/ninja/v1.13.2/ninja` to the `cmake`
-line and run that `ninja`. The firmware is `build/PX-Free42.uf2`.
+line and run that `ninja`. The firmware is `build/PX-42F-Plus.uf2`.
 
 [`tests/run.sh`](tests/run.sh) builds and runs the tests for the file parsers
 (PNG, WAV, font sheets, `.ir` files, and the PNG writer) and the infrared
@@ -154,7 +154,7 @@ encoders on the computer, with AddressSanitizer. The infrared test vectors in
   bootloader with `picotool`, loads the firmware and waits for it to come
   back. No buttons needed.
 - **Calculator off or not responding:** hold BOOT, press RESET, and copy
-  `PX-Free42.uf2` to the `RP2350` drive that appears.
+  `PX-42F-Plus.uf2` to the `RP2350` drive that appears.
 
 Flashing restarts the calculator, so its memory is lost unless it was turned
 off first.

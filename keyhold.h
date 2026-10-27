@@ -16,6 +16,9 @@ extern "C" {
  *   SHIFT and "-" (PRINT)    a screenshot (screenshot.h), done here; half a
  *   together, 0.5 seconds    second, because typing SHIFT then "-" quickly
  *                            for the PRINT menu overlaps the keys too
+ *   SHIFT held (0.3 s),      BST / SST in ALPHA (free42_shift_arrow()), done
+ *   then an arrow            here -- SHIFT *then* an arrow switches the
+ *                            keyboard mode there
  *
  * A screenshot leaves no trace: it saves the screen as it was when SHIFT
  * went down, that SHIFT is cancelled (free42_key_cancel()), and both keys
@@ -26,6 +29,8 @@ typedef enum { KEY_HOLD_NONE, KEY_HOLD_OFF, KEY_HOLD_SCREENSHOT } key_hold_t;
 
 #define EXIT_HOLD_OFF_MS   2000
 #define SCREENSHOT_HOLD_MS 500
+/* SHIFT down this long before an arrow: held, not typed before it. */
+#define SHIFT_ARROW_HOLD_MS 300
 /* Waits for a key to come up stop after this long: it's stuck or
  * miswired, and the calculator mustn't hang on it. */
 #define KEY_STUCK_MS       60000

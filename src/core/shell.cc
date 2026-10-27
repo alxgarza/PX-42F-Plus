@@ -5,6 +5,7 @@
  */
 
 #include <stdio.h>
+#include <malloc.h>
 
 #include "shell.h"
 #include "free42_app.h"
@@ -30,6 +31,25 @@ extern "C" int _link(const char *oldpath, const char *newpath) {
 
 extern "C" int _unlink(const char *path) {
     return -1;
+}
+
+/* The SDK's _sbrk() lets the heap grow up to __StackLimit, the end of RAM:
+ * past HEAP_LIMIT (CMakeLists.txt) into the retained framebuffer and the
+ * calculator's memory kept through OFF (retained.h). This one stops at
+ * __HeapLimit, so a big matrix gets Insufficient Memory (malloc returns
+ * NULL with PICO_MALLOC_PANIC=0, new throws bad_alloc) instead of
+ * overwriting them. */
+extern "C" char end, __HeapLimit;
+static char *heap_top;
+
+extern "C" void *_sbrk(int incr) {
+    if (heap_top == NULL)
+        heap_top = &end;
+    if (incr > &__HeapLimit - heap_top)
+        return (void *) -1;
+    char *prev = heap_top;
+    heap_top += incr;
+    return prev;
 }
 
 /* Free42's state-file I/O (core_main.cc: my_fopen etc., enabled by the PX42
@@ -70,8 +90,13 @@ void shell_request_timeout3(int delay) {
     free42_request_timeout3(delay);
 }
 
+/* MEM: the heap malloc hasn't taken from _sbrk() yet, plus what's free
+ * inside what it has. */
 uint8 shell_get_mem() {
-    return 0;
+    struct mallinfo mi = mallinfo();
+    if (heap_top == NULL)
+        heap_top = &end;
+    return (uint8) (&__HeapLimit - heap_top) + mi.fordblks;
 }
 
 bool shell_low_battery() {
@@ -153,6 +178,7 @@ void shell_set_time(int4 hour, int4 min, int4 sec) {
 }
 
 void shell_message(const char *message) {
+    free42_core_message(message);
 }
 
 void shell_log(const char *message) {

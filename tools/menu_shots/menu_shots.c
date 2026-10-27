@@ -223,6 +223,22 @@ void free42_save_state(const char *path) {
 void free42_load_state(const char *path) {
 }
 
+int free42_list_programs(char names[][PROGRAM_LABEL_MAX + 1], int max) {
+    static const char *const programs[] = {"\"QUAD\"", "\"LOAN\" \"PMT\"", "\"PRIMES\"", ".END."};
+    int n = 0;
+    for (; n < 4 && n < max; n++)
+        snprintf(names[n], PROGRAM_LABEL_MAX + 1, "%s", programs[n]);
+    return n;
+}
+
+bool free42_export_programs(int index, const char *path) {
+    return true;
+}
+
+int free42_import_programs(const char *path) {
+    return 2;
+}
+
 /* The drive: a few files of each kind. */
 bool statefs_ready(void) {
     return true;
@@ -245,6 +261,9 @@ int statefs_list_files(const char *dir, const char *ext, char *names, size_t nam
         return list(large, 1, names, name_size, max);
     if (strcmp(dir, "/IR") == 0)
         return list(ir, 2, names, name_size, max);
+    static const char *const raw[] = {"ALL", "Calendar", "QUAD", "Rocket-Science"};
+    if (strcmp(dir, PROGRAMS_DIR) == 0)
+        return list(raw, 4, names, name_size, max);
     return 0;
 }
 
@@ -283,6 +302,13 @@ bool statefs_sync(void) {
 
 bool statefs_file_exists(const char *path) {
     return false;
+}
+
+void statefs_mkdir(const char *path) {
+}
+
+int statefs_remove(const char *name) {
+    return 0;
 }
 
 void statefs_usb_begin(void) {

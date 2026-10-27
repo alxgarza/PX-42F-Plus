@@ -161,6 +161,17 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 
 <p>The calculator also turns itself off after the <a href="#set-sleep">Sleep Timer</a>, and when the battery runs empty (about 3.45 V).</p>
 
+<h3 id="alpha">Typing in ALPHA</h3>
+<p>While you type text in ALPHA, the keyboard has three modes, as on the DM42. The status bar shows which one is on: <strong>[ ]</strong>, <strong>[a]</strong> or <strong>[A]</strong>. Press <kbd>SHIFT</kbd> then <kbd>&darr;</kbd> for the next mode, or <kbd>SHIFT</kbd> then <kbd>&uarr;</kbd> for the one before. The calculator remembers the last mode, also after it is turned off, and the next ALPHA starts in it. The first time, ALPHA starts in [ ].</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Mode</th><th>What the keys do</th></tr></thead>
+<tbody>
+<tr><td><strong>[ ]</strong> HP-42S</td><td>Every key works as on the HP-42S. Letters come from the ALPHA menu on the top row. <kbd>STO</kbd> and <kbd>RCL</kbd> are ASTO and ARCL, and <kbd>R/S</kbd> runs. Use this mode for numeric local labels such as <code>LBL 01</code>.</td></tr>
+<tr><td><strong>[a]</strong> and <strong>[A]</strong> letters</td><td>Each key types the letter printed on it: lowercase in [a], capitals in [A]. <kbd>SHIFT</kbd> and a letter key types the same letter. <kbd>SHIFT</kbd> and a digit key types the digit. <kbd>SHIFT</kbd> and <kbd>&divide;</kbd> <kbd>&times;</kbd> <kbd>&minus;</kbd> <kbd>+</kbd> types &divide; &times; &minus; +. <kbd>SHIFT</kbd> and <kbd>R/S</kbd> types ?, and <kbd>R/S</kbd> alone runs. <kbd>SHIFT</kbd> and a top-row key works the ALPHA menu, for punctuation and symbols.</td></tr>
+</tbody>
+</table></div>
+<p>In program mode, hold <kbd>SHIFT</kbd> down and press <kbd>&uarr;</kbd> or <kbd>&darr;</kbd> for BST or SST while typing text. Hold <kbd>&uarr;</kbd> down to keep stepping back.</p>
+
 <!-- ============================================================ -->
 <h2 id="screen">2. The screen</h2>
 
@@ -227,6 +238,7 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 <tr><td><img class="icon" src="{{ICON:shift}}" alt="Bent arrow pointing right"></td><td><strong>Shift</strong>: <kbd>SHIFT</kbd> is active; the next key does its shifted function.</td></tr>
 <tr><td><img class="icon" src="{{ICON:updn}}" alt="Up and down arrows"></td><td><strong>More menu rows</strong>: the open menu has more rows; <kbd>&uarr;</kbd> and <kbd>&darr;</kbd> page through them.</td></tr>
 <tr><td><img class="icon" src="{{ICON:run}}" alt="Right-pointing triangle"></td><td><strong>Running</strong>: a program is running.</td></tr>
+<tr><td><img class="icon" src="{{ICON:alpha_hp42s}}" alt="[ ]"> <img class="icon" src="{{ICON:alpha_lower}}" alt="[a]"> <img class="icon" src="{{ICON:alpha_upper}}" alt="[A]"></td><td><strong>ALPHA keyboard</strong>: shown while you type text in ALPHA. [ ] is the HP-42S's keys, [a] types lowercase letters, [A] capitals. See <a href="#alpha">Typing in ALPHA</a>.</td></tr>
 </tbody>
 </table></div>
 <p>The angle icons are the HP-42S's own characters &deg;, &pi; and G. The &#8737; sign is left to Plus42's HPOLAR mark on the left side, where it means POLAR mode.</p>
@@ -502,13 +514,30 @@ command: 07 00 00 00</code></pre>
 <div class="table-wrap"><table>
 <thead><tr><th>Item</th><th>What it does</th></tr></thead>
 <tbody>
-<tr><td>Save State</td><td>Saves the memory under a name of up to 16 characters. The suggested name is the date and time (YYYYMMDD-HHMMSS). To type your own, delete it with <kbd>&larr;</kbd>, then type letters with the keys as in ALPHA mode, and digits with <kbd>SHIFT</kbd> and the digit key. Saving over an existing name asks first.</td></tr>
+<tr><td>Save State</td><td>Saves the memory under a name of up to 16 characters. The suggested name is the date and time (YYYYMMDD-HHMMSS). To type your own, delete it with <kbd>&larr;</kbd>, then type letters with the keys (the letter printed on each), and digits with <kbd>SHIFT</kbd> and the digit key. Saving over an existing name asks first.</td></tr>
 <tr><td>Load State</td><td>Replaces the calculator's memory with a saved state, after asking.</td></tr>
 <tr><td>Rename State</td><td>Gives a saved state a new name.</td></tr>
 <tr><td>Delete State</td><td>Deletes a saved state, after asking. It can't be undone.</td></tr>
 </tbody>
 </table></div>
-<p class="note">Plus42 can't read Free42 states (<code>.f42</code>). Programs can move between the two as <code>.raw</code> files.</p>
+<p class="note">Plus42 can't read Free42 states (<code>.f42</code>). Programs can move between the two as <code>.raw</code> files: see <a href="#set-programs">Programs</a>.</p>
+
+<h3 id="set-programs">Programs</h3>
+<p>Programs can be kept on the drive as <code>.raw</code> files, in <code>/PROGRAMS</code>. This is the program file format of Plus42 and Free42 on computers and phones, and of the program libraries online. A <code>.raw</code> file holds one or more programs; it doesn't hold variables or the stack (use <a href="#set-states">States</a> for those).</p>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:programs}}" alt="Programs: Import Programs, Export Programs, Delete File"><figcaption>Programs.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:import_programs}}" alt="Import Programs: a list of .raw files"><figcaption>Import Programs: the <code>.raw</code> files.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:export_programs}}" alt="Export Programs: All Programs, then each program by its labels"><figcaption>Export Programs: the calculator's programs.</figcaption></figure>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Item</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>Import Programs</td><td>Adds the programs in a <code>.raw</code> file to the calculator's, after the last one, and says how many it added. Nothing in the calculator is replaced.</td></tr>
+<tr><td>Export Programs</td><td>Saves one program, or <strong>All Programs</strong>, to a <code>.raw</code> file. Programs are listed by their global labels, as in the PGM catalog; one without a global label is <code>END</code>. The suggested file name is the program's first label (<code>ALL</code> for all of them); type another as in <a href="#set-states">Save State</a>. Saving over an existing file asks first.</td></tr>
+<tr><td>Delete File</td><td>Deletes a <code>.raw</code> file from the drive, after asking. The programs in the calculator stay.</td></tr>
+</tbody>
+</table></div>
+<p>Both work on the programs of Plus42's current directory, as Plus42's own Import and Export do. To bring <code>.raw</code> files from a computer, copy them into <code>/PROGRAMS</code> with <a href="#set-usb">USB Drive</a>. Files whose names are longer than 28 characters aren't listed: rename them shorter.</p>
 
 <h3 id="set-usb">USB Drive</h3>
 <div class="shots">
@@ -545,6 +574,7 @@ command: 07 00 00 00</code></pre>
 <tr><td><code>/FONTS/LARGE</code>, <code>/FONTS/SMALL</code>, <code>/FONTS/MINI</code></td><td>Font sheets, PNG. See <a href="#font-sheets">Making your own font</a>.</td></tr>
 <tr><td><code>/SOUNDS</code></td><td>Every sound, WAV. Key sounds are in <code>/SOUNDS/KEY</code>. <code>BUILTIN.TXT</code> is the calculator's own record of the built-in sounds it wrote; leave it alone. See <a href="#set-sounds">Sounds</a>.</td></tr>
 <tr><td><code>/IR</code></td><td>Remotes, <code>.ir</code>. See <a href="#set-ir">IR Remote</a>.</td></tr>
+<tr><td><code>/PROGRAMS</code></td><td>Programs, <code>.raw</code>. See <a href="#set-programs">Programs</a>.</td></tr>
 </tbody>
 </table></div>
 
@@ -619,7 +649,7 @@ command: 07 00 00 00</code></pre>
 
 <p>New firmware comes as a single <code>.uf2</code> file. Installing it takes a USB-C cable and a computer (Windows, macOS or Linux); no software is needed.</p>
 
-<p class="note">An update restarts the calculator, and its memory (stack, variables, programs) may not come back. Save it first: <a href="#set-states">Settings &rarr; States &rarr; Save State</a>. Saved states, splash images, fonts, sounds and remotes are on the calculator's drive, which an update doesn't touch, and so are the settings.</p>
+<p class="note">An update restarts the calculator, and its memory (stack, variables, programs) may not come back. Save it first: <a href="#set-states">Settings &rarr; States &rarr; Save State</a>. Saved states, program files, splash images, fonts, sounds and remotes are on the calculator's drive, which an update doesn't touch, and so are the settings.</p>
 
 <ol class="steps">
   <li>Connect the calculator to the computer with the USB-C cable.</li>

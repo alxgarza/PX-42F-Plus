@@ -240,8 +240,14 @@ static void core1_main(void)
      * on the screen, since the serial console usually isn't attached yet.
      * See crash_report.h. */
     char crash1[32], crash2[32], crash3[32];
+    /* A hang is our own watchdog timing out: watchdog_enable() left the
+     * SDK's magic in scratch[4]. watchdog_caused_reboot() is also true for
+     * the boot ROM's restarts (leaving the bootloader after picotool or a
+     * UF2 copy) and for watchdog_reboot() -- those showed "WATCHDOG RESET"
+     * with whatever checkpoint was left from before. */
+    bool hung = watchdog_enable_caused_reboot();
     bool crashed = crash_report_take(crash1, crash2, crash3, sizeof(crash1),
-                                     debug_checkpoint_name(watchdog_hw->scratch[0]), watchdog_caused_reboot());
+                                     debug_checkpoint_name(watchdog_hw->scratch[0]), hung);
     keyboard_init();
     if (!woke_from_off || crashed) {
         display_clear();
@@ -287,17 +293,15 @@ static void core1_main(void)
     init_ir_pin();
     init_serial();
 
-    if (watchdog_caused_reboot()) {
+    if (hung) {
         printf("Rebooted by Watchdog!\n");
     }
     /* Report and clear the last checkpoint (see debug_checkpoint.h)
-     * unconditionally, not just on a confirmed watchdog reboot: a
-     * power-cycle or a picotool reflash can also leave watchdog_hw's
-     * scratch registers holding whatever was last written (they aren't
-     * cleared by every reset path), and watchdog_caused_reboot() itself
-     * isn't a fully reliable filter for "was this really a hang" on this
-     * hardware. Printed either way, then cleared, so each boot's report
-     * reflects only what happened since the previous one. */
+     * unconditionally, not just after a hang: a power-cycle or a picotool
+     * reflash can also leave watchdog_hw's scratch registers holding
+     * whatever was last written (they aren't cleared by every reset path).
+     * Printed either way, then cleared, so each boot's report reflects only
+     * what happened since the previous one. */
     uint32_t last_checkpoint = watchdog_hw->scratch[0];
     uint32_t last_detail = watchdog_hw->scratch[1];
     if (last_checkpoint != CKPT_NONE) {
@@ -330,6 +334,7 @@ static void core1_main(void)
         settings_save();
     }
     powman_hw->scratch[7] = SPLASH_LOADING_FLAG;
+    debug_checkpoint(CKPT_BOOT_SPLASH, 0);
     splash_reload();
     powman_hw->scratch[7] = 0;
     watchdog_update();
@@ -344,9 +349,11 @@ static void core1_main(void)
         settings_save();
     }
     powman_hw->scratch[7] = FONTS_LOADING_FLAG;
+    debug_checkpoint(CKPT_BOOT_FONTS, 0);
     fonts_init();
     powman_hw->scratch[7] = 0;
     statefs_mkdir(IR_DIR); /* where remotes go (remote.h) */
+    statefs_mkdir(PROGRAMS_DIR); /* .raw program files (Settings -> Programs) */
     watchdog_update();
 
     /* The sounds (/SOUNDS, made with the built-ins on first boot), with the
@@ -359,7 +366,9 @@ static void core1_main(void)
         use_sound_files = statefs_rename(SOUNDS_DIR, SOUNDS_DIR ".BAD") == 0;
     }
     powman_hw->scratch[6] = SOUNDS_LOADING_FLAG;
+    debug_checkpoint(CKPT_BOOT_SOUNDS, 0);
     sounds_init(use_sound_files);
+    debug_checkpoint(CKPT_BOOT_SOUND, 0);
     if (boot_sound && px_settings.boot_sound)
         sounds_play_boot();
     powman_hw->scratch[6] = 0;
@@ -368,6 +377,7 @@ static void core1_main(void)
     /* Start the Free42 core -- with its memory from before OFF, if any --
      * and draw the stack. */
     free42_init(crashed);
+    debug_checkpoint(CKPT_ON_SOUND, 0);
     if (woke_from_off && !crashed && px_settings.on_sound)
         sounds_play_on(); /* turned on with ON: the stack is already back on screen */
     free42_set_printer(px_settings.printer != PRINTER_OFF);

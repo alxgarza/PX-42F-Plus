@@ -62,6 +62,9 @@ void free42_key_timeout1(void);
 void free42_key_timeout2(void);
 void free42_key_cancel(void);
 void free42_key_up(void);
+/* SHIFT held down + an arrow (free42_key_code()) in ALPHA: BST / SST, done;
+ * false if that's not what the key does now. keyhold.c. */
+bool free42_shift_arrow(int code);
 
 /* Redraws the whole screen from the current state -- after the settings
  * menu, or for the battery gauge when nothing else has changed. */
@@ -124,6 +127,23 @@ void free42_set_formats(uint8_t date_format, bool clock_24h);
  * leaves the calculator in Memory Clear, as on the desktop versions. */
 void free42_save_state(const char *path);
 void free42_load_state(const char *path);
+
+/* Programs as Plus42 .raw files, the format the desktop versions import and
+ * export, in PROGRAMS_DIR on the drive (Settings -> Programs). Of the
+ * current directory, as Plus42's own export works. */
+#define PROGRAMS_DIR      "/PROGRAMS"
+#define PROGRAM_LABEL_MAX 30 /* characters of a program's labels kept for the list */
+/* The programs, as the PGM catalog shows them, .END. last: each one's
+ * global labels ("ABC" "DEF"), or END. Returns how many (at most max). */
+int free42_list_programs(char names[][PROGRAM_LABEL_MAX + 1], int max);
+/* One program (an index from free42_list_programs()), or all of them
+ * (-1), to the file at path. False if it couldn't be written. */
+bool free42_export_programs(int index, const char *path);
+/* Adds the programs in the file at path to the calculator's. Returns how
+ * many programs that added, or -1 if the file couldn't be read. */
+int free42_import_programs(const char *path);
+/* The core's complaint about a file (shell_message()): noted for the two above. */
+void free42_core_message(const char *message);
 
 /* OFF / sleep. shell_powerdown() calls free42_request_powerdown(); the main
  * loop polls free42_powerdown_requested() and, when set, calls

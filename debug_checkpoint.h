@@ -42,11 +42,34 @@ enum {
     CKPT_FLASH_DONE,
     CKPT_PROGRAM_SLICE,
     CKPT_IDLE_WAIT,    /* detail = ms until the deadline */
+    CKPT_BOOT_SPLASH,  /* the boot's stages, in order (main.c) */
+    CKPT_BOOT_FONTS,
+    CKPT_BOOT_SOUNDS,
+    CKPT_BOOT_SOUND,   /* playing BOOT.wav */
+    CKPT_CORE_START,   /* Plus42 restoring its memory; detail = 0 RAM, 1 drive, 2 none */
+    CKPT_CORE_POWERCYCLE,
+    CKPT_ON_SOUND,     /* playing ON.wav */
+    CKPT_SOUND,        /* inside speaker_play(); the one before it comes back after */
 };
 
 static inline void debug_checkpoint(uint32_t code, uint32_t detail) {
     watchdog_hw->scratch[0] = code;
     watchdog_hw->scratch[1] = detail;
+}
+
+/* For a checkpoint around one call (opening a file, playing a sound): the
+ * one before it put back afterwards. Left up, FS_OPEN took the blame for a
+ * watchdog reset that happened long after the file was open. */
+typedef struct {
+    uint32_t code, detail;
+} debug_checkpoint_saved_t;
+
+static inline debug_checkpoint_saved_t debug_checkpoint_save(void) {
+    return (debug_checkpoint_saved_t) {watchdog_hw->scratch[0], watchdog_hw->scratch[1]};
+}
+
+static inline void debug_checkpoint_restore(debug_checkpoint_saved_t saved) {
+    debug_checkpoint(saved.code, saved.detail);
 }
 
 /* Human-readable name for a CKPT_* code, for the boot-time report in
@@ -73,6 +96,14 @@ static inline const char *debug_checkpoint_name(uint32_t code) {
         case CKPT_FLASH_DONE: return "FLASH_DONE";
         case CKPT_PROGRAM_SLICE: return "PROGRAM_SLICE";
         case CKPT_IDLE_WAIT: return "IDLE_WAIT";
+        case CKPT_BOOT_SPLASH: return "BOOT_SPLASH";
+        case CKPT_BOOT_FONTS: return "BOOT_FONTS";
+        case CKPT_BOOT_SOUNDS: return "BOOT_SOUNDS";
+        case CKPT_BOOT_SOUND: return "BOOT_SOUND";
+        case CKPT_CORE_START: return "CORE_START";
+        case CKPT_CORE_POWERCYCLE: return "CORE_POWERCYCLE";
+        case CKPT_ON_SOUND: return "ON_SOUND";
+        case CKPT_SOUND: return "SOUND";
         default: return "?";
     }
 }

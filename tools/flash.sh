@@ -1,10 +1,10 @@
 #!/bin/bash
-# Flashes build/PX-Free42.uf2 into the PX-42F over USB and starts it.
+# Flashes build/PX-42F-Plus.uf2 into the PX-42F over USB and starts it.
 # The calculator must be on and connected (it reboots itself into its
 # bootloader on request), or already in BOOTSEL mode.
 cd "$(dirname "$0")/.."
 PT=~/.pico-sdk/picotool/2.3.0/picotool/picotool
-UF2=build/PX-Free42.uf2
+UF2=build/PX-42F-Plus.uf2
 [ -f "$UF2" ] || { echo "no $UF2 -- build first"; exit 1; }
 echo "Flashing $UF2 ($(stat -f '%Sm' "$UF2"))"
 

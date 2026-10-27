@@ -66,6 +66,9 @@
 #define CHAR_W       8 /* font_8x12.advance */
 
 #define MAX_STATES 32
+#define MAX_PROGRAMS      64 /* programs listed for Export */
+#define MAX_PROGRAM_FILES 64 /* .raw files listed for Import and Delete */
+#define PROGRAM_FILE_MAX  28 /* characters of a .raw file's name shown; longer ones aren't listed */
 
 static bool shift_on = false;
 
@@ -395,7 +398,7 @@ static edit_result_t edit_name(const char *title, char *name) {
     while (true) {
         display_clear();
         draw_title(title);
-        draw_line(0, "Name (letters as in ALPHA mode,");
+        draw_line(0, "Name (the letters on the keys,");
         draw_line(1, "SHIFT+digit key for digits):");
 
         char line[STATEFS_NAME_MAX + 2];
@@ -793,7 +796,7 @@ static edit_result_t do_info(void) {
         snprintf(buf, sizeof(buf), "Battery   %d.%02d V", mv / 1000, mv % 1000 / 10);
         display_draw_string(&font_8x12, buf, 2, (uint8_t) y, 0x00);
         y += 13;
-        snprintf(buf, sizeof(buf), "Stack     %lu / %u bytes", (unsigned long) crash_core1_stack_peak(), 32u * 1024u);
+        snprintf(buf, sizeof(buf), "Stack     %lu of %u bytes", (unsigned long) crash_core1_stack_peak(), 32u * 1024u);
         display_draw_string(&font_8x12, buf, 2, (uint8_t) y, 0x00);
 
         draw_hint("Exit:Back");
@@ -1217,7 +1220,8 @@ static edit_result_t do_usb_disk(void) {
             draw_line(0, host ? "Connected: drive \"PX-42F\"" : "Waiting for a computer...");
             draw_line(2, "States: STATE/<name>.p42");
             draw_line(3, "Splash images: SPLASH/*.png");
-            draw_line(5, "Eject the drive when done.");
+            draw_line(4, "Programs: PROGRAMS/*.raw");
+            draw_line(6, "Eject the drive when done.");
             draw_hint("Exit:Back (Eject First!)");
             display_flush();
         }
@@ -1289,6 +1293,168 @@ static edit_result_t do_states(void) {
                 r = do_delete_state();
                 break;
         }
+        if (r == EDIT_POWER_OFF)
+            return r;
+    }
+}
+
+/* ===================== Programs ===================== */
+
+/* Plus42's .raw program files, in PROGRAMS_DIR (free42_app.h): exported
+ * from the calculator, imported into it -- the files the desktop Plus42
+ * and Free42 read and write, and the program libraries online. */
+
+static void program_path(const char *name, char *path, size_t size) {
+    snprintf(path, size, "%s/%s.raw", PROGRAMS_DIR, name);
+}
+
+/* A file name for a program: its first label, without the quotes, in the
+ * characters a file name and edit_name() take -- "PROGRAM" if none is left
+ * (END, a program with no global label). */
+static void name_from_label(const char *label, char *name) {
+    int len = 0;
+    for (const char *p = label + (label[0] == '"'); *p != 0 && *p != '"' && len < STATEFS_NAME_MAX; p++) {
+        char c = *p;
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')
+            name[len++] = c;
+    }
+    name[len] = 0;
+    if (len == 0 || label[0] != '"')
+        strcpy(name, "PROGRAM");
+}
+
+static edit_result_t do_export_programs(void) {
+    if (!statefs_ready())
+        return no_disk();
+
+    static char labels[MAX_PROGRAMS + 1][PROGRAM_LABEL_MAX + 1];
+    snprintf(labels[0], sizeof(labels[0]), "All Programs");
+    int count = free42_list_programs(labels + 1, MAX_PROGRAMS);
+    const char *items[MAX_PROGRAMS + 1];
+    for (int i = 0; i <= count; i++)
+        items[i] = labels[i];
+    int selected = 0;
+    int pick = run_list("Export Programs", items, count + 1, NULL, &selected, "Enter:Export  Exit:Back");
+    if (pick == LIST_POWER_OFF)
+        return EDIT_POWER_OFF;
+    if (pick == LIST_BACK)
+        return EDIT_CANCEL;
+
+    char name[STATEFS_NAME_MAX + 1];
+    if (pick == 0)
+        strcpy(name, "ALL");
+    else
+        name_from_label(labels[pick], name);
+    edit_result_t r = edit_name("Export Programs", name);
+    if (r != EDIT_OK)
+        return r;
+
+    char path[48];
+    program_path(name, path, sizeof(path));
+    char line[40];
+    if (statefs_file_exists(path)) {
+        snprintf(line, sizeof(line), "%s.raw already exists.", name);
+        const char *const lines[] = {line, "Replace it?"};
+        r = show_message("Export Programs", lines, 2, "Enter:Replace  Exit:Cancel");
+        if (r != EDIT_OK)
+            return r;
+    }
+
+    show_busy("Export Programs", "Saving...");
+    statefs_mkdir(PROGRAMS_DIR);
+    uint32_t errors_before = flashdisk_error_count();
+    bool ok = free42_export_programs(pick - 1, path);
+    statefs_sync();
+    ok = ok && flashdisk_error_count() == errors_before;
+    snprintf(line, sizeof(line), ok ? "Saved %s.raw" : "Could not save %s.raw", name);
+    return show_result("Export Programs", ok, line);
+}
+
+/* Lets the user pick a .raw file in PROGRAMS_DIR; its name (without .raw)
+ * goes to name[]. EDIT_OK once one is picked; EDIT_CANCEL for EXIT, or
+ * when there are none (after saying so). */
+static edit_result_t pick_program_file(const char *title, const char *hint, char *name) {
+    if (!statefs_ready())
+        return no_disk();
+
+    static char names[MAX_PROGRAM_FILES][PROGRAM_FILE_MAX + 1];
+    int count = statefs_list_files(PROGRAMS_DIR, ".raw", (char *) names, PROGRAM_FILE_MAX + 1, MAX_PROGRAM_FILES);
+    if (count == 0) {
+        static const char *const lines[] = {"No .raw files.", "", "Export some first, or copy", ".raw files into the PROGRAMS",
+                                            "folder with USB Drive."};
+        edit_result_t r = show_message(title, lines, 5, "Exit:Back");
+        return r == EDIT_POWER_OFF ? r : EDIT_CANCEL;
+    }
+
+    const char *items[MAX_PROGRAM_FILES];
+    for (int i = 0; i < count; i++)
+        items[i] = names[i];
+    int selected = 0;
+    int pick = run_list(title, items, count, NULL, &selected, hint);
+    if (pick == LIST_POWER_OFF)
+        return EDIT_POWER_OFF;
+    if (pick == LIST_BACK)
+        return EDIT_CANCEL;
+    strcpy(name, names[pick]);
+    return EDIT_OK;
+}
+
+/* Adds the file's programs to the calculator's -- nothing in it is
+ * replaced, so no question first. */
+static edit_result_t do_import_programs(void) {
+    char name[PROGRAM_FILE_MAX + 1];
+    edit_result_t r = pick_program_file("Import Programs", "Enter:Import  Exit:Back", name);
+    if (r != EDIT_OK)
+        return r;
+
+    show_busy("Import Programs", "Loading...");
+    char path[48];
+    program_path(name, path, sizeof(path));
+    int added = free42_import_programs(path);
+    char line[40];
+    if (added < 0)
+        snprintf(line, sizeof(line), "Could not read %s.raw", name);
+    else
+        snprintf(line, sizeof(line), "Imported %d program%s", added, added == 1 ? "" : "s");
+    return show_result("Import Programs", added >= 0, line);
+}
+
+static edit_result_t do_delete_program_file(void) {
+    char name[PROGRAM_FILE_MAX + 1];
+    edit_result_t r = pick_program_file("Delete File", "Enter:Delete  Exit:Back", name);
+    if (r != EDIT_OK)
+        return r;
+
+    char line[40];
+    snprintf(line, sizeof(line), "Delete %s.raw?", name);
+    const char *const lines[] = {line, "", "The programs in the calculator", "stay. This cannot be undone."};
+    r = show_message("Delete File", lines, 4, "Enter:Delete  Exit:Cancel");
+    if (r != EDIT_OK)
+        return r;
+
+    char path[48];
+    program_path(name, path, sizeof(path));
+    bool ok = statefs_remove(path) == 0;
+    statefs_sync();
+    snprintf(line, sizeof(line), ok ? "Deleted %s.raw" : "Could not delete %s.raw", name);
+    return show_result("Delete File", ok, line);
+}
+
+enum { PROGRAMS_IMPORT, PROGRAMS_EXPORT, PROGRAMS_DELETE, PROGRAMS_COUNT };
+static const char *const program_items[PROGRAMS_COUNT] = {"Import Programs", "Export Programs", "Delete File"};
+
+static edit_result_t do_programs(void) {
+    static int selected = 0;
+    while (true) {
+        int pick = run_list("Programs", program_items, PROGRAMS_COUNT, NULL, &selected, "Enter:Select  Exit:Back");
+        if (pick == LIST_POWER_OFF)
+            return EDIT_POWER_OFF;
+        if (pick == LIST_BACK)
+            return EDIT_CANCEL;
+
+        edit_result_t r = pick == PROGRAMS_IMPORT   ? do_import_programs()
+                          : pick == PROGRAMS_EXPORT ? do_export_programs()
+                                                    : do_delete_program_file();
         if (r == EDIT_POWER_OFF)
             return r;
     }
@@ -1520,6 +1686,7 @@ enum {
     ITEM_SPLASH,
     ITEM_PRINTER,
     ITEM_STATES,
+    ITEM_PROGRAMS,
     ITEM_USB,
     ITEM_INFO,
     ITEM_COUNT
@@ -1535,6 +1702,7 @@ static const char *const item_names[ITEM_COUNT] = {
         "Splash Image",
         "Printer",
         "States",
+        "Programs",
         "USB Drive",
         "Info",
 };
@@ -1555,6 +1723,7 @@ static void item_value(int item, char *buf, size_t size) {
             break;
         case ITEM_SPLASH:
         case ITEM_STATES:
+        case ITEM_PROGRAMS:
         case ITEM_USB:
             snprintf(buf, size, ">");
             break;
@@ -1568,9 +1737,8 @@ settings_menu_result_t settings_menu_run(void) {
     int selected = ITEM_OFF;
     shift_on = false;
     idle_since = get_absolute_time();
-    debug_checkpoint(CKPT_MENU, 0);
-
     while (true) {
+        debug_checkpoint(CKPT_MENU, 0); /* again after each item: what it did is over */
         int pick = run_list("Settings", item_names, ITEM_COUNT, item_value, &selected, "Enter:Select  Exit:Back");
         if (pick == LIST_POWER_OFF)
             return SETTINGS_MENU_POWER_OFF;
@@ -1613,6 +1781,9 @@ settings_menu_result_t settings_menu_run(void) {
                 r = do_states();
                 if (r == EDIT_OK)
                     return SETTINGS_MENU_EXIT; /* a state was loaded: show it */
+                break;
+            case ITEM_PROGRAMS:
+                r = do_programs();
                 break;
             case ITEM_USB:
                 r = do_usb_disk();

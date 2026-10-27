@@ -10,6 +10,7 @@
 
 #define MARK_HARDFAULT   0xC4A50000u /* | core1 stack peak in 256-byte units << 8 | core number */
 #define MARK_FLASH_ERROR 0xC4A60000u /* | (rc & 0xFF) */
+#define MARK_OFF_REFUSED 0xC4A70000u /* | CURRENT_PWRUP_REQ (7 bits) */
 #define MARK_MASK        0xFFFF0000u
 
 #define STACK_FILL 0xC0DEC0DEu
@@ -73,6 +74,10 @@ void crash_note_flash_error(int rc, uint32_t flash_offset) {
     printf("flash write at 0x%06lx failed: rc=%d\n", (unsigned long) flash_offset, rc);
 }
 
+void crash_note_off_refused(uint32_t pending) {
+    watchdog_hw->scratch[2] = MARK_OFF_REFUSED | (pending & 0x7Fu);
+}
+
 bool crash_report_take(char *line1, char *line2, char *line3, int size, const char *last_checkpoint_name,
                        bool by_watchdog) {
     uint32_t mark = watchdog_hw->scratch[2];
@@ -97,6 +102,15 @@ bool crash_report_take(char *line1, char *line2, char *line3, int size, const ch
         snprintf(line2, (size_t) size, "%s", last_checkpoint_name);
         printf("Earlier: flash write failed, rc=%d at 0x%06lx, last checkpoint %s\n",
                (int) (int8_t) (mark & 0xFF), (unsigned long) a, last_checkpoint_name);
+        return true;
+    }
+    if ((mark & MARK_MASK) == MARK_OFF_REFUSED) {
+        unsigned long pending = mark & 0x7F;
+        snprintf(line1, (size_t) size, "OFF REFUSED");
+        snprintf(line2, (size_t) size, "(power-down failed)");
+        snprintf(line3, (size_t) size, "pending wake 0x%02lx", pending);
+        printf("Last reset: the power manager refused to power down (pending wake-ups 0x%02lx); rebooted instead\n",
+               pending);
         return true;
     }
     if (by_watchdog) {

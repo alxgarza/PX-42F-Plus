@@ -4,7 +4,7 @@ description: Capture the PX-42F's screen over its USB console as a PNG and look 
 argument-hint: "[file.png]"
 ---
 
-Run `tools/screenshot.py $ARGUMENTS` (default output `build/screenshot.png`), then Read the
+Run `tools/screenshot.py $ARGUMENTS` (default output `px42f-screenshot.png` in the temp folder; it prints the path), then Read the
 PNG it names: 250 x 122 pixels, black and white.
 
 - It sends `!SCREENSHOT` to the console, so the calculator must be on, connected, and showing

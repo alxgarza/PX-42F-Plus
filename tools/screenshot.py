@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 """Saves the PX-42F's screen as a PNG on this computer.
 
-    tools/screenshot.py [file.png]      (default: build/screenshot.png)
+    tools/screenshot.py [file.png]      (default: px42f-screenshot.png in the temp folder)
 
 Sends !SCREENSHOT to the console (see console.py) and decodes the reply: a
 250 x 122 black and white PNG. The calculator must be on, connected, and on
 its calculator screen -- the settings menu doesn't read the console.
 Standard library only."""
-import base64, glob, os, sys, zlib
+import base64, glob, os, sys, tempfile, zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from console import ask
 
 def main():
-    out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "..", "build", "screenshot.png")
+    out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(tempfile.gettempdir(), "px42f-screenshot.png")
     ports = sorted(glob.glob("/dev/cu.usbmodem*"))
     if not ports:
         sys.exit("No PX-42F port (/dev/cu.usbmodem*): is it plugged in and on?")

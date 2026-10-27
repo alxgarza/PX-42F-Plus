@@ -17,6 +17,11 @@ extern "C" {
 /* Longest font name kept (file name in /FONTS/SMALL or LARGE without ".png"). */
 #define FONT_SETTING_MAX 28
 
+/* What the keys type in ALPHA (free42_app.cc), as on the DM42: [ ] the
+ * HP-42S's own keys, letters from the ALPHA menu; [a] / [A] the letter
+ * printed by each key, lower or upper case. SHIFT then an arrow switches. */
+typedef enum { ALPHA_MODE_HP42S, ALPHA_MODE_LOWER, ALPHA_MODE_UPPER, ALPHA_MODES } alpha_mode_t;
+
 typedef struct {
     uint16_t sleep_minutes;  /* auto power-off after this long idle; 0 = never */
     uint16_t splash_minutes; /* after OFF, show the splash this long, then blank; 0 = blank right away */
@@ -39,6 +44,7 @@ typedef struct {
     char small_font[FONT_SETTING_MAX + 1]; /* /FONTS/SMALL/<name>.png */
     char large_font[FONT_SETTING_MAX + 1]; /* /FONTS/LARGE/<name>.png */
     char mini_font[FONT_SETTING_MAX + 1];  /* /FONTS/MINI/<name>.png */
+    uint8_t alpha_mode;      /* alpha_mode_t: the last one used, the next ALPHA starts in it */
 } px_settings_t;
 
 extern px_settings_t px_settings;

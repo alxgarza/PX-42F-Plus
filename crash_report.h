@@ -21,6 +21,11 @@ extern "C" {
  * reset. */
 void crash_note_flash_error(int rc, uint32_t flash_offset);
 
+/* Records that the power manager refused to power down (power.c), just
+ * before rebooting instead: a deliberate reboot, not a watchdog timeout.
+ * pending: POWMAN CURRENT_PWRUP_REQ, the wake-ups pending then. */
+void crash_note_off_refused(uint32_t pending);
+
 /* If the last reset left a record, formats it into two short lines (for
  * the splash screen), prints it in full over serial, clears it, and
  * returns true. last_checkpoint_name is the debug_checkpoint name of the

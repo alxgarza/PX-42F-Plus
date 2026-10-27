@@ -9,6 +9,7 @@
 #include "hardware/structs/systick.h"
 #include "hardware/sync.h"
 #include "hardware/watchdog.h"
+#include "crash_report.h"
 #include "display.h"
 #include "keyboard.h"
 #include "speaker.h"
@@ -85,6 +86,7 @@ void power_core0_poll(void) {
 /* The wake from LAST_SWCORE_PWRUP: one bit per source -- bit 0 chip reset,
  * 1-4 the GPIO sources (ours, the ON key, is 1), 5 the debugger, 6 the
  * power manager's timer alarm. */
+#define PWRUP_ON_BIT    (1u << 1)
 #define PWRUP_ALARM_BIT (1u << 6)
 
 /* Outputs that switch real current -- the speaker MOSFET and the IR LED's
@@ -151,7 +153,7 @@ static void __attribute__((noreturn)) power_down(uint wake_pin, uint64_t alarm_m
     bool ok = powman_configure_wakeup_state(off_state, on_state);
     for (int i = 0; i < 4; i++)
         powman_hw->boot[i] = 0; /* wake = an ordinary boot, not a resume vector */
-    if (ok) {
+    for (int attempt = 0; ok && attempt < 3; attempt++) {
         int rc = powman_set_power_state(off_state);
 
         /* The SDK gives the power manager only a short spin to raise
@@ -173,10 +175,21 @@ static void __attribute__((noreturn)) power_down(uint wake_pin, uint64_t alarm_m
             while (true)
                 __wfi();
         }
+        /* Refused: a wake-up is pending already. The alarm, due before the
+         * request got in (the end of the splash, a moment away): set it a
+         * moment later and ask again -- rebooting would turn the
+         * calculator on by itself. */
+        if (powman_hw->current_pwrup_req != PWRUP_ALARM_BIT)
+            break;
+        powman_enable_alarm_wakeup_at_ms(powman_timer_get_ms() + 20);
     }
 
-    /* Refused: reboot rather than hang with both cores parked (the state
-     * in RAM survives a watchdog reboot too). */
+    /* Still refused: reboot rather than hang with both cores parked (the
+     * state in RAM survives a watchdog reboot too). ON pressed meanwhile --
+     * during a wake while off -- is the calculator being turned on, as it
+     * now is: nothing to report. Anything else is reported at the boot. */
+    if (!(powman_hw->current_pwrup_req & PWRUP_ON_BIT))
+        crash_note_off_refused(powman_hw->current_pwrup_req);
     watchdog_reboot(0, 0, 0);
     while (true)
         __wfi();

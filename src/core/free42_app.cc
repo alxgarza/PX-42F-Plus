@@ -398,8 +398,10 @@ static void mirror_formats() {
 #define STATUS_SHIFT_X   (STATUS_ANGLE_X - 2 - STATUS_CHAR)
 #define STATUS_UPDN_X    (STATUS_SHIFT_X - 2 - 2 * STATUS_CHAR)
 #define STATUS_RUN_X     (STATUS_UPDN_X - 2 - STATUS_CHAR)
+#define STATUS_ALPHA_X   (STATUS_RUN_X - 2 - 3 * STATUS_CHAR) /* [a]: in ALPHA, the header gives way */
 #define STATUS_HEADER_X  1
 #define STATUS_HEADER_CHARS ((STATUS_RUN_X - 2 - STATUS_HEADER_X) / STATUS_CHAR)
+#define STATUS_HEADER_CHARS_ALPHA ((STATUS_ALPHA_X - 2 - STATUS_HEADER_X) / STATUS_CHAR)
 
 static void status_text(const char *s, int length, int x) {
     display_draw_chars(&font_small, s, length, (uint8_t) x, 0, 0xFF);
@@ -423,13 +425,15 @@ static void status_char_mirrored(char c, int x) {
 static void draw_status_bar() {
     display_fill_rect(0, 0, DISPLAY_WIDTH - 1, STATUS_H - 1, true);
 
+    bool alpha = alpha_active();
+    int header_chars = alpha ? STATUS_HEADER_CHARS_ALPHA : STATUS_HEADER_CHARS;
     if (mode_header) {
         std::string path, info;
         display_header_text(&path, &info);
         if (!info.empty())
             path += " " + info;
-        if ((int) path.length() > STATUS_HEADER_CHARS)
-            path = "\032" + path.substr(path.length() - (STATUS_HEADER_CHARS - 1)); /* … */
+        if ((int) path.length() > header_chars)
+            path = "\032" + path.substr(path.length() - (header_chars - 1)); /* … */
         status_text(path.data(), (int) path.length(), STATUS_HEADER_X);
     } else {
         /* One clock reading for both, so date and time can't disagree
@@ -442,8 +446,11 @@ static void draw_status_bar() {
         rtc_format_time(time, sizeof(time), &now, true);
         char buf[STATUS_HEADER_CHARS + 1];
         int n = snprintf(buf, sizeof(buf), "%s %s", date, time);
-        status_text(buf, n < (int) sizeof(buf) ? n : (int) sizeof(buf) - 1, STATUS_HEADER_X);
+        status_text(buf, n < header_chars ? n : header_chars, STATUS_HEADER_X);
     }
+    if (alpha) /* the keyboard's mode in ALPHA: [ ] HP-42S, [a], [A] */
+        status_text(px_settings.alpha_mode == ALPHA_MODE_LOWER ? "[a]"
+                    : px_settings.alpha_mode == ALPHA_MODE_UPPER ? "[A]" : "[ ]", 3, STATUS_ALPHA_X);
 
     /* GRAD sets both annunciators ("G" and "RAD" on the HP-42S). ∡ is
      * Plus42's POLAR mark (HPOLAR), so DEG is a degree sign. */
@@ -497,16 +504,21 @@ void free42_init(bool after_crash) {
     display_clear();
     bool from_ram = ramstate_valid();
     if (from_ram) {
+        debug_checkpoint(CKPT_CORE_START, 0);
         core_start(RAMSTATE_PATH);
+        debug_checkpoint(CKPT_CORE_POWERCYCLE, 0);
         pump_running(core_powercycle());
     } else if (statefs_ready() && statefs_file_exists(OFF_STATE_FILE)) {
+        debug_checkpoint(CKPT_CORE_START, 1);
         core_start(OFF_STATE_FILE);
         if (after_crash) {
             statefs_remove(OFF_STATE_FILE);
             statefs_sync();
         }
+        debug_checkpoint(CKPT_CORE_POWERCYCLE, 1);
         pump_running(core_powercycle());
     } else {
+        debug_checkpoint(CKPT_CORE_START, 2);
         core_start(NULL);
     }
     /* The formats as last saved (they follow Free42's DMY, CLK12... at
@@ -548,28 +560,25 @@ static const int key_matrix[KB_ROWS][KB_COLS] = {
         /*R7*/ {  6,          12,        0,        0,           0 }, /*    XEQ  TAN    -    -    - */
 };
 
-/* Alpha-mode overlay: while alpha_active() (the core's ALPHA text-entry
- * mode, the equation editor's included), a position with a nonzero entry
- * here types that literal character instead of its normal key_matrix
- * (HP-42S key code) meaning -- see free42_key_down(), which injects it via
- * the core's ASCII/Unicode key-code convention (core_keydown() with key =
- * 1024 + the character) rather than looking it up in key_matrix at all. A 0
- * entry leaves that position as-is (falls through to key_matrix): most of
- * column 0, for instance, keeps its normal meaning -- ENTER, BSP, the arrow
- * keys, SHIFT, EXIT -- since those are still needed while typing text, not
- * just calculating.
+/* The letters printed on the keys: what they type in ALPHA in the DM42's
+ * [a] and [A] modes (px_settings.alpha_mode; in [ ], the HP-42S's, every
+ * key keeps its key_matrix meaning). While alpha_active() (the core's
+ * ALPHA text entry, the equation editor's included), a position with a
+ * nonzero entry types that character instead -- free42_key_down() hands it
+ * to the core as 1024 + the character, its ASCII/Unicode key code. A 0
+ * entry keeps the key's meaning: most of column 0 -- ENTER, BSP, the
+ * arrows, SHIFT, EXIT -- is needed while typing too. Also the letters the
+ * settings menu types (free42_alpha_char()).
  *
- * SHIFT (R5C0, unchanged from key_matrix) changes what the next key does,
- * HP-41 style (see free42_key_down()):
- *   - on the six soft-menu keys (Sigma+ 1/x sqrt LOG LN XEQ -- the A-F
- *     keys): presses that soft key, so the ALPHA menu on the bottom line
- *     works as on the DM42 / HP-42S -- groups, punctuation, symbols, and in
- *     a letter group the lowercase letter;
- *   - on a digit key: types the digit;
- *   - on the four arithmetic keys: types its symbol -- divide, multiply,
- *     '+', '-' (unshifted, '-' types '_' and '+' a space);
- *   - on any other letter key: types the lowercase letter.
- * See alpha_shifted_char(). */
+ * SHIFT then a key, in [a] and [A] (free42_key_down()):
+ *   - the six soft-menu keys (Sigma+ 1/x sqrt LOG LN XEQ -- the A-F keys):
+ *     that soft key, so the ALPHA menu on the bottom line works as on the
+ *     HP-42S -- groups, punctuation, symbols;
+ *   - a digit key: the digit; the four arithmetic keys: their symbols
+ *     (alpha_shifted_char()); R/S: '?' -- R/S alone runs, as on the DM42;
+ *   - any other letter key: the same letter -- the mode sets the case;
+ *   - an arrow: the next mode (DOWN) or the one before (UP). Held down
+ *     with an arrow, SHIFT does BST / SST instead (free42_shift_arrow()). */
 static const char alpha_key_matrix[KB_ROWS][KB_COLS] = {
         /*      C0   C1   C2   C3   C4 */
         /*R0*/ { 'A', 'B', 'C', 'D', 'E' },
@@ -582,9 +591,7 @@ static const char alpha_key_matrix[KB_ROWS][KB_COLS] = {
         /*R7*/ { 'F', 'L',   0,   0,   0 },
 };
 
-/* True for the ten HP-42S key codes that type a digit -- used below to let
- * LBL's argument prompt take digits even while alpha_active() (see
- * free42_key_down()). */
+/* True for the ten HP-42S key codes that type a digit. */
 static bool is_digit_key(int key) {
     switch (key) {
         case KEY_0: case KEY_1: case KEY_2: case KEY_3: case KEY_4:
@@ -624,6 +631,7 @@ static int alpha_shifted_char(int key) {
         case KEY_MUL: return 0x00D7; /* multiplication sign */
         case KEY_ADD: return '+';
         case KEY_SUB: return '-';
+        case KEY_RUN: return '?';
         default:      return -1;
     }
 }
@@ -703,12 +711,6 @@ bool free42_settings_pending(void) {
     return settings_requested;
 }
 
-/* Manual override for the LBL digit/alpha ambiguity (see lbl_wants_digit
- * in free42_key_down()), toggled by Shift+ENTER -- the real HP-42S's own
- * ALPHA key -- while the LBL prompt is up. Reset whenever that prompt
- * isn't, so it can't leak into a later, unrelated LBL. */
-static bool lbl_alpha_override = false;
-
 void free42_key_down(uint8_t row, uint8_t col) {
     down_code = free42_key_code(row, col);
     shift_before_down = mode_shift;
@@ -743,46 +745,30 @@ void free42_key_down(uint8_t row, uint8_t col) {
         return;
     }
 
-    bool lbl_ambiguous = mode_command_entry && incomplete_command == CMD_LBL && !incomplete_alpha;
-    if (!lbl_ambiguous)
-        lbl_alpha_override = false;
-
-    /* Shift+ENTER while the LBL prompt is ambiguous flips
-     * lbl_alpha_override instead of reaching core_keydown() at all -- a
-     * plain toggle that works before or after any number of keystrokes,
-     * which is what this keypad's fixed digit<->letter overlay needs (the
-     * core's own shift+ENTER there only converts a single typed digit). */
-    if (lbl_ambiguous && mode_shift && code == KEY_ENTER) {
+    /* SHIFT then an arrow, in ALPHA: the next keyboard mode, [ ] [a] [A]
+     * (alpha_key_matrix), remembered for the next ALPHA -- saved at OFF. */
+    if (alpha_active() && mode_shift && (code == KEY_UP || code == KEY_DOWN)) {
         set_shift(false);
-        lbl_alpha_override = !lbl_alpha_override;
+        px_settings.alpha_mode = (uint8_t) ((px_settings.alpha_mode + (code == KEY_DOWN ? 1 : ALPHA_MODES - 1))
+                                            % ALPHA_MODES);
+        settings_save_later();
         refresh();
         return;
     }
 
-    /* LBL's argument prompt starts the ALPHA menu, since label names are
-     * usually letters -- but a numeric label ("LBL 11") is just as valid,
-     * and the core (keydown_command_entry(), "LBL is weird") keeps a plain
-     * digit key numeric until a letter is typed. On the HP-42S that works
-     * because its digit keys have no letter meaning; on this keypad they
-     * do (alpha_key_matrix), so the digits are kept digits here until a
-     * letter is typed or lbl_alpha_override (above) asks for letters. */
-    bool lbl_wants_digit = lbl_ambiguous && !lbl_alpha_override && is_digit_key(code);
-
     /* SHIFT + one of the six soft-menu keys, in ALPHA mode: the soft key
      * itself, with SHIFT still set -- passed to the core below as an
-     * ordinary key. The core then does exactly what the DM42 does: an item
-     * that is a menu opens it (SHIFT doesn't matter), and a letter item
-     * types its lowercase letter. Capitals don't need the menu: every one
-     * has its own key. */
+     * ordinary key: an item that is a menu opens it, and a letter item
+     * types its lowercase letter. */
     bool soft_key = mode_shift && code >= 1 && code <= 6;
 
-    char alpha_c = alpha_key_matrix[row][col];
-    if (alpha_c != 0 && alpha_active() && !lbl_wants_digit && !soft_key) {
-        int ch = (unsigned char) alpha_c;
-        int shifted = mode_shift ? alpha_shifted_char(code) : -1;
-        if (shifted >= 0)
-            ch = shifted; /* HP-41: SHIFT + digit key types the digit, etc. */
-        else if (mode_shift && ch >= 'A' && ch <= 'Z')
+    int ch = (unsigned char) alpha_key_matrix[row][col];
+    if (code == KEY_RUN && !mode_shift)
+        ch = 0; /* R/S runs; SHIFT R/S types '?' */
+    else if (mode_shift && alpha_shifted_char(code) >= 0)
+        ch = alpha_shifted_char(code); /* SHIFT + digit key types the digit, etc. */
+    if (ch != 0 && alpha_active() && px_settings.alpha_mode != ALPHA_MODE_HP42S && !soft_key) {
+        if (px_settings.alpha_mode == ALPHA_MODE_LOWER && ch >= 'A' && ch <= 'Z')
             ch += 'a' - 'A';
         int key = 1024 + ch;
 
@@ -856,6 +842,22 @@ void free42_key_up(void) {
     refresh();
 }
 
+/* SHIFT held down while an arrow goes down, in ALPHA: BST (UP) or SST
+ * (DOWN), as on the DM42 -- SHIFT then an arrow switches the keyboard mode
+ * there (free42_key_down()), and the core's ALPHA has no BST. Through the
+ * commands themselves, so text entry ends first as with the core's SST. */
+bool free42_shift_arrow(int code) {
+    if (!alpha_active() || (code != KEY_UP && code != KEY_DOWN))
+        return false;
+    set_shift(false);
+    bool enqueued;
+    int repeat;
+    pump_running(core_keydown(2048 + (code == KEY_UP ? CMD_BST : CMD_SST), &enqueued, &repeat));
+    pump_running(core_keyup());
+    refresh();
+    return true;
+}
+
 char free42_alpha_char(uint8_t row, uint8_t col) {
     if (row >= KB_ROWS || col >= KB_COLS)
         return 0;
@@ -877,6 +879,86 @@ void free42_load_state(const char *path) {
     core_start(path);
     pump_running(core_powercycle());
     refresh();
+}
+
+/* ============================ programs ============================ */
+
+/* Set by the core's shell_message(): a file it couldn't open, read or
+ * write -- core_export_programs() and core_import_programs() say nothing
+ * else about it. */
+static bool core_complained = false;
+
+void free42_core_message(const char *message) {
+    printf("%s\n", message);
+    core_complained = true;
+}
+
+/* How many programs core_list_programs() listed: its first 4 bytes, big-endian. */
+static int listed_count(const char *buf) {
+    const unsigned char *b = (const unsigned char *) buf;
+    return buf == NULL ? 0 : (int) ((uint32_t) b[0] << 24 | (uint32_t) b[1] << 16 | (uint32_t) b[2] << 8 | b[3]);
+}
+
+static int program_count(void) {
+    char *buf = core_list_programs();
+    int count = listed_count(buf);
+    free(buf);
+    return count;
+}
+
+int free42_list_programs(char names[][PROGRAM_LABEL_MAX + 1], int max) {
+    char *buf = core_list_programs();
+    if (buf == NULL)
+        return 0;
+    int count = listed_count(buf);
+    const char *p = buf + 4;
+    int n = 0;
+    for (; n < count && n < max; n++) {
+        snprintf(names[n], PROGRAM_LABEL_MAX + 1, "%s", p);
+        p += strlen(p) + 1;
+    }
+    free(buf);
+    return n;
+}
+
+bool free42_export_programs(int index, const char *path) {
+    int count = 1;
+    int *indexes = &index;
+    if (index < 0) {
+        count = program_count();
+        indexes = (int *) malloc(count * sizeof(int));
+        if (count == 0 || indexes == NULL) {
+            free(indexes);
+            return false;
+        }
+        for (int i = 0; i < count; i++)
+            indexes[i] = i;
+    }
+    core_complained = false;
+    core_export_programs(count, indexes, path);
+    if (indexes != &index)
+        free(indexes);
+    return !core_complained && statefs_file_exists(path);
+}
+
+/* Whether the last program, .END., is empty: an import fills it first. */
+static bool end_empty(void) {
+    return core_program_size(program_count() - 1) == 0;
+}
+
+/* The programs added: the import starts in .END. if it's empty, and the
+ * file's last program becomes .END. -- so with .END. empty before and not
+ * after, one more than the count went up by. */
+int free42_import_programs(const char *path) {
+    int count_before = program_count();
+    bool empty_before = end_empty();
+    core_complained = false;
+    core_import_programs(0, path);
+    if (core_complained)
+        return -1;
+    int added = program_count() - count_before + (empty_before && !end_empty() ? 1 : 0);
+    screen_dirty = true;
+    return added > 0 ? added : 0;
 }
 
 bool free42_auto_off_enabled(void) {

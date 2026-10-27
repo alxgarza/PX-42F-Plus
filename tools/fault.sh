@@ -1,10 +1,10 @@
 #!/bin/bash
 # Decodes a PX-42F fault screen: tools/fault.sh PC LR [A] [C]
-# (hex, with or without 0x). Needs build/PX-Free42.elf from the SAME build
+# (hex, with or without 0x). Needs build/PX-42F-Plus.elf from the SAME build
 # that was flashed.
 set -e
 cd "$(dirname "$0")/.."
-ELF=build/PX-Free42.elf
+ELF=build/PX-42F-Plus.elf
 [ -f "$ELF" ] || { echo "no $ELF -- build first"; exit 1; }
 hex() { echo "0x${1#0x}"; }
 PC=$(hex "$1"); LR=$(hex "$2")

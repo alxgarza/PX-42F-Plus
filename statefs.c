@@ -215,7 +215,6 @@ FILE *statefs_fopen(const char *name, const char *mode) {
         return ramstate_fopen(mode); /* the RAM-kept state, not a flash file */
     if (!mounted)
         return NULL;
-    debug_checkpoint(CKPT_FS_OPEN, 0);
     bool writing = mode[0] == 'w';
     if (!writing && mode[0] != 'r')
         return NULL;
@@ -223,15 +222,17 @@ FILE *statefs_fopen(const char *name, const char *mode) {
     FIL *fil = (FIL *) malloc(sizeof(FIL));
     if (fil == NULL)
         return NULL;
-    if (f_open(fil, name, writing ? FA_WRITE | FA_CREATE_ALWAYS : FA_READ) != FR_OK) {
-        free(fil);
-        return NULL;
+    debug_checkpoint_saved_t saved = debug_checkpoint_save();
+    debug_checkpoint(CKPT_FS_OPEN, 0);
+    FILE *f = NULL;
+    if (f_open(fil, name, writing ? FA_WRITE | FA_CREATE_ALWAYS : FA_READ) == FR_OK) {
+        f = funopen(fil, writing ? NULL : fil_read, writing ? fil_write : NULL, fil_seek, fil_close);
+        if (f == NULL)
+            f_close(fil);
     }
-    FILE *f = funopen(fil, writing ? NULL : fil_read, writing ? fil_write : NULL, fil_seek, fil_close);
-    if (f == NULL) {
-        f_close(fil);
+    if (f == NULL)
         free(fil);
-    }
+    debug_checkpoint_restore(saved);
     return f;
 }
 

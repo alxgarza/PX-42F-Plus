@@ -31,7 +31,7 @@ set(PICO_BOARD px42f CACHE STRING "Board type")
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(PX-Free42 C CXX ASM)
+project(PX-42F-Plus C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
 # Plus42's core catches std::bad_alloc (equations, directories, units).
@@ -67,7 +67,7 @@ add_custom_target(inteldecimal_lib DEPENDS ${LIBBID_PATH})
 
 file(GLOB FREE42_CORE_SOURCES ${CMAKE_CURRENT_LIST_DIR}/src/core/*.cc)
 
-add_executable(PX-Free42
+add_executable(PX-42F-Plus
         main.c
         display.c
         display_draw.c
@@ -114,26 +114,26 @@ add_executable(PX-Free42
         ${FREE42_CORE_SOURCES}
         )
 
-add_dependencies(PX-Free42 inteldecimal_lib)
+add_dependencies(PX-42F-Plus inteldecimal_lib)
 
 # The top of RAM, in SRAM bank 1, stays powered through the deep power-off
 # and holds what has to survive it -- the calculator's memory and the
 # display's framebuffer (retained.h, RETAINED_BASE): keep the heap out.
-pico_set_linker_script_var(PX-Free42 HEAP_LIMIT 0x2005F000)
+pico_set_linker_script_var(PX-42F-Plus HEAP_LIMIT 0x2005F000)
 
-pico_set_program_name(PX-Free42 "PX-Free42")
-pico_set_program_version(PX-Free42 "0.50b")
+pico_set_program_name(PX-42F-Plus "PX-42F-Plus")
+pico_set_program_version(PX-42F-Plus "0.50b")
 
 # Modify the below lines to enable/disable output over UART/USB
-pico_enable_stdio_uart(PX-Free42 0)
-pico_enable_stdio_usb(PX-Free42 1)
+pico_enable_stdio_uart(PX-42F-Plus 0)
+pico_enable_stdio_usb(PX-42F-Plus 1)
 
 # Add the standard library to the build
-target_link_libraries(PX-Free42
+target_link_libraries(PX-42F-Plus
         pico_stdlib)
 
 # Add the standard include files to the build
-target_include_directories(PX-Free42 PRIVATE
+target_include_directories(PX-42F-Plus PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
         ${CMAKE_CURRENT_LIST_DIR}/src/core
         ${CMAKE_CURRENT_LIST_DIR}/fonts
@@ -144,7 +144,7 @@ target_include_directories(PX-Free42 PRIVATE
 # match how libbid.a itself was built (see INTELDECIMAL_ARCH_FLAGS above).
 # BCD_MATH switches the core from double-based "binary" math to the real
 # BID128-backed Phloat class, for authentic HP-42S decimal arithmetic.
-target_compile_definitions(PX-Free42 PRIVATE
+target_compile_definitions(PX-42F-Plus PRIVATE
         BCD_MATH
         BID_SIZE_LONG=4
         DECIMAL_CALL_BY_REFERENCE=1
@@ -196,11 +196,11 @@ target_compile_definitions(PX-Free42 PRIVATE
 # Add any user requested libraries
 # The restart-into-the-bootloader request goes through main.c first (see
 # __wrap_rom_reset_usb_boot_extra there).
-target_link_options(PX-Free42 PRIVATE -Wl,--wrap=rom_reset_usb_boot_extra)
+target_link_options(PX-42F-Plus PRIVATE -Wl,--wrap=rom_reset_usb_boot_extra)
 
-pico_generate_pio_header(PX-Free42 ${CMAKE_CURRENT_LIST_DIR}/irtx.pio)
+pico_generate_pio_header(PX-42F-Plus ${CMAKE_CURRENT_LIST_DIR}/irtx.pio)
 
-target_link_libraries(PX-Free42
+target_link_libraries(PX-42F-Plus
         hardware_pio
         pico_multicore
         hardware_spi
@@ -215,5 +215,5 @@ target_link_libraries(PX-Free42
         ${LIBBID_PATH}
         )
 
-pico_add_extra_outputs(PX-Free42)
+pico_add_extra_outputs(PX-42F-Plus)
 

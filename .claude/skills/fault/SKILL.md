@@ -7,7 +7,7 @@ argument-hint: PC LR [A] [C]
 Decode the crash `$ARGUMENTS` (if no arguments, read the values from the user's message or
 photo: `FAULT coreN PC=… LR=… A=… C=… S=… <checkpoint>`).
 
-1. Run `tools/fault.sh PC LR A C`. It needs `build/PX-Free42.elf` from the same build that
+1. Run `tools/fault.sh PC LR A C`. It needs `build/PX-42F-Plus.elf` from the same build that
    was flashed — if the code changed since, say the decode may be off (check the ELF time
    stamp it prints against when the user flashed).
 2. Read the source around the PC and the LR call site.

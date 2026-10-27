@@ -69,6 +69,9 @@ int main(int argc, char **argv) {
     errors += text(dir, "shift", "\r", true);   /* ↵, pointing right */
     errors += text(dir, "updn", "\136\016", false); /* ↑↓ */
     errors += text(dir, "run", "\006", false);  /* ▶ */
+    errors += text(dir, "alpha_hp42s", "[ ]", false); /* ALPHA's keyboard modes */
+    errors += text(dir, "alpha_lower", "[a]", false);
+    errors += text(dir, "alpha_upper", "[A]", false);
     for (int level = 0; level <= 4; level++) {
         char name[16];
         snprintf(name, sizeof(name), "battery%d", level);

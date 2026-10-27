@@ -7,6 +7,7 @@
 #include "hardware/pwm.h"
 #include "hardware/sync.h"
 #include "hardware/watchdog.h"
+#include "debug_checkpoint.h"
 
 /* The sample clock: another PWM slice, used only as a timer -- its wrap
  * interrupt fires at SPEAKER_SAMPLE_HZ. Slice 0's pins (GP0/GP1) are
@@ -81,6 +82,8 @@ static void keep_pwm_clock(bool keep) {
 }
 
 void speaker_play(speaker_fill_fn fill, void *ctx) {
+    debug_checkpoint_saved_t saved = debug_checkpoint_save();
+    debug_checkpoint(CKPT_SOUND, 0);
     ring_head = ring_tail = 0;
     last_level = 0;
     keep_pwm_clock(true);
@@ -147,4 +150,5 @@ void speaker_play(speaker_fill_fn fill, void *ctx) {
     pwm_set_enabled(speaker_slice, false);
     keep_pwm_clock(false);
     last_tone_us = time_us_64();
+    debug_checkpoint_restore(saved);
 }
