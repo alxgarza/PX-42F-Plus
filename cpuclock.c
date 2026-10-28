@@ -26,7 +26,8 @@ static const clock_dest_num_t never_used[] = {
     CLK_DEST_SYS_PIO1, CLK_DEST_SYS_PIO2,
     CLK_DEST_PERI_SPI1, CLK_DEST_SYS_SPI1,
     CLK_DEST_PERI_UART1, CLK_DEST_SYS_UART1,
-    CLK_DEST_SYS_DMA, CLK_DEST_SYS_SHA256, CLK_DEST_SYS_TIMER1,
+    CLK_DEST_SYS_DMA, /* on only while a sound plays (speaker.c) */
+    CLK_DEST_SYS_SHA256, CLK_DEST_SYS_TIMER1,
 };
 
 /* While both cores are asleep, every clock stops except these -- what

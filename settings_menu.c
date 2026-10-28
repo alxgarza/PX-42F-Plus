@@ -29,7 +29,7 @@
 #include "sounds.h"
 #include "fonts.h"
 #include "keyhold.h"
-#include "remote.h"
+#include "app.h"
 #include "icons.h"
 #include "power.h"
 
@@ -191,7 +191,7 @@ static int wait_key(void) {
 }
 
 static void error_beep(void) {
-    sounds_play_tone(10); /* Free42's own error squeak (shell_beeper(10)) */
+    sounds_play_tone(10, true); /* Free42's own error squeak (shell_beeper(10)) */
 }
 
 /* Black title bar with white text, the shift indicator, and the time at
@@ -970,6 +970,7 @@ static edit_result_t do_key_sound(void) {
                     watchdog_update();
                 }
             sounds_key_play((key_sound_t) kind);
+            sounds_wait(); /* key sounds don't wait by themselves */
         }
     }
 }
@@ -1196,6 +1197,7 @@ static edit_result_t do_usb_connect(void) {
         return no_disk();
 
     debug_checkpoint(CKPT_USB_DISK, 0);
+    sounds_stop(); /* one playing from a file: closed before the computer gets the drive */
     statefs_usb_begin();
     edit_result_t result = EDIT_OK;
     bool redraw = true;
@@ -1260,9 +1262,10 @@ static edit_result_t do_format_drive(void) {
         return r;
 
     show_busy("Format Drive", "Formatting...");
+    sounds_stop(); /* its file, if it's one */
     bool ok = statefs_format();
     if (ok) {
-        statefs_mkdir(IR_DIR);
+        app_folders();
         statefs_mkdir(PROGRAMS_DIR);
         sounds_init(true); /* the built-ins written again */
         fonts_init();      /* a font of the user's is gone: the built-in */
@@ -1286,7 +1289,7 @@ static edit_result_t do_update_firmware(void) {
 
     show_busy("Update Firmware", "Saving the memory...");
     settings_save_pending();
-    if (!free42_save_for_update()) {
+    if (!free42_save_to_drive()) {
         error_beep();
         static const char *const lost[] = {"Could not save the memory.", "", "Update anyway? The memory",
                                            "will be lost."};
@@ -1699,52 +1702,65 @@ static edit_result_t do_fonts(void) {
     }
 }
 
-/* ===================== IR Remote ===================== */
+/* ===================== Games & Apps ===================== */
 
-#define MAX_REMOTES     32
-#define REMOTE_NAME_MAX 28 /* file name without ".ir" */
+#define MAX_APPS 64 /* the listing stops at this many, in directory order */
 
-/* The remotes in /IR: one is read, and the calculator becomes that remote
- * (remote.h) until ON. EDIT_OK when it's left that way -- back to the
- * calculator, not to this menu. */
-static edit_result_t do_ir_remote(void) {
-    static char names[MAX_REMOTES][REMOTE_NAME_MAX + 1];
-    static ir_remote_t remote;
-    int count = statefs_list_files(IR_DIR, ".ir", (char *) names, REMOTE_NAME_MAX + 1, MAX_REMOTES);
+/* The .bin files in dir: one runs (app.h), and this list comes back after
+ * it -- unless it was ended to turn off. */
+static edit_result_t do_app_list(const char *title, const char *dir, const char *none) {
+    static char names[MAX_APPS][APP_NAME_MAX + 1];
+    int count = statefs_list_files(dir, ".bin", (char *) names, APP_NAME_MAX + 1, MAX_APPS);
     if (count == 0) {
-        const char *const lines[] = {"No remotes yet.", "", "Copy .ir files to the IR", "folder in USB Drive mode."};
-        return show_message("IR Remote", lines, 4, "Exit:Back") == EDIT_POWER_OFF ? EDIT_POWER_OFF : EDIT_CANCEL;
+        const char *const lines[] = {none, "", "Copy .bin files to the", dir + 1, "folder in USB Drive mode."};
+        return show_message(title, lines, 5, "Exit:Back") == EDIT_POWER_OFF ? EDIT_POWER_OFF : EDIT_CANCEL;
     }
-    const char *items[MAX_REMOTES];
+    const char *items[MAX_APPS];
     for (int i = 0; i < count; i++)
         items[i] = names[i];
 
     static int selected = 0;
+    if (selected >= count)
+        selected = 0;
     while (true) {
-        int pick = run_list("IR Remote", items, count, NULL, &selected, "Enter:Use  Exit:Back");
+        int pick = run_list(title, items, count, NULL, &selected, "Enter:Start  Exit:Back");
         if (pick == LIST_POWER_OFF)
             return EDIT_POWER_OFF;
         if (pick == LIST_BACK)
             return EDIT_CANCEL;
-
-        char path[48], error[32] = "Can't open the file";
-        int line = 0;
-        snprintf(path, sizeof(path), "%s/%s.ir", IR_DIR, names[pick]);
-        FILE *f = statefs_fopen(path, "rb");
-        bool ok = f != NULL && ir_remote_load(f, &remote, &line, error, sizeof(error));
-        if (f != NULL)
-            fclose(f);
-        if (!ok) {
+        bool power_off;
+        const char *error = app_run(dir, names[pick], &power_off);
+        idle_since = get_absolute_time();
+        if (power_off)
+            return EDIT_POWER_OFF;
+        if (error != NULL) {
             error_beep();
-            char head[40], where[16];
-            snprintf(head, sizeof(head), "Can't use %.20s:", names[pick]);
-            snprintf(where, sizeof(where), "Line %d:", line);
-            const char *const lines[] = {head, line > 0 ? where : "", error};
-            if (show_message("IR Remote", lines, 3, "Exit:Back") == EDIT_POWER_OFF)
+            char head[40];
+            snprintf(head, sizeof(head), "Can't start %.18s:", names[pick]);
+            const char *const lines[] = {head, error};
+            if (show_message(title, lines, 2, "Exit:Back") == EDIT_POWER_OFF)
                 return EDIT_POWER_OFF;
-            continue;
         }
-        return remote_run(&remote, names[pick]) ? EDIT_POWER_OFF : EDIT_OK;
+    }
+}
+
+enum { APPS_GAMES, APPS_APPS, APPS_COUNT };
+static const char *const apps_items[APPS_COUNT] = {"Games", "Apps"};
+
+static edit_result_t do_games_apps(void) {
+    if (!statefs_ready())
+        return no_disk();
+    static int selected = 0;
+    while (true) {
+        int pick = run_list("Games & Apps", apps_items, APPS_COUNT, NULL, &selected, "Enter:Select  Exit:Back");
+        if (pick == LIST_POWER_OFF)
+            return EDIT_POWER_OFF;
+        if (pick == LIST_BACK)
+            return EDIT_CANCEL;
+        edit_result_t r = pick == APPS_GAMES ? do_app_list("Games", GAMES_DIR, "No games yet.")
+                                             : do_app_list("Apps", APPS_DIR, "No apps yet.");
+        if (r == EDIT_POWER_OFF)
+            return r;
     }
 }
 
@@ -1752,7 +1768,7 @@ static edit_result_t do_ir_remote(void) {
 
 enum {
     ITEM_OFF,
-    ITEM_IR_REMOTE,
+    ITEM_APPS,
     ITEM_DATE_TIME,
     ITEM_SOUNDS,
     ITEM_FONTS,
@@ -1768,7 +1784,7 @@ enum {
 
 static const char *const item_names[ITEM_COUNT] = {
         "Off",
-        "IR Remote",
+        "Games & Apps",
         "Date & Time",
         "Sounds",
         "Fonts",
@@ -1787,7 +1803,7 @@ static void item_value(int item, char *buf, size_t size) {
         case ITEM_DATE_TIME:
             snprintf(buf, size, ">");
             break;
-        case ITEM_IR_REMOTE:
+        case ITEM_APPS:
         case ITEM_SOUNDS:
         case ITEM_FONTS:
             snprintf(buf, size, ">");
@@ -1828,10 +1844,8 @@ settings_menu_result_t settings_menu_run(void) {
         switch (pick) {
             case ITEM_OFF:
                 return SETTINGS_MENU_POWER_OFF;
-            case ITEM_IR_REMOTE:
-                r = do_ir_remote();
-                if (r == EDIT_OK)
-                    return SETTINGS_MENU_EXIT; /* ON in the remote: back to the calculator */
+            case ITEM_APPS:
+                r = do_games_apps();
                 break;
             case ITEM_DATE_TIME:
                 r = do_date_time();

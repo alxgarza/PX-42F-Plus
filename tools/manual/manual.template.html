@@ -329,7 +329,7 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 <p>Press <kbd>SHIFT</kbd> then <kbd>EXIT</kbd> to open it. Every screen has the same frame: a black title bar with the screen's name and the current time, and a line at the bottom saying what the keys do there.</p>
 
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:settings}}" alt="The Settings list: Off, IR Remote, Date &amp; Time, Sounds, Fonts, Sleep Timer, Splash Image"><figcaption>The top list. The &darr; at the bottom right means more items below: Printer, States, USB Drive, Info.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:settings}}" alt="The Settings list: Off, Games &amp; Apps, Date &amp; Time, Sounds, Fonts, Sleep Timer, Splash Image"><figcaption>The top list. The &darr; at the bottom right means more items below: Printer, States, USB Drive, Info.</figcaption></figure>
 </div>
 
 <h3>Moving around</h3>
@@ -346,15 +346,37 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 <h3 id="set-off">Off</h3>
 <p>Turns the calculator off. <kbd>ENTER</kbd> or <kbd>EXIT</kbd> on this item does it.</p>
 
-<h3 id="set-ir">IR Remote</h3>
+<h3 id="set-apps">Games &amp; Apps</h3>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:ir_remote}}" alt="IR Remote list with two remotes"><figcaption>The remotes in <code>/IR</code> on the drive. <kbd>ENTER</kbd> uses one.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:games_apps}}" alt="Games &amp; Apps: Games, Apps"><figcaption>Games or Apps.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:games}}" alt="The Games list: SNAKE"><figcaption>The games on the drive. <kbd>ENTER</kbd> starts one.</figcaption></figure>
 </div>
-<p>Turns the calculator into an infrared remote control. Choose a remote, and the screen shows a map of the keyboard with each key's label. Pressing a key sends its code, repeated for as long as it's held. Press <kbd>ON</kbd> to return to the calculator. With no remotes on the drive, the screen says to copy <code>.ir</code> files into the <code>IR</code> folder.</p>
+<p>Runs programs written for the PX-42F itself: games, and apps such as the IR Remote. Each is a <code>.bin</code> file on the drive, in <code>/BIN/GAMES</code> or <code>/BIN/APPS</code>. To add one, copy its <code>.bin</code> into the folder with <a href="#set-usb">USB Drive</a>. To remove one, delete the file. None come with the calculator.</p>
+<p class="note"><strong>Only install apps you trust.</strong> A game or app is a program that runs on the calculator with full access: it can read, change and delete any file on the drive, including your saved states and programs. The calculator checks that the file isn't damaged, not that it is safe. Keep a copy of your states (<a href="#set-usb">USB Drive</a>) before trying an app from somewhere you don't know.</p>
+<ul>
+  <li><strong>Leaving.</strong> <kbd>ON</kbd> always leaves a game or app, back to this list. Held for 2 seconds, it turns the calculator off. The Sleep Timer turns it off too.</li>
+  <li><strong>Your memory is safe.</strong> Before a game starts, the calculator saves its memory to the drive, and takes it back afterwards. If a game crashes or hangs, the calculator restarts with its memory as it was, and the start screen says where it stopped.</li>
+  <li><strong>Their own files.</strong> A game keeps its files (a best score, settings) in a folder named after it, next to it: <code>/BIN/GAMES/SNAKE/</code> for <code>SNAKE.bin</code>.</li>
+</ul>
+<p>If one can't start, the calculator says why:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Message</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>Not a PX-42F app</td><td>The file isn't a program for the PX-42F.</td></tr>
+<tr><td>Needs a newer firmware</td><td>It was made for a later firmware. <a href="#updating">Update the firmware</a>.</td></tr>
+<tr><td>The file is damaged</td><td>Its checksum is wrong: copy it again.</td></tr>
+<tr><td>Too big (128 KB at most)</td><td>It needs more memory than a game or app gets.</td></tr>
+<tr><td>Can't save the memory</td><td>The drive is full or can't be written, so the calculator won't risk your memory.</td></tr>
+</tbody>
+</table></div>
+<p><strong>Making your own.</strong> Games and apps are written in C with the <strong>PX-42F App Template</strong>, a separate project. It covers the screen and fonts, the keys, the clock, sounds, files on the drive, the USB console, the infrared LED and the battery, and it includes a simulator that runs a game on a computer. Its README explains how to start. The Snake game and the IR Remote are built on it.</p>
+
+<h4 id="set-ir">The IR Remote app</h4>
+<p>Turns the calculator into an infrared remote control. Copy <code>IR.bin</code> into <code>/BIN/APPS</code> and your remotes into <code>/BIN/APPS/IR</code>, then choose Apps &rarr; IR. Choose a remote, and the screen shows a map of the keyboard with each key's label. Pressing a key sends its code, repeated for as long as it's held. <kbd>ON</kbd> (shown as <em>Menu</em>) goes back to the list of apps. With no remotes on the drive, the screen says to copy <code>.ir</code> files into the <code>BIN/APPS/IR</code> folder.</p>
 <p>A remote is a <code>.ir</code> file in the Flipper Zero format, with two extra lines for each key:</p>
 <ul>
   <li><code>button: RxCy</code>: the key the code goes on, by row R (0&ndash;6, from the top) and column C (0&ndash;5, from the left). The top two rows have 6 keys, the others 5. R0C5 is XEQ, R2C0 is ENTER. R6C0 is the ON key, which leaves the remote, so it can't be used.</li>
-  <li><code>label:</code> the text shown on that key: 5 characters fit, 6 in the rows from <kbd>&uarr;</kbd> <kbd>7</kbd> <kbd>8</kbd> <kbd>9</kbd> down, 10 on <kbd>ENTER</kbd>.</li>
+  <li><code>label:</code> the text shown on that key: 5 characters fit on the top two rows' keys, 6 on the others; a longer one is cut short.</li>
 </ul>
 <p>Every other line is Flipper's own: <code>name:</code> (what the code does, shown at the top when it's sent), <code>protocol:</code>, <code>address:</code> and <code>command:</code>. Lines starting with <code>#</code> are notes. A small example, a Samsung TV's power, OK and volume-up keys:</p>
 <pre><code># Samsung TV, three keys
@@ -379,7 +401,7 @@ protocol: Samsung32
 address: 07 00 00 00
 command: 07 00 00 00</code></pre>
 <p>Power goes on the top-left key, OK on <kbd>ENTER</kbd>, and Vol+ on <kbd>+</kbd>. A key with no entry stays blank and does nothing.</p>
-<p><strong>Where to get codes.</strong> The <a href="https://github.com/Lucaslhm/Flipper-IRDB">Flipper-IRDB</a> collection has <code>.ir</code> files for most TVs, players, amplifiers and air conditioners. Download the file for your device, add a <code>button:</code> line (and a <code>label:</code>) to each code you want on a key, and copy it into <code>/IR</code>. Entries without a <code>button:</code> are skipped, so the file can stay otherwise as it is. Flipper's own description of the format is in its <a href="https://developer.flipper.net/flipperzero/doxygen/infrared_file_format.html">developer documentation</a>.</p>
+<p><strong>Where to get codes.</strong> The <a href="https://github.com/Lucaslhm/Flipper-IRDB">Flipper-IRDB</a> collection has <code>.ir</code> files for most TVs, players, amplifiers and air conditioners. Download the file for your device, add a <code>button:</code> line (and a <code>label:</code>) to each code you want on a key, and copy it into <code>/BIN/APPS/IR</code>. Entries without a <code>button:</code> are skipped, so the file can stay otherwise as it is. Flipper's own description of the format is in its <a href="https://developer.flipper.net/flipperzero/doxygen/infrared_file_format.html">developer documentation</a>.</p>
 <p>Supported protocols: NEC, NECext, NEC42, NEC42ext, Samsung32, RC5, RC5X, RC6, SIRC, SIRC15, SIRC20, Kaseikyo, RCA and Pioneer. Raw recordings (<code>type: raw</code>) can't be sent, and the calculator can't learn codes: it has no infrared receiver.</p>
 
 <h3 id="set-datetime">Date &amp; Time</h3>
@@ -548,8 +570,8 @@ command: 07 00 00 00</code></pre>
 <div class="table-wrap"><table>
 <thead><tr><th>Item</th><th>What it does</th></tr></thead>
 <tbody>
-<tr><td>Connect to Computer</td><td>Lets a computer open the calculator's drive, named <strong>PX-42F</strong>, through the USB cable, to copy states, programs, images, fonts, sounds and remotes in and out. The screen says &ldquo;Waiting for a computer...&rdquo; until one opens it. While it's open, the calculator stays out of the drive. <strong>Eject the drive on the computer before pressing <kbd>EXIT</kbd></strong>. On leaving, the calculator saves what was written and reloads the splash image, sounds and fonts, in case they were changed.</td></tr>
-<tr><td>Format Drive</td><td>Erases every file on the drive, after asking twice: states, programs, screenshots, your own sounds, fonts, splash images and remotes. The calculator's memory and settings stay. The folders and the built-in sounds are made again, as on the first start. Use it if the drive can't be read any more, for example after a computer reformatted it in a format the calculator doesn't read (such as exFAT).</td></tr>
+<tr><td>Connect to Computer</td><td>Lets a computer open the calculator's drive, named <strong>PX-42F</strong>, through the USB cable, to copy states, programs, images, fonts, sounds, games and apps in and out. The screen says &ldquo;Waiting for a computer...&rdquo; until one opens it. While it's open, the calculator stays out of the drive. <strong>Eject the drive on the computer before pressing <kbd>EXIT</kbd></strong>. On leaving, the calculator saves what was written and reloads the splash image, sounds and fonts, in case they were changed.</td></tr>
+<tr><td>Format Drive</td><td>Erases every file on the drive, after asking twice: states, programs, screenshots, your own sounds, fonts, splash images, games and apps. The calculator's memory and settings stay. The folders and the built-in sounds are made again, as on the first start. Use it if the drive can't be read any more, for example after a computer reformatted it in a format the calculator doesn't read (such as exFAT).</td></tr>
 <tr><td>Update Firmware</td><td>Installs new firmware without the BOOT and RESET buttons, keeping the memory and the time. See <a href="#updating">Updating the firmware</a>.</td></tr>
 </tbody>
 </table></div>
@@ -583,7 +605,8 @@ command: 07 00 00 00</code></pre>
 <tr><td><code>/FONTS/LARGE</code>, <code>/FONTS/SMALL</code>, <code>/FONTS/MINI</code></td><td>Font sheets, PNG. See <a href="#font-sheets">Making your own font</a>.</td></tr>
 <tr><td><code>/FONTS/BUILTIN</code></td><td>The built-in fonts as font sheets (<code>LARGE.png</code>, <code>SMALL.png</code>, <code>MINI.png</code>), read-only: copy them to start a font from.</td></tr>
 <tr><td><code>/SOUNDS</code></td><td>Every sound, WAV. Key sounds are in <code>/SOUNDS/KEY</code>. <code>BUILTIN.TXT</code> is the calculator's own record of the built-in sounds it wrote; leave it alone. See <a href="#set-sounds">Sounds</a>.</td></tr>
-<tr><td><code>/IR</code></td><td>Remotes, <code>.ir</code>. See <a href="#set-ir">IR Remote</a>.</td></tr>
+<tr><td><code>/BIN/GAMES</code>, <code>/BIN/APPS</code></td><td>Games and apps, <code>.bin</code>, each with its own folder next to it. See <a href="#set-apps">Games &amp; Apps</a>.</td></tr>
+<tr><td><code>/BIN/APPS/IR</code></td><td>Remotes for the IR Remote app, <code>.ir</code>. See <a href="#set-ir">The IR Remote app</a>.</td></tr>
 <tr><td><code>/PROGRAMS</code></td><td>Programs, <code>.raw</code>. See <a href="#set-programs">Programs</a>.</td></tr>
 </tbody>
 </table></div>
@@ -657,7 +680,7 @@ command: 07 00 00 00</code></pre>
 <!-- ============================================================ -->
 <h2 id="updating">10. Updating the firmware</h2>
 
-<p>New firmware comes as a single <code>.uf2</code> file. Installing it takes a USB-C cable and a computer (Windows, macOS or Linux); no software is needed. Saved states, program files, splash images, fonts, sounds, remotes and the settings are on the calculator's drive, which an update doesn't touch.</p>
+<p>New firmware comes as a single <code>.uf2</code> file. Installing it takes a USB-C cable and a computer (Windows, macOS or Linux); no software is needed. Saved states, program files, splash images, fonts, sounds, games and apps and the settings are on the calculator's drive, which an update doesn't touch.</p>
 
 <h3>From the settings menu</h3>
 <div class="shots">

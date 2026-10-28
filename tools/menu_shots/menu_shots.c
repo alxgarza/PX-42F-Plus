@@ -29,7 +29,7 @@
 #include "keyhold.h"
 #include "pngwrite.h"
 #include "power.h"
-#include "remote.h"
+#include "app.h"
 #include "rtc.h"
 #include "settings.h"
 #include "settings_menu.h"
@@ -212,7 +212,7 @@ void settings_save(void) {
 void settings_save_pending(void) {
 }
 
-bool free42_save_for_update(void) {
+bool free42_save_to_drive(void) {
     return true;
 }
 
@@ -267,13 +267,16 @@ static int list(const char *const *items, int n, char *names, size_t name_size, 
 int statefs_list_files(const char *dir, const char *ext, char *names, size_t name_size, int max) {
     static const char *const splash[] = {"20261020-174015", "Mountains"};
     static const char *const large[] = {"Rounded"};
-    static const char *const ir[] = {"Living Room TV", "Soundbar"};
+    static const char *const games[] = {"SNAKE"};
+    static const char *const apps[] = {"IR"};
     if (strcmp(dir, STATEFS_SPLASH_DIR) == 0)
         return list(splash, 2, names, name_size, max);
     if (strcmp(dir, FONTS_DIR "/LARGE") == 0)
         return list(large, 1, names, name_size, max);
-    if (strcmp(dir, "/IR") == 0)
-        return list(ir, 2, names, name_size, max);
+    if (strcmp(dir, GAMES_DIR) == 0)
+        return list(games, 1, names, name_size, max);
+    if (strcmp(dir, APPS_DIR) == 0)
+        return list(apps, 1, names, name_size, max);
     static const char *const raw[] = {"ALL", "Calendar", "QUAD", "Rocket-Science"};
     if (strcmp(dir, PROGRAMS_DIR) == 0)
         return list(raw, 4, names, name_size, max);
@@ -374,18 +377,24 @@ void sounds_play_on(void) {
 void sounds_play_off(void) {
 }
 
-void sounds_play_tone(int tone) {
+void sounds_play_tone(int tone, bool wait) {
+}
+
+void sounds_stop(void) {
+}
+
+void sounds_wait(void) {
 }
 
 void sounds_init(bool use_files) {
 }
 
-bool ir_remote_load(FILE *f, ir_remote_t *remote, int *error_line, char *error, size_t error_size) {
-    return false;
+void app_folders(void) {
 }
 
-bool remote_run(const ir_remote_t *remote, const char *name) {
-    return false;
+const char *app_run(const char *dir, const char *name, bool *power_off) {
+    *power_off = false;
+    return NULL;
 }
 
 int main(int argc, char **argv) {

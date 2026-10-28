@@ -26,7 +26,10 @@ void statefs_mkdir(const char *path) {}
 bool statefs_sync(void) { return true; }
 int statefs_list_files(const char *dir, const char *ext, char *names, size_t name_size, int max) { return 0; }
 int statefs_list_dirs(const char *dir, char *names, size_t name_size, int max) { return 0; }
-void speaker_play(speaker_fill_fn fill, void *ctx) {}
+void speaker_start(speaker_fill_fn fill, void *ctx) {}
+void speaker_stop(void) {}
+void speaker_wait(void) {}
+bool speaker_busy(void) { return false; }
 
 static void put16(FILE *f, uint32_t v) { fputc(v & 0xFF, f); fputc(v >> 8 & 0xFF, f); }
 static void put32(FILE *f, uint32_t v) { put16(f, v & 0xFFFF); put16(f, v >> 16); }

@@ -73,7 +73,7 @@ const char *shell_platform() {
 /* 0-9 = TONE n (and BEEP), 10 = the error squeak: /SOUNDS/TONES/TONEn.wav,
  * ERROR.wav (or their built-ins -- sounds.h). */
 void shell_beeper(int tone) {
-    sounds_play_tone(tone);
+    sounds_play_tone(tone, true);
 }
 
 /* Hands the CPU back to the main loop every time slice while a program

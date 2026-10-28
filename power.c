@@ -214,6 +214,7 @@ static void set_until(uint64_t until_ms) {
 }
 
 void power_deep_off(uint8_t on_row, uint8_t on_col, uint64_t splash_until_ms) {
+    speaker_stop(); /* core 0 plays sounds, and is about to be parked for good */
     watchdog_enable(OFF_SAFETY_WATCHDOG_MS, true);
     if (splash_until_ms == 0)
         display_sleep();

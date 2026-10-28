@@ -50,6 +50,7 @@ enum {
     CKPT_CORE_POWERCYCLE,
     CKPT_ON_SOUND,     /* playing ON.wav */
     CKPT_SOUND,        /* inside speaker_play(); the one before it comes back after */
+    CKPT_APP,          /* an app's own code (app.c): it stopped calling key() or show() */
 };
 
 static inline void debug_checkpoint(uint32_t code, uint32_t detail) {
@@ -104,6 +105,7 @@ static inline const char *debug_checkpoint_name(uint32_t code) {
         case CKPT_CORE_POWERCYCLE: return "CORE_POWERCYCLE";
         case CKPT_ON_SOUND: return "ON_SOUND";
         case CKPT_SOUND: return "SOUND";
+        case CKPT_APP: return "APP";
         default: return "?";
     }
 }

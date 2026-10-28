@@ -1,6 +1,7 @@
 #ifndef KEYHOLD_H
 #define KEYHOLD_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -40,6 +41,9 @@ void key_hold_begin(uint8_t row, uint8_t col);
 
 /* Call again and again while it stays down. */
 key_hold_t key_hold_poll(void);
+/* Apps: the screenshot gesture, after key_hold_begin() on SHIFT. True when
+ * a screenshot was taken (both keys are up then). */
+bool key_hold_app_screenshot(void);
 
 #ifdef __cplusplus
 }

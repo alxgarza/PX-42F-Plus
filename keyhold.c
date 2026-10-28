@@ -74,6 +74,30 @@ void key_hold_begin(uint8_t row, uint8_t col) {
         screenshot_remember(); /* before SHIFT changes the screen */
 }
 
+/* For apps (app.c): the screenshot gesture alone, SHIFT and "-" held
+ * together, while SHIFT is the key last pressed. Not the core's part: no
+ * SHIFT cancel (free42_key_cancel()) and no BST/SST. True when it has
+ * taken the screenshot, and waited for both keys to come up. */
+bool key_hold_app_screenshot(void) {
+    if (code != FREE42_KEY_SHIFT || !keyboard_is_held(key_row, key_col) || !minus_held()) {
+        together = false;
+        return false;
+    }
+    if (!together) {
+        together = true;
+        together_since = get_absolute_time();
+    }
+    if (ms_since(together_since) < SCREENSHOT_HOLD_MS)
+        return false;
+    screenshot_save();
+    for (int i = 0; i < KEY_STUCK_MS / 10 && (keyboard_is_held(key_row, key_col) || minus_held()); i++) {
+        watchdog_update();
+        sleep_ms(10);
+    }
+    together = false;
+    return true;
+}
+
 key_hold_t key_hold_poll(void) {
     if (code == FREE42_KEY_EXIT)
         return ms_since(down_since) >= EXIT_HOLD_OFF_MS ? KEY_HOLD_OFF : KEY_HOLD_NONE;

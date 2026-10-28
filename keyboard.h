@@ -46,6 +46,10 @@ bool keyboard_scan(uint8_t *row, uint8_t *col);
  * for "still held," swallowing that other key's own press entirely. */
 bool keyboard_is_held(uint8_t row, uint8_t col);
 
+/* Every key down at once: bit row * KB_COLS + col (apps, app.c, which
+ * report each key going down and up). */
+uint64_t keyboard_held(void);
+
 /* Sleeps (WFE) until a key goes down, or until deadline -- the idle wait,
  * instead of scanning every 10ms. All rows are driven low and every column
  * gets a falling-edge interrupt. Returns true if a key went down (after a

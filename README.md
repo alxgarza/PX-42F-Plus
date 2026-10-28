@@ -39,7 +39,7 @@ With **Off** highlighted, EXIT turns the calculator off.
 The settings menu has:
 
 - **Off**
-- **IR Remote**: turns the calculator into a remote control (below)
+- **Games & Apps**: runs games and apps from the drive (below)
 - **Date & Time**: time, date, their formats, and clock calibration
 - **Sounds**: key click, and the boot, on and off sounds
 - **Fonts**: the two calculator fonts
@@ -63,52 +63,32 @@ In **USB Drive** mode the calculator appears on a computer as a drive named
 | `SOUNDS/` | WAV files: `KEY/` key clicks (up to 250 ms), `TONES/TONE0`–`9` for TONE and BEEP, `BOOT`, `ON`, `OFF`, `ERROR` |
 | `FONTS/` | Font sheets: `LARGE/` (175 × 135 PNG), `SMALL/` (128 × 96 PNG), `MINI/` (96 × 64 PNG); `BUILTIN/` has the built-in fonts' sheets, read-only |
 | `SCREENSHOTS/` | Screenshots, 250 × 122 PNG, named by date and time |
-| `IR/` | Remote controls (`.ir`), below |
+| `BIN/` | Games and apps (`.bin`): `GAMES/` and `APPS/`, below |
 
 Sounds can be any PCM or float WAV, at any sample rate; the calculator
 normalizes and converts them. A font sheet is the 128 HP-42S characters in a
 grid 16 across and 8 down: copy one from `FONTS/BUILTIN/` (`LARGE.png`,
 `SMALL.png`, `MINI.png`) to the computer and redraw it.
 
-### The remote control
+### Games and apps
 
-The PX-42F has an infrared LED, so it can work as a TV or audio remote.
-Each remote is a text file in `IR/` on the drive, in the same format as the
-[Flipper Zero](https://flipperzero.one)'s `.ir` files, with two extra lines:
-`button` (which key sends the code) and `label` (what the key shows on the
-screen).
+**Settings → Games & Apps** runs programs written for the PX-42F itself: `.bin`
+files in `BIN/GAMES` and `BIN/APPS` on the drive. ON always leaves one (held
+2 s: off). The calculator's memory is saved to the drive before one starts,
+so a game that crashes loses nothing. Each keeps its own files in a folder
+next to it (`BIN/GAMES/SNAKE/` for `SNAKE.bin`).
 
-```
-name: TV On/Off
-label: Power
-button: R0C5
-protocol: NECext
-address: 02 7D 00 00
-command: 9F 60 00 00
-```
+They're written in C against [`px_app.h`](px_app.h), the contract between the
+firmware and an app: the screen and fonts, keys, time, sound, files on the
+drive, the USB console, the infrared LED and the battery. The
+**PX-42F-App-Template** project is where a new one starts. It has a build
+setup for VS Code and a simulator that runs the app on a computer. Two are
+built on it:
 
-`button` is the key's place on the keyboard: `R` and the row (0–6, from the
-top), `C` and the column (0–5, from the left). The top two rows have 6 keys
-and the others 5, so `R0C5` is XEQ, `R2C0` is ENTER and `R6C4` is +. `R6C0`
-(ON) can't be used: it always goes back to the calculator. Labels longer than
-the key is wide are cut short on the screen.
-
-[`examples/IR/Samsung-TV.ir`](examples/IR/Samsung-TV.ir) is a complete example
-for Samsung TVs, with the key map and instructions in its comments: copy it to
-`IR/` to try it, or as the start of your own.
-
-Choose a remote in **Settings → IR Remote**. The screen then shows a map of the
-keyboard with each key's label; keys with no code are blank and do nothing. A
-key sends its code when pressed and repeats it while held. The title bar shows
-what was sent last. ON goes back to the calculator, and holding ON for 2 seconds
-turns the calculator off.
-
-The protocols are the Flipper's: NEC, NECext, NEC42, NEC42ext, Samsung32, RC5,
-RC5X, RC6, SIRC, SIRC15, SIRC20, Kaseikyo, RCA and Pioneer. They send the same
-timings as the Flipper, so codes from collections such as
-[Flipper-IRDB](https://github.com/Lucaslhm/Flipper-IRDB) work: copy a file to
-`IR/` and add a `button` line to each code you want on a key. Entries without
-a `button` are ignored. Raw codes (`type: raw`) aren't supported yet.
+- **PX-42F-Snake**: Snake.
+- **PX-42F-IR-Remote**: the infrared remote control. It used to be built into
+  this firmware. Its remotes go in `BIN/APPS/IR`, in the Flipper Zero's `.ir`
+  format.
 
 ### The USB console
 
@@ -143,10 +123,8 @@ If `ninja` isn't on your PATH, use the one the extension installed: add
 line and run that `ninja`. The firmware is `build/PX-42F-Plus.uf2`.
 
 [`tests/run.sh`](tests/run.sh) builds and runs the tests for the file parsers
-(PNG, WAV, font sheets, `.ir` files, and the PNG writer) and the infrared
-encoders on the computer, with AddressSanitizer. The infrared test vectors in
-`tests/ir_vectors.h` come from the Flipper firmware's own encoders
-([`tools/ir_vectors/make.sh`](tools/ir_vectors/make.sh) regenerates them).
+(PNG, WAV, font sheets, app headers, and the PNG writer) on the computer, with
+AddressSanitizer.
 
 ## Flashing
 

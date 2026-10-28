@@ -36,7 +36,7 @@ static uint32_t periods(uint32_t us, uint32_t carrier_hz) {
     return n > 0 ? n - 1 : 0;
 }
 
-void irtx_send(const ir_burst_t *b) {
+void irtx_send(const px_ir_burst_t *b) {
     wait_until(delayed_by_us(last_end, b->us[0]));
 
     pio_clock(true);

@@ -175,23 +175,35 @@ static const builtin_sound_t *builtin(const char *path) {
 
 static bool use_files_ok = true;
 
+/* A WAV file on the drive, by its full path. Its FILE gets a buffer of
+ * its own, here: core 0 reads it while the sound plays (speaker.h), and
+ * stdio would otherwise malloc() one there -- on the heap core 1's
+ * Plus42 is using. One sound file is open at a time (play_stream). */
+static bool open_file(stream_t *st, const char *full, uint32_t max_out, const char **error) {
+    static char file_buf[512];
+    *error = "not found";
+    FILE *f = use_files_ok && statefs_ready() ? statefs_fopen(full, "rb") : NULL;
+    if (f == NULL)
+        return false;
+    setvbuf(f, file_buf, _IOFBF, sizeof(file_buf));
+    wav_source_t src;
+    if (!wav_source_file(&src, f)) {
+        fclose(f);
+        *error = "can't read it";
+        return false;
+    }
+    if (stream_open(st, src, max_out, error))
+        return true;
+    wav_close(&st->src);
+    return false;
+}
+
 /* /SOUNDS/<path>, or the built-in if the file is missing or unusable. */
 static bool open_sound(stream_t *st, const char *path, uint32_t max_out, const char **error) {
     char full[64];
     snprintf(full, sizeof(full), "%s/%s", SOUNDS_DIR, path);
-    *error = "not found";
-    FILE *f = use_files_ok && statefs_ready() ? statefs_fopen(full, "rb") : NULL;
-    if (f != NULL) {
-        wav_source_t src;
-        if (!wav_source_file(&src, f)) {
-            fclose(f);
-            *error = "can't read it";
-        } else if (stream_open(st, src, max_out, error)) {
-            return true;
-        } else {
-            wav_close(&st->src);
-        }
-    }
+    if (open_file(st, full, max_out, error))
+        return true;
     const builtin_sound_t *b = builtin(path);
     if (b == NULL)
         return false;
@@ -200,28 +212,61 @@ static bool open_sound(stream_t *st, const char *path, uint32_t max_out, const c
 }
 
 static stream_t play_stream; /* ~1KB: not on the stack */
+static bool play_open;       /* play_stream holds a sound (its file open) */
 
-static void play(const char *path) {
-    const char *error;
-    if (open_sound(&play_stream, path, UINT32_MAX, &error)) {
-        speaker_play(stream_fill, &play_stream);
+/* Stops the sound playing, and closes the last one's file -- left open
+ * by a sound that ended by itself, until the next one or this. */
+void sounds_stop(void) {
+    speaker_stop();
+    if (play_open) {
         wav_close(&play_stream.src);
+        play_open = false;
     }
 }
 
+bool sounds_playing(void) {
+    return speaker_busy();
+}
+
+void sounds_wait(void) {
+    speaker_wait();
+}
+
+/* play_stream, opened, to the speaker: waiting until it has played, or
+ * not. */
+static bool play_stream_now(bool wait) {
+    play_open = true;
+    speaker_start(stream_fill, &play_stream);
+    if (wait)
+        sounds_wait();
+    return true;
+}
+
+static bool play(const char *path, bool wait) {
+    sounds_stop();
+    const char *error;
+    return open_sound(&play_stream, path, UINT32_MAX, &error) && play_stream_now(wait);
+}
+
 void sounds_play_boot(void) {
-    play("BOOT.wav");
+    play("BOOT.wav", true);
 }
 
 void sounds_play_on(void) {
-    play("ON.wav");
+    play("ON.wav", false);
 }
 
 void sounds_play_off(void) {
-    play("OFF.wav");
+    play("OFF.wav", true);
 }
 
-void sounds_play_tone(int tone) {
+bool sounds_play_file(const char *path, bool wait) {
+    sounds_stop();
+    const char *error;
+    return open_file(&play_stream, path, UINT32_MAX, &error) && play_stream_now(wait);
+}
+
+void sounds_play_tone(int tone, bool wait) {
     char path[20];
     if (tone >= 0 && tone <= 9)
         snprintf(path, sizeof(path), "TONES/TONE%d.wav", tone);
@@ -229,7 +274,7 @@ void sounds_play_tone(int tone) {
         snprintf(path, sizeof(path), "ERROR.wav");
     else
         return;
-    play(path);
+    play(path, wait);
 }
 
 /* ===================== the key sounds, in RAM ===================== */
@@ -260,10 +305,12 @@ static uint32_t key_fill(void *ctx, uint16_t *buf, uint32_t max) {
 }
 
 void sounds_key_play(key_sound_t kind) {
+    static key_play_t k; /* core 0 reads it as it plays */
     if (key_len[kind] == 0)
         return;
-    key_play_t k = {key_start[kind], key_start[kind] + key_len[kind]};
-    speaker_play(key_fill, &k);
+    sounds_stop();
+    k = (key_play_t) {key_start[kind], key_start[kind] + key_len[kind]};
+    speaker_start(key_fill, &k);
 }
 
 /* Converts sound path (at most max_out) into key_duty, from *used on, as
@@ -292,6 +339,7 @@ static void key_alias(key_sound_t kind, key_sound_t from) {
 }
 
 bool sounds_key_select(const char *name, char *error, size_t error_size) {
+    sounds_stop(); /* key_duty and play_stream are about to change */
     memset(key_len, 0, sizeof(key_len));
     if (name[0] == 0)
         return true; /* Off */
@@ -485,6 +533,7 @@ static void write_missing(void) {
 }
 
 void sounds_init(bool use_files) {
+    sounds_stop(); /* the files may be about to be written */
     use_files_ok = use_files;
     if (use_files && statefs_ready())
         write_missing();

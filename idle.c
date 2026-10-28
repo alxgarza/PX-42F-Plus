@@ -4,6 +4,7 @@
 #include "tusb.h"
 #include "cpuclock.h"
 #include "keyboard.h"
+#include "speaker.h"
 #include "watchdog_cfg.h"
 #include "debug_checkpoint.h"
 
@@ -35,7 +36,8 @@ bool idle_wait(absolute_time_t until) {
         return false;
     }
 
-    cpuclock_set_fast(false);
+    if (!speaker_busy()) /* the PWM runs from the system clock: a sound would drop in pitch */
+        cpuclock_set_fast(false);
     until = idle_earliest(until, make_timeout_time_ms(IDLE_WAKE_MAX_MS));
     debug_checkpoint(CKPT_IDLE_WAIT, (uint32_t) (absolute_time_diff_us(get_absolute_time(), until) / 1000));
     watchdog_enable(IDLE_WAKE_MAX_MS + WATCHDOG_MS, 1); /* the wait is longer than the usual window */

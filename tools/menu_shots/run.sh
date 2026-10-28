@@ -13,7 +13,7 @@ tools/menu_shots/build.sh "$TMP/menu_shots"
 # on the top list: that leaves the menu.
 "$TMP/menu_shots" "$OUT" \
   shot:settings \
-  DOWN ENTER shot:ir_remote EXIT \
+  DOWN ENTER shot:games_apps ENTER shot:games EXIT DOWN ENTER shot:apps EXIT UP EXIT \
   DOWN ENTER shot:date_time \
     ENTER shot:set_time EXIT \
     DOWN ENTER shot:time_format EXIT \

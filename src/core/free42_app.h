@@ -142,11 +142,15 @@ bool free42_export_programs(int index, const char *path);
 /* Adds the programs in the file at path to the calculator's. Returns how
  * many programs that added, or -1 if the file couldn't be read. */
 int free42_import_programs(const char *path);
-/* Before Update Firmware (power_update_mode()): the memory to the drive,
- * where the next boot takes it from (free42_init()) -- the RAM copy is
- * dropped, or that one, as of the last ON, would come back instead. False
+/* The memory to the drive, where the next boot takes it from
+ * (free42_init()) -- the RAM copy is dropped, or that one, as of the last
+ * ON, would come back instead. Before Update Firmware
+ * (power_update_mode()), and before an app takes that RAM (app.c). False
  * if it couldn't be saved. */
-bool free42_save_for_update(void);
+bool free42_save_to_drive(void);
+/* After an app: the memory back in its RAM copy (and the drive's copy
+ * gone, unless the memory is too big for RAM). */
+void free42_memory_to_ram(void);
 /* The core's complaint about a file (shell_message()): noted for the two above. */
 void free42_core_message(const char *message);
 

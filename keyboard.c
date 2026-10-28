@@ -56,6 +56,19 @@ bool keyboard_is_held(uint8_t row, uint8_t col) {
     return held;
 }
 
+uint64_t keyboard_held(void) {
+    uint64_t held = 0;
+    for (int row = 0; row < KB_ROWS; row++) {
+        gpio_put(kb_row_pins[row], 0);
+        sleep_us(5);
+        for (int col = 0; col < KB_COLS; col++)
+            if (!gpio_get(kb_col_pins[col]))
+                held |= 1ull << (row * KB_COLS + col);
+        gpio_put(kb_row_pins[row], 1);
+    }
+    return held;
+}
+
 /* Set by the column interrupt (a press that's over again by the time
  * the loop looks still counts). The alarm's handler has nothing to do:
  * taking its interrupt is what ends the WFI. */

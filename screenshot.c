@@ -72,7 +72,7 @@ void screenshot_save(void) {
     display_draw_string(&font_8x12, line, 2, 0, 0xFF);
     display_flush();
     if (error != NULL)
-        sounds_play_tone(10); /* the error sound */
+        sounds_play_tone(10, true); /* the error sound */
     for (int i = 0; i < 100; i++) { /* a second to read it */
         watchdog_update();
         sleep_ms(10);

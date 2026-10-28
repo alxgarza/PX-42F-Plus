@@ -50,21 +50,40 @@ extern const unsigned builtin_sound_count;
  * see main.c). */
 void sounds_init(bool use_files);
 
-/* Play /SOUNDS/BOOT.wav, ON.wav, OFF.wav; blocking. The callers check the
- * Boot Sound / On Sound / Off Sound settings. */
+/* Sounds play on core 0 (speaker.h): starting one stops the one playing,
+ * and those that don't wait return as soon as it starts. */
+
+/* /SOUNDS/BOOT.wav, waiting: the boot's sounds guard (main.c) stays on
+ * until it has played. ON.wav: not waiting. OFF.wav, waiting: the power
+ * goes off after it. The callers check the On / Off Sound settings. */
 void sounds_play_boot(void);
 void sounds_play_on(void);
 void sounds_play_off(void);
 
-/* Free42's shell_beeper(): 0-9 = TONE n, 10 = the error squeak. Blocking. */
-void sounds_play_tone(int tone);
+/* Free42's shell_beeper(): 0-9 = TONE n, 10 = the error squeak. Free42
+ * waits (a program playing a tune relies on each TONE ending before the
+ * next); an app may not. */
+void sounds_play_tone(int tone, bool wait);
+
+/* Any WAV on the drive, by its full path (apps, app.c). False if it can't
+ * be opened or isn't a WAV this can play. */
+bool sounds_play_file(const char *path, bool wait);
+
+/* A sound is playing. */
+bool sounds_playing(void);
+/* Until the sound playing has ended. */
+void sounds_wait(void);
+/* Stops the sound playing, and closes its file: before the drive goes to
+ * a computer or is formatted, or anything else that needs the files. */
+void sounds_stop(void);
 
 /* Which of a Key Sound set's sounds a key plays (free42_key_sound()):
  * typing a number or text, an operation, ENTER. */
 typedef enum { KEY_SOUND_ENTRY, KEY_SOUND_OP, KEY_SOUND_ENTER, KEY_SOUND_KINDS } key_sound_t;
 
-/* A key sound, from RAM: starts at once, blocking (it's short). Nothing if
- * Key Sound is Off. */
+/* A key sound, from RAM: starts at once and doesn't wait -- typing goes
+ * on while it plays; the next key's cuts it short. Nothing if Key Sound is
+ * Off. */
 void sounds_key_play(key_sound_t kind);
 
 /* Loads Key Sound `name` ("" = Off) into RAM: the set /SOUNDS/KEY/<name>/,

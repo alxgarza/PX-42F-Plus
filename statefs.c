@@ -4,6 +4,8 @@
 #include <string.h>
 #include <strings.h>
 
+#include "pico/mutex.h"
+#include "pico/platform.h"
 #include "pico/time.h"
 #include "ff.h"
 #include "flashdisk.h"
@@ -24,6 +26,26 @@
 
 static FATFS fs;
 static bool mounted = false;
+
+/* FatFs, and the flash cache under it, serve one caller at a time: core 1,
+ * and core 0 reading a sound as it plays (speaker.c, through a FILE from
+ * statefs_fopen()). Every function here that reaches either holds this
+ * lock to its end -- FS_LOCKED() at its top -- and so do the open files'
+ * callbacks. Recursive: these call each other. */
+auto_init_recursive_mutex(fs_mutex);
+
+static int fs_lock(void) {
+    recursive_mutex_enter_blocking(&fs_mutex);
+    return 0;
+}
+
+static void fs_unlock(int *unused) {
+    (void) unused;
+    recursive_mutex_exit(&fs_mutex);
+}
+
+/* The lock, held until the enclosing block is left, whichever way. */
+#define FS_LOCKED() int fs_locked_ __attribute__((cleanup(fs_unlock), unused)) = fs_lock()
 
 /* Gives an already-formatted volume the current label (volumes formatted
  * by older firmware are labeled "PX-42S"). Only writes when it differs. */
@@ -65,6 +87,7 @@ static bool format(void) {
 }
 
 bool statefs_init(void) {
+    FS_LOCKED();
     debug_checkpoint(CKPT_FS_INIT, 0);
     if (!flashdisk_init())
         return false;
@@ -95,6 +118,7 @@ bool statefs_init(void) {
 }
 
 bool statefs_format(void) {
+    FS_LOCKED();
     if (flashdisk_block_count() == 0)
         return false;
     if (mounted)
@@ -112,6 +136,7 @@ bool statefs_ready(void) {
 }
 
 bool statefs_sync(void) {
+    FS_LOCKED();
     return flashdisk_flush_all();
 }
 
@@ -120,20 +145,24 @@ void statefs_state_path(const char *name, char *path, size_t size) {
 }
 
 bool statefs_file_exists(const char *path) {
+    FS_LOCKED();
     FILINFO info;
     return mounted && f_stat(path, &info) == FR_OK;
 }
 
 void statefs_mkdir(const char *path) {
+    FS_LOCKED();
     if (mounted)
         f_mkdir(path); /* FR_EXIST when it's already there -- fine */
 }
 
 bool statefs_set_readonly(const char *path, bool readonly) {
+    FS_LOCKED();
     return mounted && f_chmod(path, readonly ? AM_RDO : 0, AM_RDO) == FR_OK;
 }
 
 bool statefs_state_exists(const char *name) {
+    FS_LOCKED();
     char path[48];
     statefs_state_path(name, path, sizeof(path));
     FILINFO info;
@@ -141,6 +170,7 @@ bool statefs_state_exists(const char *name) {
 }
 
 bool statefs_delete_state(const char *name) {
+    FS_LOCKED();
     char path[48];
     statefs_state_path(name, path, sizeof(path));
     bool ok = mounted && f_unlink(path) == FR_OK;
@@ -149,6 +179,7 @@ bool statefs_delete_state(const char *name) {
 }
 
 bool statefs_rename_state(const char *old_name, const char *new_name) {
+    FS_LOCKED();
     char old_path[48], new_path[48];
     statefs_state_path(old_name, old_path, sizeof(old_path));
     statefs_state_path(new_name, new_path, sizeof(new_path));
@@ -163,6 +194,7 @@ static int compare_names(const void *a, const void *b) {
 
 /* The files (dirs false) or folders (true) in dir_path ending in ext. */
 static int list_entries(const char *dir_path, bool dirs, const char *ext, char *names, size_t name_size, int max) {
+    FS_LOCKED();
     if (!mounted)
         return 0;
     DIR dir;
@@ -206,20 +238,25 @@ int statefs_list_states(char names[][STATEFS_NAME_MAX + 1], int max) {
 
 /* The read/write callbacks feed the watchdog: saving or loading a big
  * state is a long run of them, inside the Free42 core, with nothing else
- * feeding it meanwhile. */
+ * feeding it meanwhile. Only on core 1: core 0 reading a sound mustn't
+ * keep a hang on core 1 from being noticed. */
 static int fil_read(void *cookie, char *buf, int n) {
-    watchdog_update();
+    FS_LOCKED();
+    if (get_core_num() == 1)
+        watchdog_update();
     UINT got;
     return f_read((FIL *) cookie, buf, (UINT) n, &got) == FR_OK ? (int) got : -1;
 }
 
 static int fil_write(void *cookie, const char *buf, int n) {
+    FS_LOCKED();
     watchdog_update();
     UINT put;
     return f_write((FIL *) cookie, buf, (UINT) n, &put) == FR_OK ? (int) put : -1;
 }
 
 static fpos_t fil_seek(void *cookie, fpos_t offset, int whence) {
+    FS_LOCKED();
     FIL *fil = (FIL *) cookie;
     FSIZE_t base = whence == SEEK_CUR ? f_tell(fil) : whence == SEEK_END ? f_size(fil) : 0;
     if (f_lseek(fil, (FSIZE_t) ((long) base + offset)) != FR_OK)
@@ -228,6 +265,7 @@ static fpos_t fil_seek(void *cookie, fpos_t offset, int whence) {
 }
 
 static int fil_close(void *cookie) {
+    FS_LOCKED();
     FIL *fil = (FIL *) cookie;
     FRESULT r = f_close(fil);
     free(fil);
@@ -235,6 +273,7 @@ static int fil_close(void *cookie) {
 }
 
 FILE *statefs_fopen(const char *name, const char *mode) {
+    FS_LOCKED();
     if (ramstate_path(name))
         return ramstate_fopen(mode); /* the RAM-kept state, not a flash file */
     if (!mounted)
@@ -263,12 +302,14 @@ FILE *statefs_fopen(const char *name, const char *mode) {
 /* Free42 saves to name.<time>.crash and then renames it over name; a
  * /RAM/ "file" is written in place, so for those there's nothing to do. */
 int statefs_rename(const char *oldname, const char *newname) {
+    FS_LOCKED();
     if (ramstate_path(oldname) || ramstate_path(newname))
         return 0;
     return mounted && f_rename(oldname, newname) == FR_OK ? 0 : -1;
 }
 
 int statefs_remove(const char *name) {
+    FS_LOCKED();
     if (ramstate_path(name))
         return 0;
     return mounted && f_unlink(name) == FR_OK ? 0 : -1;
@@ -277,6 +318,7 @@ int statefs_remove(const char *name) {
 /* ===================== USB Disk mode ===================== */
 
 void statefs_usb_begin(void) {
+    FS_LOCKED();
     flashdisk_flush_all();
     if (mounted)
         f_mount(NULL, "", 0); /* FatFs keeps its own copy of the FAT -- drop it */
@@ -285,6 +327,7 @@ void statefs_usb_begin(void) {
 }
 
 void statefs_usb_poll(void) {
+    FS_LOCKED();
     bool sync = usb_msc_take_sync_request();
     bool idle = time_us_64() - flashdisk_last_write_us() >= USB_IDLE_FLUSH_US;
     if (flashdisk_room_needed() || (flashdisk_dirty() && (sync || idle)))
@@ -292,6 +335,7 @@ void statefs_usb_poll(void) {
 }
 
 void statefs_usb_end(void) {
+    FS_LOCKED();
     usb_msc_detach();
     flashdisk_flush_all();
     mount(); /* re-reads everything the computer changed */

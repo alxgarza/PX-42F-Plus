@@ -34,8 +34,8 @@
 #include "fonts.h"
 #include "screenshot.h"
 #include "keyhold.h"
+#include "app.h"
 #include "irtx.h"
-#include "remote.h"
 #include "tusb.h"
 #include "hardware/clocks.h"
 #include "hardware/vreg.h"
@@ -189,13 +189,10 @@ static void handle_serial_command(const char *cmd) {
                (unsigned long) off_hz, POWER_OFF_MV);
         uint32_t why = powman_hw->chip_reset;
         printf("last reset: 0x%08lx (%s)\n", (unsigned long) why,
-               reset_button                                           ? "RESET button: Memory Clear"
-               : why & POWMAN_CHIP_RESET_HAD_RUN_LOW_BITS             ? "a restart since the RESET button"
-               : power_woke_from_off()                                ? "ON from OFF"
-               : why & POWMAN_CHIP_RESET_HAD_SWCORE_PD_BITS           ? "a restart since the last OFF"
-               : why & POWMAN_CHIP_RESET_HAD_WATCHDOG_RESET_SWCORE_BITS ? "watchdog or bootloader restart"
-               : why & POWMAN_CHIP_RESET_HAD_POR_BITS                 ? "power-up"
-                                                                      : "other");
+               reset_button                  ? "RESET button or power-up: Memory Clear"
+               : power_woke_from_off()       ? "ON from OFF"
+               : watchdog_caused_reboot()    ? "watchdog restart: a flash, an update or a crash"
+                                             : "other");
         uint32_t waits, key_waits;
         idle_stats(&waits, &key_waits);
         printf("idle waits on battery: %lu (ended by a key: %lu)\n", (unsigned long) waits, (unsigned long) key_waits);
@@ -232,13 +229,18 @@ static void handle_serial_command(const char *cmd) {
 }
 
 /* After the RESET button the Hello screen stays up until a key is pressed
- * (it only dismisses the screen) -- true -- or the Sleep Timer runs out:
- * false, turn off. Not on a computer's USB, as in the main loop. */
+ * (it only dismisses the screen) or something arrives on the console --
+ * true -- or the Sleep Timer runs out: false, turn off. Not on a computer's
+ * USB, as in the main loop. */
 static bool hello_wait(void) {
     absolute_time_t since = get_absolute_time();
     uint8_t row, col;
     while (!keyboard_scan(&row, &col)) {
         watchdog_update();
+        /* A computer typing on the console, or sending a command (!STATUS):
+         * on with the boot, which reads it -- not taken here, only looked at. */
+        if (tud_cdc_n_available(0) > 0)
+            return true;
         absolute_time_t until = make_timeout_time_ms(60000);
         if (px_settings.sleep_minutes != 0 && !idle_usb_host_active()) {
             absolute_time_t off = delayed_by_ms(since, (uint32_t) px_settings.sleep_minutes * 60000u);
@@ -263,7 +265,7 @@ static void core1_main(void)
     release_psram_cs();
     settings_load();
 
-    bool clock_stopped = rtc_clock_init();
+    rtc_clock_init();
     battery_init();
     display_init();
 
@@ -282,17 +284,18 @@ static void core1_main(void)
      * UF2 copy) and for watchdog_reboot() -- those showed "WATCHDOG RESET"
      * with whatever checkpoint was left from before. */
     bool hung = watchdog_enable_caused_reboot();
-    /* The RESET button pulls the chip's RUN pin low (PINOUT.html), which
-     * POWMAN records -- unlike every other restart: ON, a crash, the
-     * watchdog, leaving the bootloader after a flash. Pressed on purpose,
-     * so it means Memory Clear (free42_init()); the others bring the
-     * memory back. But the record is of POWMAN's last reset, and only RUN,
-     * a power-up or a brown-out reset POWMAN: after a RESET press it said
-     * RUN pin through every flash and crash restart that followed, and the
-     * first flash after a RESET cleared the memory. Those reset the
-     * always-on timer too, the others don't -- so a RESET press is the RUN
-     * record with the clock stopped. */
-    reset_button = clock_stopped && (powman_hw->chip_reset & POWMAN_CHIP_RESET_HAD_RUN_LOW_BITS) != 0;
+    /* The RESET button pulls the chip's RUN pin low (PINOUT.html). Pressed
+     * on purpose, it means Memory Clear (free42_init()) and the Hello
+     * screen waiting for a key; the other restarts bring the memory back.
+     * What tells it from them is that it isn't the watchdog's: a flash, an
+     * update, a crash and picotool's restart all go through the watchdog
+     * (watchdog_caused_reboot(), true also for the boot ROM's restart out
+     * of the bootloader), a RUN-pin reset clears its record. Not POWMAN's
+     * own record of the last reset (CHIP_RESET's RUN_LOW), which stays set
+     * through every restart after a RESET press -- and no stopped clock
+     * either, which RESET didn't always leave. A power-up counts as one
+     * (the memory is gone anyway), ON after OFF doesn't. */
+    reset_button = !woke_from_off && !watchdog_caused_reboot();
     bool crashed = crash_report_take(crash1, crash2, crash3, sizeof(crash1),
                                      debug_checkpoint_name(watchdog_hw->scratch[0]), hung);
     keyboard_init();
@@ -402,7 +405,7 @@ static void core1_main(void)
     debug_checkpoint(CKPT_BOOT_FONTS, 0);
     fonts_init();
     powman_hw->scratch[7] = 0;
-    statefs_mkdir(IR_DIR); /* where remotes go (remote.h) */
+    app_folders(); /* where apps and games go (app.h) */
     statefs_mkdir(PROGRAMS_DIR); /* .raw program files (Settings -> Programs) */
     watchdog_update();
 
@@ -446,6 +449,7 @@ static void core1_main(void)
     int shown_hour, shown_min, shown_sec;
     rtc_get_hms(&shown_hour, &shown_min, &shown_sec);
 
+    static absolute_time_t next_battery_check;
     while (true) {
         watchdog_update();
         debug_checkpoint(CKPT_MAIN_LOOP_TOP, 0);
@@ -454,9 +458,13 @@ static void core1_main(void)
          * and keyboard until it's left -- by EXIT, back to the calculator,
          * or by turning off (handled just below). */
         if (free42_settings_requested()) {
-            if (settings_menu_run() == SETTINGS_MENU_POWER_OFF)
+            if (settings_menu_run() == SETTINGS_MENU_POWER_OFF) {
                 free42_request_powerdown();
-            else
+                /* Off from the menu -- also an app that ended because the
+                 * battery is empty: look at the battery now, below, so an
+                 * empty one gets no off sound (it draws 200mA). */
+                next_battery_check = get_absolute_time();
+            } else
                 free42_redisplay();
             last_activity = get_absolute_time();
         }
@@ -478,7 +486,6 @@ static void core1_main(void)
          * and in the middle of a program too: a brown-out can cut a flash
          * write short, and loses the memory. Not on a computer's USB (it's
          * charging). Checked every 10 seconds. */
-        static absolute_time_t next_battery_check;
         bool battery_off = false;
         if (time_reached(next_battery_check)) {
             next_battery_check = make_timeout_time_ms(10000);
@@ -715,9 +722,13 @@ int main()
      * on an event (SEV) from core 1 -- which a deep power-off uses to get
      * this core's attention when no interrupt is coming (on battery, with
      * no USB traffic). */
+    /* And it plays the sounds core 1 starts (speaker.h): the DMA plays
+     * them, this core refills it -- woken by its interrupt each 32ms. */
     while (true) {
+        bool sound_ending = speaker_core0_poll();
         cpuclock_core0_before_sleep(); /* deep only during core 1's idle wait */
-        __wfe();
+        if (!sound_ending) /* (the last ms of a sound are watched, not slept through) */
+            __wfe();
         printer_usb_pump();
         power_core0_poll(); /* parks this core for good before a deep power-off */
     }

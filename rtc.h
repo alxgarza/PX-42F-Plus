@@ -15,10 +15,8 @@ extern "C" {
  * 1970-01-01 00:00:00 and converts to/from the Gregorian calendar,
  * leap years included. No battery backup: after a power-on the clock
  * starts at 2021-03-05 00:59:00 (RTC_DEFAULT_* in rtc.c). Call once at
- * startup, before any other rtc_* function. True if the clock had stopped
- * and starts over: a power-up, a battery change or the RESET button --
- * not a flash, a crash or ON after OFF. */
-bool rtc_clock_init(void);
+ * startup, before any other rtc_* function. */
+void rtc_clock_init(void);
 
 typedef struct {
     int year;    /* e.g. 2026 */

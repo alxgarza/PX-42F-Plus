@@ -891,12 +891,20 @@ void free42_load_state(const char *path) {
     refresh();
 }
 
-bool free42_save_for_update(void) {
+bool free42_save_to_drive(void) {
     if (!statefs_ready())
         return false;
     core_save_state(OFF_STATE_FILE);
     ramstate_discard();
     return statefs_sync() && statefs_file_exists(OFF_STATE_FILE);
+}
+
+void free42_memory_to_ram(void) {
+    core_save_state(RAMSTATE_PATH);
+    if (ramstate_valid() && statefs_ready() && statefs_file_exists(OFF_STATE_FILE)) {
+        statefs_remove(OFF_STATE_FILE);
+        statefs_sync();
+    }
 }
 
 /* ============================ programs ============================ */

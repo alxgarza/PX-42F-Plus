@@ -106,10 +106,10 @@ add_executable(PX-42F-Plus
         pngwrite.c
         screenshot.c
         keyhold.c
-        irproto.c
-        irfile.c
         irtx.c
-        remote.c
+        app.c
+        appdec.c
+        appfile.c
         icons.c
         ${FREE42_CORE_SOURCES}
         )
@@ -209,6 +209,7 @@ target_link_libraries(PX-42F-Plus
         hardware_powman
         hardware_adc
         hardware_pwm
+        hardware_dma
         hardware_flash
         pico_flash
         tinyusb_device
