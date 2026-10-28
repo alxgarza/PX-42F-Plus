@@ -157,7 +157,7 @@ can be cherry-picked between them.
   or not. The developer manual is `../PX-42F-App-Template/framework_manual.html`. The app projects are siblings of this repo, not in it:
   `../PX-42F-App-Template` (the framework: `px42f/` = copy of `px_app.h`, runtime, linker script,
   `pxbin.py`; `sim/` = the app on the Mac against a stand-in table, PNG shots; VS Code tasks),
-  `../PX-42F-Snake`, `../PX-42F-IR-Remote` (all public on GitHub, alxgarza/PX-42F-*; the framework's `tools/sync_framework.sh` keeps their `px42f/` and `sim/` the same as the template's and `px_app.h` as this repo's) (the IR remote, moved out of the firmware: `.ir` files
+  `../PX-42F-Snake`, `../PX-42F-Gold-Runner` (a Lode Runner clone: levels in `levels/builtin.txt`, `LEVELS.TXT` on the drive replaces them), `../PX-42F-IR-Remote` (all public on GitHub, alxgarza/PX-42F-*; the framework's `tools/sync_framework.sh` keeps their `px42f/` and `sim/` the same as the template's and `px_app.h` as this repo's) (the IR remote, moved out of the firmware: `.ir` files
   in `/BIN/APPS/IR`, Flipper's 14 protocols, `make test` against Flipper's encoders). After
   changing `px_app.h`, copy it into each project's `px42f/`. API version 3 added `on_key()`
   (a short ON press as `PX_KEY_ON` for an app with its own exit; held 2 s still off), version 2
