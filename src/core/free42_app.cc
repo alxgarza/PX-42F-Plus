@@ -494,6 +494,18 @@ static void core_start(const char *path) {
     fit_display(true);
 }
 
+/* A copy of the memory on the drive (what a RESET press, an app starting
+ * and a crash leave) -- for the boot log. */
+bool free42_drive_copy_exists(void) {
+    return statefs_ready() && statefs_file_exists(OFF_STATE_FILE);
+}
+
+static const char *state_source_name = "-";
+
+const char *free42_state_source(void) {
+    return state_source_name;
+}
+
 void free42_init(bool after_crash, bool memory_clear) {
     /* The memory saved at the last OFF, from RAM or, failing that, the
      * drive. It's kept after loading, so a crash later on comes back to it
@@ -514,11 +526,13 @@ void free42_init(bool after_crash, bool memory_clear) {
     }
     bool from_ram = ramstate_valid();
     if (from_ram) {
+        state_source_name = "RAM";
         debug_checkpoint(CKPT_CORE_START, 0);
         core_start(RAMSTATE_PATH);
         debug_checkpoint(CKPT_CORE_POWERCYCLE, 0);
         pump_running(core_powercycle());
     } else if (statefs_ready() && statefs_file_exists(OFF_STATE_FILE)) {
+        state_source_name = "drive";
         debug_checkpoint(CKPT_CORE_START, 1);
         core_start(OFF_STATE_FILE);
         if (after_crash) {
@@ -528,6 +542,7 @@ void free42_init(bool after_crash, bool memory_clear) {
         debug_checkpoint(CKPT_CORE_POWERCYCLE, 1);
         pump_running(core_powercycle());
     } else {
+        state_source_name = "none (Memory Clear)";
         debug_checkpoint(CKPT_CORE_START, 2);
         core_start(NULL);
     }

@@ -35,6 +35,8 @@
 #include "screenshot.h"
 #include "keyhold.h"
 #include "app.h"
+#include "bootlog.h"
+#include "ramstate.h"
 #include "irtx.h"
 #include "tusb.h"
 #include "hardware/clocks.h"
@@ -134,6 +136,7 @@ static void print_help(void) {
            "Commands (upper case, then Enter):\n"
            "  !HELP                  this list (also !?)\n"
            "  !STATUS                clock, core voltage, USB, battery, time, idle counts\n"
+           "  !BOOTLOG               the last starts and app runs (/BOOTLOG.TXT)\n"
            "  !PRINTER               printer state and byte counters\n"
            "  !PRINTTEST             send a test line to the printer port\n"
            "  !SCREENSHOT            the screen as a PNG, in base64 (tools/screenshot.py saves it)\n"
@@ -158,6 +161,10 @@ static void handle_serial_command(const char *cmd) {
     if (strcmp(cmd, "PRINTER") == 0) {
         printf("printer: Free42 flag 55 (PRON)=%d\n", (int) free42_printer_on());
         printer_report();
+        return;
+    }
+    if (strcmp(cmd, "BOOTLOG") == 0) {
+        bootlog_print();
         return;
     }
     if (strcmp(cmd, "STATUS") == 0) {
@@ -431,7 +438,14 @@ static void core1_main(void)
 
     /* Start the Free42 core -- with its memory from before OFF, if any --
      * and draw the stack. */
+    /* What the log needs from before the memory is read (it's used up
+     * then, after a crash). */
+    const char *ram_state = ramstate_status();
+    bool drive_state = free42_drive_copy_exists();
     free42_init(crashed, reset_button);
+    bootlog_add("boot: %s%s%s | RAM copy: %s, drive copy: %s | memory from: %s",
+                reset_button ? "RESET or power-up" : woke_from_off ? "ON after OFF" : watchdog_caused_reboot() ? "watchdog restart" : "other restart",
+                hung ? ", HUNG" : "", crashed ? ", CRASHED" : "", ram_state, drive_state ? "yes" : "no", free42_state_source());
     if (hello_off)
         free42_request_powerdown(); /* the main loop's first pass turns it off */
     debug_checkpoint(CKPT_ON_SOUND, 0);

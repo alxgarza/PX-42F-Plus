@@ -183,7 +183,7 @@ can be cherry-picked between them.
   released by `cleanup`). Nothing else may call FatFs or flashdisk directly. `fil_read()`
   feeds the watchdog only on core 1.
 - USB composite: CDC0 console ("PX-42F Console", `!` commands: `!HELP`/`!?` (also printed
-  whenever a terminal opens the port), `!STATUS`, `!PRINTER`, `!PRINTTEST`, `!SCREENSHOT`,
+  whenever a terminal opens the port), `!STATUS`, `!BOOTLOG`, `!PRINTER`, `!PRINTTEST`, `!SCREENSHOT`,
   `!SETDATE`, `!SETTIME`; other characters are keypresses), MSC drive "PX-42F", picotool reset,
   CDC1 printer.
 - Flash: program 0-4 MB-4 KB; settings sector at 0x3FF000; FAT16 disk 4-16 MB
@@ -269,6 +269,9 @@ can be cherry-picked between them.
   Hello wait never came). Memory Clear = `ramstate_discard()` and
   `/OFFSTATE.p42` deleted (the overflow for a memory bigger than the 128 KB RAM copy); every
   other restart brings the memory back. `!STATUS` prints the last reset's cause.
+  `/BOOTLOG.TXT` (`bootlog.c`, last ~2 KB, also `!BOOTLOG`): a line per start -- what restarted it, the RAM copy's
+  status (`ramstate_status()`: ok / empty / bad length / BAD CHECKSUM), whether a drive copy existed, where the
+  memory came from -- and per app start/end. For "why did the memory clear?".
   After RESET the Hello screen waits for a key (only dismisses), a byte on the console (looked at with
   `tud_cdc_n_available()`, left for the main loop: a `!STATUS` still works) or the Sleep Timer (`hello_wait()`).
   Off from the settings menu (an app ended by an empty battery too) checks the battery at once, so an empty

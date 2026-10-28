@@ -108,6 +108,7 @@ add_executable(PX-42F-Plus
         keyhold.c
         irtx.c
         app.c
+        bootlog.c
         appdec.c
         appfile.c
         icons.c

@@ -17,6 +17,10 @@ extern "C" {
  * or watchdog reset, so the saved memory isn't kept for another go. Call
  * once, after statefs_init(), before free42_process_char(). */
 void free42_init(bool after_crash, bool memory_clear);
+/* Where the memory came from at that start: "RAM", "drive" or "none (Memory
+ * Clear)" -- for the boot log (bootlog.h). */
+const char *free42_state_source(void);
+bool free42_drive_copy_exists(void);
 
 /* Feeds one character in (typed over the serial console) as if it were an
  * HP-42S keypress, then prints the resulting 4-level stack.

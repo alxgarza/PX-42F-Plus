@@ -37,6 +37,16 @@ bool ramstate_path(const char *path) {
     return strncmp(path, "/RAM/", 5) == 0;
 }
 
+const char *ramstate_status(void) {
+    if (ram_state.magic != RAMSTATE_MAGIC)
+        return "empty";
+    if (ram_state.length > RAMSTATE_CAPACITY)
+        return "bad length";
+    if (ram_state.checksum != checksum(ram_state.data, ram_state.length))
+        return "BAD CHECKSUM";
+    return "ok";
+}
+
 bool ramstate_valid(void) {
     return ram_state.magic == RAMSTATE_MAGIC && ram_state.length <= RAMSTATE_CAPACITY
            && ram_state.checksum == checksum(ram_state.data, ram_state.length);

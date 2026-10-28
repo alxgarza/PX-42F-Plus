@@ -102,6 +102,7 @@ takes typed keystrokes and these commands (in capitals, then Enter):
 | `!SETDATE YYYY-MM-DD` | Sets the date |
 | `!SETTIME HH:MM[:SS]` | Sets the time (24-hour) |
 | `!SCREENSHOT` | Sends the screen as a base64 PNG ([`tools/screenshot.py`](tools/screenshot.py) saves it) |
+| `!BOOTLOG` | The last starts and app runs: what restarted the calculator and where its memory came from (also `BOOTLOG.TXT` on the drive) |
 | `!PRINTER`, `!PRINTTEST` | Printer port state and a test line |
 
 The second port is the printer: Free42's PRINT output arrives there as text.

@@ -40,6 +40,9 @@ void ramstate_keep(void);
 /* Gone for good: the RESET button's Memory Clear (free42_init()). The
  * checksum is broken too, or ramstate_keep() could bring it back. */
 void ramstate_discard(void);
+/* Why the RAM copy is (not) usable, for the boot log: "ok", "empty" (nothing
+ * saved, or dropped on purpose), "bad length" or "BAD CHECKSUM" (damaged). */
+const char *ramstate_status(void);
 
 #ifdef __cplusplus
 }
