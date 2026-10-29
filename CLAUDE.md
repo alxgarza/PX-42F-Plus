@@ -143,10 +143,13 @@ can be cherry-picked between them.
   app.c's key path on SHIFT down; the app gets SHIFT pressed again, cancelling its first press. SHIFT held ≥0.3 s then an arrow, in ALPHA: BST/SST
   (`free42_shift_arrow()`). Add new hold gestures there, not in the loops.
 - ALPHA keyboard, as the DM42's (`free42_app.cc`): `px_settings.alpha_mode` [ ] HP-42S keys /
-  [a] / [A] the printed letters (`alpha_key_matrix`); SHIFT then ↓/↑ switches, remembered
-  (`settings_save_later()`), badge in the status bar. In [a]/[A]: SHIFT+letter = same letter,
-  SHIFT+digit = digit, SHIFT+÷×−+ = symbol, R/S runs and SHIFT R/S = '?', SHIFT+top row = soft key.
-  First ALPHA ever starts in [ ]; numeric local labels (LBL 01) need [ ].
+  [a] / [A] the printed letters (`alpha_key_matrix`); SHIFT then R/S switches, remembered
+  (`settings_save_later()`), badge in the status bar. In [a]/[A]: the dot key types ',' (SHIFT+dot '.'),
+  the arrows '=' (up) and '$' (down) while the ALPHA menu's first page is hidden (`alpha_menu_hidden()`:
+  not drawn in [a]/[A] unless SHIFT is down; page 2 and the group menus are drawn, the arrows page them and the top row works them without SHIFT; a pick from a group goes back to the first page, hidden),
+  SHIFT+STO/RCL = ASTO/ARCL, SHIFT+letter = same letter,
+  SHIFT+digit = digit, SHIFT+÷×−+ = symbol, R/S types '?' (it doesn't run there), SHIFT+top row = soft key, SHIFT+arrow = the menu's page.
+  First ALPHA ever starts in [ ], and RESET (Memory Clear) puts it back there; numeric local labels (LBL 01) need [ ].
 - Settings menu (`settings_menu.c`, SHIFT+EXIT): Off, Games & Apps, Date & Time, Sounds, Fonts, Sleep Timer,
   Splash (Timer, Image), Printer, States (save/load/rename/delete), Programs (Plus42 `.raw`
   files in `/PROGRAMS`: import, export one or all, delete; `free42_*_programs()` around the core's

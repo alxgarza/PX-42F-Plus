@@ -285,6 +285,21 @@ static void draw_menu_tab(int i, const char *text, int text_len, bool highlight,
         display_fill_rect((uint8_t) x0, (uint8_t) (bottom - 1), (uint8_t) x1, (uint8_t) bottom, reverse);
 }
 
+/* The front menu is one of a page's groups (ABCDE, MATH, PUNC...). */
+static bool alpha_group_menu() {
+    int menu = get_front_menu();
+    return menu > MENU_ALPHA2 && menu <= MENU_ALPHA_MISC2;
+}
+
+/* [a] and [A] type from the keys' own letters, so the first page of the
+ * ALPHA menu (the groups of letters) isn't drawn: the bottom line stays
+ * empty and the arrows type characters (alpha_key_matrix). SHIFT shows it,
+ * to pick from with SHIFT + the top row; the second page and a group's menu
+ * (symbols, punctuation) are drawn as they are. In [ ] it is the HP-42S's. */
+static bool alpha_menu_hidden() {
+    return px_settings.alpha_mode != ALPHA_MODE_HP42S && get_front_menu() == MENU_ALPHA1 && !mode_shift;
+}
+
 /* The calculator's part of the panel, below the status bar, from scratch. */
 static void draw_lcd() {
     display_fill_rect(0, LCD_TOP, DISPLAY_WIDTH - 1, DISPLAY_HEIGHT - 1, false);
@@ -307,8 +322,9 @@ static void draw_lcd() {
         shown[i] = display_key_label(i, &labels[i], &lengths[i], &highlights[i], &reverses[i]);
         menu = menu || shown[i];
     }
+    bool hidden = alpha_menu_hidden();
     for (int i = 0; i < 6; i++)
-        if (shown[i])
+        if (shown[i] && !hidden)
             draw_menu_tab(i, labels[i], lengths[i], highlights[i], reverses[i]);
 
     int lines = menu ? disp_r - 1 : disp_r;
@@ -518,6 +534,10 @@ void free42_init(bool after_crash, bool memory_clear) {
      * may come back at a later boot either -- the RAM one after a crash,
      * the drive's when the RAM one is missing. */
     if (memory_clear) {
+        if (px_settings.alpha_mode != ALPHA_MODE_HP42S) { /* the keyboard too: as new */
+            px_settings.alpha_mode = ALPHA_MODE_HP42S;
+            settings_save_later();
+        }
         ramstate_discard();
         if (statefs_ready() && statefs_file_exists(OFF_STATE_FILE)) {
             statefs_remove(OFF_STATE_FILE);
@@ -600,19 +620,26 @@ static const int key_matrix[KB_ROWS][KB_COLS] = {
  *     that soft key, so the ALPHA menu on the bottom line works as on the
  *     HP-42S -- groups, punctuation, symbols;
  *   - a digit key: the digit; the four arithmetic keys: their symbols
- *     (alpha_shifted_char()); R/S: '?' -- R/S alone runs, as on the DM42;
+ *     (alpha_shifted_char()); the dot key: '.' (alone it types ',', as on
+ *     the HP-41C); R/S alone types '?' (to run, leave ALPHA), SHIFT R/S: the next mode;
+ *   - STO and RCL: ASTO and ARCL, as on the HP-42S;
  *   - any other letter key: the same letter -- the mode sets the case;
  *   - an arrow: the next mode (DOWN) or the one before (UP). Held down
- *     with an arrow, SHIFT does BST / SST instead (free42_shift_arrow()). */
+ *     with an arrow, SHIFT does BST / SST instead (free42_shift_arrow()).
+ *
+ * The arrows type '=' (up) and '$' (down) while the ALPHA menu is hidden
+ * (alpha_menu_hidden()): in [a] and [A] its first page isn't drawn, so the
+ * arrows have no menu to page. On the second page and in a group's menu,
+ * which are drawn, they are arrows. */
 static const char alpha_key_matrix[KB_ROWS][KB_COLS] = {
         /*      C0   C1   C2   C3   C4 */
         /*R0*/ { 'A', 'B', 'C', 'D', 'E' },
         /*R1*/ { 'G', 'H', 'I', 'J', 'K' },
         /*R2*/ {   0, 'M', 'N', 'O',   0 },
-        /*R3*/ {   0, 'P', 'Q', 'R', 'S' },
-        /*R4*/ {   0, 'T', 'U', 'V', 'W' },
+        /*R3*/ { '=', 'P', 'Q', 'R', 'S' },
+        /*R4*/ { '$', 'T', 'U', 'V', 'W' },
         /*R5*/ {   0, 'X', 'Y', 'Z', '_' },
-        /*R6*/ {   0, ':', '.', '?', ' ' },
+        /*R6*/ {   0, ':', ',', '?', ' ' },
         /*R7*/ { 'F', 'L',   0,   0,   0 },
 };
 
@@ -656,7 +683,7 @@ static int alpha_shifted_char(int key) {
         case KEY_MUL: return 0x00D7; /* multiplication sign */
         case KEY_ADD: return '+';
         case KEY_SUB: return '-';
-        case KEY_RUN: return '?';
+        case KEY_DOT: return '.';
         default:      return -1;
     }
 }
@@ -770,26 +797,54 @@ void free42_key_down(uint8_t row, uint8_t col) {
         return;
     }
 
-    /* SHIFT then an arrow, in ALPHA: the next keyboard mode, [ ] [a] [A]
+    /* SHIFT then R/S, in ALPHA: the next keyboard mode, [ ] [a] [A]
      * (alpha_key_matrix), remembered for the next ALPHA -- saved at OFF. */
-    if (alpha_active() && mode_shift && (code == KEY_UP || code == KEY_DOWN)) {
+    if (alpha_active() && mode_shift && code == KEY_RUN) {
         set_shift(false);
-        px_settings.alpha_mode = (uint8_t) ((px_settings.alpha_mode + (code == KEY_DOWN ? 1 : ALPHA_MODES - 1))
-                                            % ALPHA_MODES);
+        px_settings.alpha_mode = (uint8_t) ((px_settings.alpha_mode + 1) % ALPHA_MODES);
         settings_save_later();
         refresh();
         return;
     }
 
-    /* SHIFT + one of the six soft-menu keys, in ALPHA mode: the soft key
-     * itself, with SHIFT still set -- passed to the core below as an
-     * ordinary key: an item that is a menu opens it, and a letter item
-     * types its lowercase letter. */
-    bool soft_key = mode_shift && code >= 1 && code <= 6;
+    /* SHIFT then STO or RCL, in [a] and [A]: the core's STO and RCL are
+     * ASTO and ARCL in ALPHA, without SHIFT (SHIFT STO is something else). */
+    if (alpha_active() && px_settings.alpha_mode != ALPHA_MODE_HP42S && mode_shift
+            && (code == KEY_STO || code == KEY_RCL))
+        set_shift(false);
+
+    /* A register number after ASTO or ARCL, in [a] and [A]: the digit keys
+     * as in [ ] -- the first with SHIFT (alone they are letters, for a
+     * name), the rest without, once the core takes it as a number. */
+    bool reg_digit = alpha_active() && px_settings.alpha_mode != ALPHA_MODE_HP42S && is_digit_key(code)
+            && mode_command_entry && (incomplete_command == CMD_ASTO || incomplete_command == CMD_ARCL)
+            && (incomplete_length == 0 ? mode_shift : !incomplete_alpha);
+    if (reg_digit)
+        set_shift(false);
+
+    /* An arrow with the menu showing -- SHIFT shows it -- pages it: the
+     * core's arrow, without SHIFT. */
+    if (alpha_active() && px_settings.alpha_mode != ALPHA_MODE_HP42S && mode_shift
+            && (code == KEY_UP || code == KEY_DOWN))
+        set_shift(false);
+
+    /* One of the six soft-menu keys while the ALPHA menu is drawn -- hidden,
+     * SHIFT shows it, so SHIFT + the key as well: the soft key itself,
+     * passed to the core below as an ordinary key: an item that is a menu
+     * opens it, and a letter item types its capital -- its lowercase letter
+     * with SHIFT set, which [a] sets for it. */
+    bool soft_key = code >= 1 && code <= 6 && !alpha_menu_hidden();
+    bool in_group = soft_key && px_settings.alpha_mode != ALPHA_MODE_HP42S && alpha_group_menu();
+    if (soft_key && !mode_shift && alpha_active() && px_settings.alpha_mode == ALPHA_MODE_LOWER)
+        set_shift(true);
 
     int ch = (unsigned char) alpha_key_matrix[row][col];
-    if (code == KEY_RUN && !mode_shift)
-        ch = 0; /* R/S runs; SHIFT R/S types '?' */
+    if (reg_digit)
+        ch = 0;
+    else if ((code == KEY_UP || code == KEY_DOWN) && (shift_before_down || !alpha_menu_hidden()))
+        ch = 0; /* the arrows page the menu that is drawn (or that SHIFT showed) */
+    else if (shift_before_down && (code == KEY_STO || code == KEY_RCL))
+        ch = 0; /* SHIFT STO / RCL: ASTO / ARCL (the core's STO / RCL in ALPHA) */
     else if (mode_shift && alpha_shifted_char(code) >= 0)
         ch = alpha_shifted_char(code); /* SHIFT + digit key types the digit, etc. */
     if (ch != 0 && alpha_active() && px_settings.alpha_mode != ALPHA_MODE_HP42S && !soft_key) {
@@ -813,6 +868,17 @@ void free42_key_down(uint8_t row, uint8_t col) {
     pump_running(core_keydown(code, &enqueued, &repeat));
     held_enqueued = enqueued;
     held_repeat = repeat;
+
+    /* An item picked from a group's menu in [a] or [A]: back to the first
+     * page, hidden (the core stays in the group, for the next letter, and
+     * a group of the second page would go back to that page, drawn). */
+    if (in_group && alpha_active()) {
+        if (mode_commandmenu >= MENU_ALPHA1 && mode_commandmenu <= MENU_ALPHA_MISC2)
+            mode_commandmenu = MENU_ALPHA1;
+        else
+            set_menu(MENULEVEL_ALPHA, MENU_ALPHA1);
+        redisplay();
+    }
 
     refresh();
 }
