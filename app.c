@@ -475,6 +475,18 @@ static int api_battery_mv(void) {
     return battery_read_mv();
 }
 
+static int api_midi_play(const char *path) {
+    char full[PX_PATH_MAX + 70];
+    int r = full_path(path, full, sizeof(full)) ? sounds_midi_play(full) : SOUNDS_MIDI_NOT_FOUND;
+    back_to_app();
+    return r;
+}
+
+static void api_midi_status(px_midi_status_t *st) {
+    memset(st, 0, sizeof(*st));
+    sounds_midi_status(&st->length_ms, &st->elapsed_ms, &st->channels, &st->voices);
+}
+
 static int api_usb_connected(void) {
     return idle_usb_host_active();
 }
@@ -529,6 +541,8 @@ static const px_api_t api = {
         .dec_cmp = appdec_cmp,
         .dec_class = appdec_class,
         .on_key = api_on_key,
+        .midi_play = api_midi_play,
+        .midi_status = api_midi_status,
 };
 
 void app_folders(void) {

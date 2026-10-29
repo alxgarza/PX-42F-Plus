@@ -1,7 +1,7 @@
 #!/bin/bash
 # The sounds as the PX-42F's speaker gets them (px_sound.c), as WAV files:
 #   tools/px_sound/run.sh [OUT_DIR]                    every built-in sound
-#   tools/px_sound/run.sh OUT_DIR [-ms N] FILE.wav...  your own files
+#   tools/px_sound/run.sh OUT_DIR [-ms N] FILE.wav...  your own files; a .mid is played by the synth
 # OUT_DIR defaults to ~/Documents/PX-42F Media/PX Sounds.
 set -e
 OUT=${1:-"$HOME/Documents/PX-42F Media/PX Sounds"}
@@ -17,5 +17,5 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 cc -std=c11 -O1 -g -Wall -Wno-unused-parameter -Wno-unused-function -fsanitize=address,undefined \
    -Itools/px_sound/stub -Itools/menu_shots/stub -I. \
-   tools/px_sound/px_sound.c wav.c sounds_data.c -o "$TMP/px_sound"
+   tools/px_sound/px_sound.c wav.c sounds_data.c midiplay.c dutyshape.c -lm -o "$TMP/px_sound"
 "$TMP/px_sound" "$OUT" ${ARGS[@]+"${ARGS[@]}"}

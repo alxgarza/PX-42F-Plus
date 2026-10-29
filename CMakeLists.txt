@@ -77,6 +77,8 @@ add_executable(PX-42F-Plus
         battery.c
         speaker.c
         sounds.c
+        midiplay.c
+        dutyshape.c
         wav.c
         sounds_data.c
         settings.c

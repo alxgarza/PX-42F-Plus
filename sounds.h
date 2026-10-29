@@ -32,6 +32,10 @@ extern "C" {
  * built-in plays whenever its file is missing or unreadable. */
 
 #define SOUNDS_DIR     "/SOUNDS"
+
+/* MIDI (midiplay.h): the songs are .mid files in /MIDI, played by apps
+ * (app.c). Made with /SOUNDS. */
+#define MIDI_DIR        "/MIDI"
 #define SOUND_NAME_MAX 28
 
 typedef struct {
@@ -68,6 +72,18 @@ void sounds_play_tone(int tone, bool wait);
 /* Any WAV on the drive, by its full path (apps, app.c). False if it can't
  * be opened or isn't a WAV this can play. */
 bool sounds_play_file(const char *path, bool wait);
+
+/* A MIDI song, by its full path: starts it and returns at once (stopping
+ * any sound playing). 0, or why not: */
+#define SOUNDS_MIDI_NOT_FOUND (-1) /* no such file, or it can't be read */
+#define SOUNDS_MIDI_NOT_MIDI  (-2) /* not a Standard MIDI File this can play */
+#define SOUNDS_MIDI_TOO_BIG   (-3) /* over 128 KB */
+#define SOUNDS_MIDI_NO_MEMORY (-4)
+int sounds_midi_play(const char *path);
+
+/* While a song plays: its length, how far it has got (ms), the channels
+ * sounding (bit n = channel n+1), the notes sounding. False if none does. */
+bool sounds_midi_status(uint32_t *length_ms, uint32_t *elapsed_ms, uint32_t *channels, uint32_t *voices);
 
 /* A sound is playing. */
 bool sounds_playing(void);

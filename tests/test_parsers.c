@@ -17,6 +17,8 @@
 #include "fontsheet.h"
 #include "pngwrite.h"
 #include "appfile.h"
+#include "midiplay.h"
+#include "speaker.h"
 #include "fonts/font_8x12.h"
 #include "fonts/font_10x16.h"
 #include "fonts/font_6x8.h"
@@ -483,6 +485,203 @@ static void test_app_header(void) {
     CHECK(app_crc32(app_crc32(0, "1234", 4), "56789", 5) == 0xCBF43926u, "CRC-32 continued");
 }
 
+/* ===================== MIDI ===================== */
+
+typedef struct {
+    uint8_t d[4096];
+    size_t n;
+} buf_t;
+
+static void put(buf_t *b, const void *p, size_t n) {
+    memcpy(b->d + b->n, p, n);
+    b->n += n;
+}
+
+static void put_byte(buf_t *b, int v) {
+    b->d[b->n++] = (uint8_t) v;
+}
+
+static void put_varlen(buf_t *b, uint32_t v) {
+    uint8_t t[5];
+    int n = 0;
+    t[n++] = v & 0x7F;
+    while ((v >>= 7) != 0)
+        t[n++] = 0x80 | (v & 0x7F);
+    while (n > 0)
+        put_byte(b, t[--n]);
+}
+
+/* A chunk: "MTrk" and the length, patched in by track_end(). */
+static size_t track_begin(buf_t *b) {
+    put(b, "MTrk\0\0\0\0", 8);
+    return b->n;
+}
+
+static void track_end(buf_t *b, size_t start) {
+    put_varlen(b, 0);
+    put(b, "\xFF\x2F\x00", 3);
+    uint32_t len = (uint32_t) (b->n - start);
+    b->d[start - 4] = (uint8_t) (len >> 24);
+    b->d[start - 3] = (uint8_t) (len >> 16);
+    b->d[start - 2] = (uint8_t) (len >> 8);
+    b->d[start - 1] = (uint8_t) len;
+}
+
+/* Four tracks, 480 ticks a beat: a tempo track (120 bpm, then 150 at beat
+ * 2), a piano with a chord, 30 notes at once (more than the voices), the
+ * sustain pedal, running status; a drum track; a lead with pitch bend and
+ * modulation. 960 ticks at 0.5s/beat, 960 more at 0.4s/beat: 1.8 s. */
+static size_t make_song(buf_t *b) {
+    b->n = 0;
+    put(b, "MThd\0\0\0\6\0\1\0\4\1\xE0", 14);
+    size_t t = track_begin(b);
+    put_varlen(b, 0);
+    put(b, "\xFF\x51\x03\x07\xA1\x20", 6);
+    put_varlen(b, 960);
+    put(b, "\xFF\x51\x03\x06\x1A\x80", 6);
+    put_varlen(b, 960);
+    put(b, "\xFF\x01\x03xyz", 6); /* a text event: skipped */
+    track_end(b, t);
+
+    t = track_begin(b);
+    put_varlen(b, 0);
+    put(b, "\xC0\x00", 2);
+    put_varlen(b, 0);
+    put(b, "\xB0\x40\x7F", 3); /* pedal down */
+    for (int i = 0; i < 3; i++) {
+        put_varlen(b, 0);
+        put_byte(b, 0x90);
+        put_byte(b, 60 + 4 * i);
+        put_byte(b, 90);
+    }
+    /* The chord ends with note-on, velocity 0 -- the status once, then
+     * running status for the other two. */
+    put_varlen(b, 480);
+    put(b, "\x90\x3C\x00", 3);
+    put_varlen(b, 0);
+    put(b, "\x40\x00", 2);
+    put_varlen(b, 0);
+    put(b, "\x43\x00", 2);
+    put_varlen(b, 0);
+    put(b, "\xB0\x40\x00", 3); /* pedal up */
+    for (int i = 0; i < 30; i++) {
+        put_varlen(b, i == 0 ? 120 : 0);
+        put(b, "\x90", 1);
+        put_byte(b, 36 + 2 * i);
+        put_byte(b, 100);
+    }
+    put_varlen(b, 240);
+    put(b, "\xB0\x7B\x00", 3); /* all notes off */
+    track_end(b, t);
+
+    t = track_begin(b);
+    for (int beat = 0; beat < 4; beat++) {
+        put_varlen(b, beat == 0 ? 0 : 240);
+        put(b, "\x99\x24\x7F", 3); /* kick */
+        put_varlen(b, 0);
+        put(b, "\x99\x2A\x60", 3); /* closed hat */
+        put_varlen(b, 240);
+        put(b, "\x99\x26\x7F", 3); /* snare */
+        put_varlen(b, 0);
+        put(b, "\x99\x2E\x60", 3); /* open hat */
+    }
+    track_end(b, t);
+
+    t = track_begin(b);
+    put_varlen(b, 0);
+    put(b, "\xC1\x50", 2); /* lead */
+    put_varlen(b, 0);
+    put(b, "\xB1\x01\x40", 3);
+    put_varlen(b, 0);
+    put(b, "\x91\x48\x70", 3);
+    put_varlen(b, 480);
+    put(b, "\xE1\x00\x60", 3); /* bend up */
+    put_varlen(b, 480);
+    put(b, "\x81\x48\x00", 3);
+    track_end(b, t);
+    return b->n;
+}
+
+/* Plays the whole of a file; at most max_samples. Returns the samples
+ * made; *peak_voices, *energy as checks. */
+static uint32_t render_all(const uint8_t *data, size_t size, uint32_t max_samples, int *max_voices, bool *in_range,
+                           double *energy, const char **error, uint32_t *length_ms) {
+    static midi_player_t p;
+    *max_voices = 0;
+    *in_range = true;
+    *energy = 0;
+    if (!midi_open(&p, data, (uint32_t) size, error))
+        return 0;
+    if (length_ms != NULL)
+        *length_ms = midi_length_ms(&p);
+    uint16_t out[1024];
+    uint32_t total = 0, n;
+    while (total < max_samples && (n = midi_fill(&p, out, 1024)) != 0) {
+        for (uint32_t i = 0; i < n; i++) {
+            if (out[i] > SPEAKER_DUTY_MAX)
+                *in_range = false;
+            *energy += out[i];
+        }
+        if (midi_active_voices(&p) > *max_voices)
+            *max_voices = midi_active_voices(&p);
+        total += n;
+    }
+    return total;
+}
+
+static void test_midi(void) {
+    static buf_t song;
+    size_t size = make_song(&song);
+    const char *error = "";
+    int voices;
+    bool in_range;
+    double energy;
+    uint32_t length;
+    uint32_t samples = render_all(song.d, size, 20 * MIDI_RATE, &voices, &in_range, &energy, &error, &length);
+    CHECK(samples > 0, "midi: the song didn't open (%s)", error);
+    CHECK(length > 1795 && length < 1805, "midi: length %u ms, wanted 1800", length);
+    CHECK(samples > length * MIDI_RATE / 1000 && samples < (length + 6000) * MIDI_RATE / 1000,
+          "midi: %u samples for a %u ms song", samples, length);
+    CHECK(samples < 20 * MIDI_RATE, "midi: never ended");
+    CHECK(in_range, "midi: a duty value out of range");
+    CHECK(energy > samples * 20.0, "midi: nearly silent (%f)", energy / samples);
+    CHECK(voices > 20 && voices <= MIDI_VOICES, "midi: %d voices at most, wanted more than 20 and no more than %d",
+          voices, MIDI_VOICES);
+
+    /* Not MIDI at all, and headers that lie. */
+    CHECK(render_all((const uint8_t *) "RIFFxxxxWAVEfmt ", 16, 100, &voices, &in_range, &energy, &error, NULL) == 0,
+          "midi: a WAV opened");
+    CHECK(render_all(song.d, 0, 100, &voices, &in_range, &energy, &error, NULL) == 0, "midi: empty opened");
+    static buf_t bad;
+    bad = song;
+    bad.d[12] = bad.d[13] = 0; /* division 0 */
+    CHECK(render_all(bad.d, size, 100, &voices, &in_range, &energy, &error, NULL) == 0, "midi: division 0 opened");
+    bad = song;
+    bad.d[7] = 0xFF; /* header length past the file */
+    CHECK(render_all(bad.d, size, 100, &voices, &in_range, &energy, &error, NULL) == 0, "midi: long header opened");
+    bad = song;
+    bad.d[12] = 0xE7; /* SMPTE, 25 fps */
+    bad.d[13] = 40;
+    CHECK(render_all(bad.d, size, 5 * MIDI_RATE, &voices, &in_range, &energy, &error, NULL) > 0, "midi: SMPTE refused");
+
+    /* Cut short anywhere, and damaged anywhere: nothing may crash or hang
+     * (a long silence is cut off by the sample limit). */
+    for (size_t len = 0; len <= size; len++)
+        render_all(song.d, len, 3 * MIDI_RATE, &voices, &in_range, &energy, &error, NULL);
+    uint32_t seed = 12345;
+    for (int round = 0; round < 400; round++) {
+        bad = song;
+        for (int k = 0; k < 1 + round % 6; k++) {
+            seed = seed * 1664525u + 1013904223u;
+            size_t at = (seed >> 8) % size;
+            seed = seed * 1664525u + 1013904223u;
+            bad.d[at] = (uint8_t) (seed >> 16);
+        }
+        render_all(bad.d, size, 3 * MIDI_RATE, &voices, &in_range, &energy, &error, NULL);
+        CHECK(in_range, "midi: damaged file (round %d) gave a duty out of range", round);
+    }
+}
+
 int main(int argc, char **argv) {
     signal(SIGALRM, on_alarm);
     test_png("images/splash.png", true);
@@ -502,6 +701,7 @@ int main(int argc, char **argv) {
     CHECK(!png_write_1bit(&one, 2041, 1, 256, sink_write, &(sink_t){&one, 0, 0}), "too wide accepted");
     test_app_header();
     test_wav();
+    test_midi();
     for (int i = 1; i < argc; i++)
         test_wav_file(argv[i]);
     printf(failures ? "%d FAILED\n" : "all passed\n", failures);

@@ -9,12 +9,15 @@
  *   px_sound OUT_DIR                     every built-in sound
  *   px_sound OUT_DIR [-ms N] FILE.wav...  those files, as the PX converts
  *                                        them (-ms: at most N ms, as key
- *                                        sounds are: 100 in a set, 250 alone)
+ *                                        sounds are: 100 in a set, 250 alone);
+ *                                        a .mid is played by the MIDI synth
+ *                                        to the end
  *
  * tools/px_sound/run.sh builds and runs it. */
 #include "sounds.c"
 
 #include <errno.h>
+#include <strings.h>
 #include <sys/stat.h>
 
 px_settings_t px_settings;
@@ -34,13 +37,10 @@ bool speaker_busy(void) { return false; }
 static void put16(FILE *f, uint32_t v) { fputc(v & 0xFF, f); fputc(v >> 8 & 0xFF, f); }
 static void put32(FILE *f, uint32_t v) { put16(f, v & 0xFFFF); put16(f, v >> 16); }
 
-/* Runs the converter to the end and writes what it gave as a WAV. */
-static bool convert(stream_t *st, const char *out) {
-    static uint16_t duty[SPEAKER_SAMPLE_HZ * 600 + 1]; /* 10 minutes */
-    uint32_t n = 0, got;
-    while (n < count_of(duty) - 1 && (got = stream_fill(st, duty + n, count_of(duty) - 1 - n)) != 0)
-        n += got;
-    wav_close(&st->src);
+static uint16_t duty[SPEAKER_SAMPLE_HZ * 600 + 1]; /* 10 minutes */
+
+/* duty[0..n) as a WAV file. */
+static bool write_wav(uint32_t n, const char *out) {
     duty[n++] = 0; /* then speaker.c turns the transistor off */
     FILE *f = fopen(out, "wb");
     if (f == NULL) {
@@ -66,6 +66,37 @@ static bool convert(stream_t *st, const char *out) {
     return true;
 }
 
+/* Runs the converter to the end and writes what it gave as a WAV. */
+static bool convert(stream_t *st, const char *out) {
+    uint32_t n = 0, got;
+    while (n < count_of(duty) - 1 && (got = stream_fill(st, duty + n, count_of(duty) - 1 - n)) != 0)
+        n += got;
+    wav_close(&st->src);
+    return write_wav(n, out);
+}
+
+/* A MIDI file, played by the synth (midiplay.c) to the end. */
+static bool convert_midi(const char *path, const char *out) {
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) {
+        fprintf(stderr, "%s: can't read it\n", path);
+        return false;
+    }
+    static uint8_t data[128 * 1024 + 1];
+    size_t size = fread(data, 1, sizeof(data), f);
+    fclose(f);
+    static midi_player_t player;
+    const char *error;
+    if (size > 128 * 1024 || !midi_open(&player, data, (uint32_t) size, &error)) {
+        fprintf(stderr, "%s: %s\n", path, size > 128 * 1024 ? "over 128 KB" : error);
+        return false;
+    }
+    uint32_t n = 0, got;
+    while (n < count_of(duty) - 1 && (got = midi_fill(&player, duty + n, count_of(duty) - 1 - n)) != 0)
+        n += got;
+    return write_wav(n, out);
+}
+
 /* The longest a built-in plays: key sounds are cut as sounds_key_select() cuts them. */
 static uint32_t max_out(const char *path) {
     if (strncmp(path, "KEY/", 4) != 0)
@@ -75,7 +106,7 @@ static uint32_t max_out(const char *path) {
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        fprintf(stderr, "usage: px_sound OUT_DIR [-ms N] [FILE.wav...]\n");
+        fprintf(stderr, "usage: px_sound OUT_DIR [-ms N] [FILE.wav|FILE.mid...]\n");
         return 2;
     }
     const char *dir = argv[1];
@@ -108,6 +139,13 @@ int main(int argc, char **argv) {
         wav_source_t src;
         const char *name = strrchr(argv[i], '/') ? strrchr(argv[i], '/') + 1 : argv[i];
         snprintf(out, sizeof(out), "%s/%s", dir, name);
+        size_t len = strlen(out);
+        if (f != NULL && len > 4 && strcasecmp(out + len - 4, ".mid") == 0) {
+            fclose(f);
+            strcpy(out + len - 4, ".wav");
+            bad |= !convert_midi(argv[i], out);
+            continue;
+        }
         if (f == NULL || !wav_source_file(&src, f)) {
             fprintf(stderr, "%s: can't read it\n", argv[i]);
             bad = 1;

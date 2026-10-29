@@ -8,6 +8,8 @@
 #include "pico/stdlib.h"
 #include "hardware/watchdog.h"
 #include "settings.h"
+#include "dutyshape.h"
+#include "midiplay.h"
 #include "speaker.h"
 #include "statefs.h"
 #include "wav.h"
@@ -15,16 +17,8 @@
 #define KEY_DIR     SOUNDS_DIR "/KEY"
 #define KEY_MAX_OUT (SPEAKER_SAMPLE_HZ / 4) /* 250ms: a key sound holds up its keypress */
 
-/* Converting a sound to duty values (see speaker.h): the waveform x,
- * normalized to +-1, rides on a level e that follows its loudness:
- * duty = (e + x) / 2. With e >= |x| the duty never goes negative, and e is
- * 0 in silence -- no current through the coil when nothing plays. e looks
- * LOOKAHEAD samples ahead (the output is delayed that much), so it has
- * risen before a sound starts instead of stepping up with it, and falls
- * back slowly -- a fast-moving e would be heard as distortion. */
-#define LOOKAHEAD   64              /* 2ms */
-#define ATTACK_K    0.075f          /* 1 - exp(-1 / (0.4ms * 32kHz)) */
-#define RELEASE_K   0.99844f        /* exp(-1 / (20ms * 32kHz)) */
+/* Converting a sound to duty values: dutyshape.h. */
+#define LOOKAHEAD   DUTY_LOOKAHEAD
 #define FADE_IN     16              /* 0.5ms, against a file starting mid-wave */
 #define FADE_OUT    64              /* 2ms, against one ending mid-wave */
 #define TAIL_MAX    1600            /* the level's fall after the end, at most 50ms */
@@ -41,10 +35,7 @@ typedef struct {
     /* resampling to SPEAKER_SAMPLE_HZ, linear */
     float x0, x1, frac, step;
     uint32_t out_total, out_n; /* output samples of the sound itself */
-    /* the level e, looking ahead */
-    float delay[LOOKAHEAD];
-    uint32_t dpos;
-    float env;
+    dutyshape_t shape;
     uint32_t flushed;        /* samples since the sound's end */
 } stream_t;
 
@@ -134,32 +125,10 @@ static uint32_t stream_fill(void *ctx, uint16_t *buf, uint32_t max) {
         } else if (++st->flushed > LOOKAHEAD + TAIL_MAX) {
             break;
         }
-        float out = st->delay[st->dpos];
-        st->delay[st->dpos] = x;
-        st->dpos = (st->dpos + 1) % LOOKAHEAD;
-
-        /* The level: the loudest of what's coming, smoothed. */
-        float target = 0.0f;
-        for (uint i = 0; i < LOOKAHEAD; i++) {
-            float a = st->delay[i] < 0 ? -st->delay[i] : st->delay[i];
-            if (a > target)
-                target = a;
-        }
-        if (target > st->env)
-            st->env += (target - st->env) * ATTACK_K;
-        else
-            st->env = st->env * RELEASE_K > target ? st->env * RELEASE_K : target;
-        float e = st->env;
-        float a = out < 0 ? -out : out;
-        if (e < a)
-            e = a;
-        if (e > 1.0f)
-            e = 1.0f;
-
-        int duty = (int) ((e + out) * 0.5f * SPEAKER_DUTY_MAX + 0.5f);
+        int duty = dutyshape_next(&st->shape, x);
         if (st->out_n >= st->out_total && st->flushed > LOOKAHEAD && duty == 0)
             break; /* faded all the way out */
-        buf[n++] = (uint16_t) (duty < 0 ? 0 : duty > SPEAKER_DUTY_MAX ? SPEAKER_DUTY_MAX : duty);
+        buf[n++] = (uint16_t) duty;
     }
     return n;
 }
@@ -214,6 +183,13 @@ static bool open_sound(stream_t *st, const char *path, uint32_t max_out, const c
 static stream_t play_stream; /* ~1KB: not on the stack */
 static bool play_open;       /* play_stream holds a sound (its file open) */
 
+/* A MIDI song playing: the player (core 0 runs it), and the file it reads,
+ * in a malloc'd buffer -- core 1 allocates it and frees it (below), never
+ * core 0, which must not touch Plus42's heap. */
+static midi_player_t midi_player;
+static uint8_t *midi_buf;
+static bool midi_loaded; /* midi_player holds a song */
+
 /* Stops the sound playing, and closes the last one's file -- left open
  * by a sound that ended by itself, until the next one or this. */
 void sounds_stop(void) {
@@ -222,6 +198,9 @@ void sounds_stop(void) {
         wav_close(&play_stream.src);
         play_open = false;
     }
+    free(midi_buf);
+    midi_buf = NULL;
+    midi_loaded = false;
 }
 
 bool sounds_playing(void) {
@@ -277,6 +256,51 @@ void sounds_play_tone(int tone, bool wait) {
     play(path, wait);
 }
 
+/* ===================== MIDI songs ===================== */
+
+_Static_assert(MIDI_RATE == SPEAKER_SAMPLE_HZ, "the synth makes what the speaker plays");
+
+#define MIDI_FILE_MAX (128 * 1024)
+
+int sounds_midi_play(const char *path) {
+    sounds_stop();
+    FILE *f = use_files_ok && statefs_ready() ? statefs_fopen(path, "rb") : NULL;
+    if (f == NULL)
+        return SOUNDS_MIDI_NOT_FOUND;
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (size > MIDI_FILE_MAX) {
+        fclose(f);
+        return SOUNDS_MIDI_TOO_BIG;
+    }
+    midi_buf = size > 0 ? malloc((size_t) size) : NULL;
+    if (midi_buf == NULL) {
+        fclose(f);
+        return size > 0 ? SOUNDS_MIDI_NO_MEMORY : SOUNDS_MIDI_NOT_MIDI;
+    }
+    bool read_ok = fread(midi_buf, 1, (size_t) size, f) == (size_t) size;
+    fclose(f);
+    const char *error;
+    if (!read_ok || !midi_open(&midi_player, midi_buf, (uint32_t) size, &error)) {
+        sounds_stop();
+        return read_ok ? SOUNDS_MIDI_NOT_MIDI : SOUNDS_MIDI_NOT_FOUND;
+    }
+    midi_loaded = true;
+    speaker_start(midi_fill, &midi_player);
+    return 0;
+}
+
+bool sounds_midi_status(uint32_t *length_ms, uint32_t *elapsed_ms, uint32_t *channels, uint32_t *voices) {
+    if (!midi_loaded || !speaker_busy())
+        return false;
+    *length_ms = midi_length_ms(&midi_player);
+    *elapsed_ms = midi_elapsed_ms(&midi_player);
+    *channels = midi_active_channels(&midi_player);
+    *voices = (uint32_t) midi_active_voices(&midi_player);
+    return true;
+}
+
 /* ===================== the key sounds, in RAM ===================== */
 
 /* The Key Sound is a set (sounds.h): KEY/<name>/ENTRY.wav, OP.wav and
@@ -306,8 +330,8 @@ static uint32_t key_fill(void *ctx, uint16_t *buf, uint32_t max) {
 
 void sounds_key_play(key_sound_t kind) {
     static key_play_t k; /* core 0 reads it as it plays */
-    if (key_len[kind] == 0)
-        return;
+    if (key_len[kind] == 0 || (midi_loaded && speaker_busy()))
+        return; /* a song in the settings menu plays through the keypresses */
     sounds_stop();
     k = (key_play_t) {key_start[kind], key_start[kind] + key_len[kind]};
     speaker_start(key_fill, &k);
@@ -506,6 +530,7 @@ static void write_missing(void) {
     statefs_mkdir(SOUNDS_DIR);
     statefs_mkdir(KEY_DIR);
     statefs_mkdir(SOUNDS_DIR "/TONES");
+    statefs_mkdir(MIDI_DIR);
     read_record();
     bool changed = false;
     for (unsigned i = 0; i < builtin_sound_count && i < MAX_RECORDS; i++) {

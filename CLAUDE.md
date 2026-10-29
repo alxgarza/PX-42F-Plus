@@ -23,7 +23,7 @@ can be cherry-picked between them.
 - Pico SDK 2.3.0 at `~/.pico-sdk/sdk/2.3.0`. Board header: `boards/px42f.h` (`PICO_BOARD px42f`).
 - Output: `build/PX-42F-Plus.uf2`, `build/PX-42F-Plus.elf` (+ `.elf.map`, `.dis`).
 - Host tests: `tests/run.sh` builds `tests/test_parsers.c` on the Mac (ASan/UBSan) and runs it:
-  the PNG decoder (`png1bit.c`), WAV parser (`wav.c`) and font sheet slicer (`fontsheet.c`)
+  the PNG decoder (`png1bit.c`), WAV parser (`wav.c`), MIDI player (`midiplay.c`: a song with 30 notes at once, cut short at every length and damaged 400 ways) and font sheet slicer (`fontsheet.c`)
   against good, truncated and damaged files, plus the built-in sounds and fonts (also drawn as
   sheets and read back); the PNG writer (`pngwrite.c`) read back by the decoder and checked by
   Python's zlib; and the app header check (`appfile.c`) against bad `.bin` headers. Run it after
@@ -95,6 +95,18 @@ can be cherry-picked between them.
   gets instead: sounds.c's own duty stream as 32 kHz WAVs, default `~/Documents/PX-42F Media/PX Sounds`); any missing from the drive is written at boot, and one still as written
   is updated when its built-in changes (checksums in `/SOUNDS/BUILTIN.TXT`); a built-in plays
   when its file is missing. Settings → Sounds: Key Sound, On / Off Sound.
+- MIDI (`midiplay.c`, no hardware calls, so the host tests build it; glue in `sounds.c`): a Standard MIDI File
+  (format 0/1, ≤128 KB, `/MIDI/*.mid`) drives a 24-voice synth, 16 channels, mono. `sounds_midi_play()` (core 1)
+  reads the file into a malloc'd buffer, `midi_open()` finds the tracks and plays the events once without sound for
+  the length, then `speaker_start(midi_fill)`: core 0 steps the sequencer every 32 samples (1 ms) and mixes into
+  `dutyshape.c` (the loudness-following level of `stream_fill`, shared). Core 0 never mallocs: `sounds_stop()`
+  (core 1) frees the buffer. Instruments are 11 additive timbres picked by General MIDI family (`timbre_of()`;
+  piano, bell, organ, plucked, bass, strings, brass, reed, flute, lead, pad) with their own ADSR; channel 10 is
+  synthesized drums (kick/snare/hats/toms/cymbals/clicks). The mix is raised by `MASTER` and a peak limiter (instant down, 250 ms up) keeps chords from distorting: a note alone is nearly full scale like the WAV sounds (it was 4x too soft at first). Only apps play it (`px->midi_play()`, API version 4;
+  `midi_status()` for length, position, channels); `sounds_key_play()` doesn't cut a song playing. No
+  instrument samples (the synth only). Unverified on the hardware: loudness, the
+  timbres, core 0's load with 24 voices. `tools/px_sound/run.sh OUT song.mid` renders a song to a WAV on the Mac.
+  The player is the app `../PX-42F-MIDI-Player`.
 - Calculator screen (`free42_app.cc`): Plus42 draws everything (stack, menus, messages,
   program listing, equation editor, plots) into its own bitmap of disp_r x disp_c 6x8 cells
   (`shell_blitter()`). The PX doesn't scale it: it redraws each cell's character with its
@@ -164,7 +176,7 @@ can be cherry-picked between them.
   decimal numbers (`appdec.c`): `px_dec_t` is a `BID_UINT128`, each `PX_DEC_*` op one call into the
   libbid Plus42 already links (by reference, global rounding/flags -- Plus42 never reads the
   flags nor changes the rounding, and apps can't), so they cost almost no flash. The
-  simulator's stand-in is doubles (`sim/sim_dec.c`). Also `../PX-42F-Tiny-BASIC`, PX-BASIC (Palo
+  simulator's stand-in is doubles (`sim/sim_dec.c`). Also `../PX-42F-MIDI-Player` (the MIDI player, local git only so far), `../PX-42F-Tiny-BASIC`, PX-BASIC (Palo
   Alto Tiny BASIC on those decimals; `make test` runs programs on the Mac).
 - IR LED (GP14, high = on, through a transistor): driven by PIO0 (`irtx.c`/`irtx.pio`), not
   PWM: GP14 shares PWM slice 7 with the speaker. PIO0's clock is on only while sending. Only
