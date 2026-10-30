@@ -1277,33 +1277,23 @@ static edit_result_t do_format_drive(void) {
 
 /* Update Firmware: the boot ROM's update mode without the BOOT and RESET
  * buttons -- the RP2350 drive, which takes PX-42F-Plus.uf2 and then starts
- * it. The memory goes to the drive first and comes back after; the screen
- * keeps the instructions while the processor is in the ROM. */
+ * it. The new firmware starts with Memory Clear, as after any flash (the
+ * user's choice); the settings are kept. The screen keeps the instructions
+ * while the processor is in the ROM. */
 static edit_result_t do_update_firmware(void) {
     static const char *const how[] = {"The calculator becomes a drive", "named RP2350. Copy",
-                                      "PX-42F-Plus.uf2 onto it: the", "new firmware then starts, with",
-                                      "the memory as it is now."};
+                                      "PX-42F-Plus.uf2 onto it: the", "new firmware then starts,",
+                                      "with the memory cleared."};
     edit_result_t r = show_message("Update Firmware", how, 5, "Enter:Start  Exit:Cancel");
     if (r != EDIT_OK)
         return r;
-
-    show_busy("Update Firmware", "Saving the memory...");
     settings_save_pending();
-    if (!free42_save_to_drive()) {
-        error_beep();
-        static const char *const lost[] = {"Could not save the memory.", "", "Update anyway? The memory",
-                                           "will be lost."};
-        r = show_message("Update Firmware", lost, 4, "Enter:Update  Exit:Cancel");
-        if (r != EDIT_OK)
-            return r;
-    }
 
     display_clear();
     draw_title("Update Firmware");
     draw_line(0, "Copy PX-42F-Plus.uf2 onto");
     draw_line(1, "the RP2350 drive.");
-    draw_line(3, "To cancel, press RESET:");
-    draw_line(4, "that clears the memory.");
+    draw_line(3, "To cancel, press RESET.");
     display_flush();
     power_update_mode();
 }

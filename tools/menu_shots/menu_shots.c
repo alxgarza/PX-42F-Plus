@@ -27,6 +27,7 @@
 #include "idle.h"
 #include "keyboard.h"
 #include "keyhold.h"
+#include "keymap.h"
 #include "pngwrite.h"
 #include "power.h"
 #include "app.h"
@@ -72,16 +73,6 @@ static void shot(const char *name) {
     fclose(f);
     printf("%s\n", path);
 }
-
-/* The keyboard, as free42_app.cc's key_matrix and alpha_key_matrix. */
-static const int key_matrix[KB_ROWS][KB_COLS] = {
-        {1, 2, 3, 4, 5},      {7, 8, 9, 10, 11},    {13, 14, 15, 16, 17}, {18, 19, 20, 21, 22},
-        {23, 24, 25, 26, 27}, {28, 29, 30, 31, 32}, {33, 34, 35, 36, 37}, {6, 12, 0, 0, 0},
-};
-static const char alpha_key_matrix[KB_ROWS][KB_COLS] = {
-        {'A', 'B', 'C', 'D', 'E'}, {'G', 'H', 'I', 'J', 'K'}, {0, 'M', 'N', 'O', 0},   {'=', 'P', 'Q', 'R', 'S'},
-        {'$', 'T', 'U', 'V', 'W'}, {0, 'X', 'Y', 'Z', '_'},   {0, ':', ',', '?', ' '}, {'F', 'L', 0, 0, 0},
-};
 
 int free42_key_code(uint8_t row, uint8_t col) {
     return row < KB_ROWS && col < KB_COLS ? key_matrix[row][col] : 0;

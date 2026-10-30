@@ -13,13 +13,13 @@
 
 /* Flash layout (16MB W25Q128, boards/px42f.h):
  *
- *   0 .. 4MB-4KB      program image (2.7MB as of this writing)
- *   4MB-4KB .. 4MB    settings (settings.c)
+ *   0 .. 4MB-8KB      program image (2.7MB as of this writing)
+ *   4MB-8KB .. 4MB    settings, two sectors (settings.c)
  *   4MB .. 16MB       this disk, 12MB
  */
 #define DISK_OFFSET (4u * 1024u * 1024u)
 #define DISK_SIZE   (12u * 1024u * 1024u)
-#define IMAGE_LIMIT (DISK_OFFSET - FLASH_SECTOR_SIZE) /* code must end below the settings sector */
+#define IMAGE_LIMIT (DISK_OFFSET - 2 * FLASH_SECTOR_SIZE) /* code must end below the settings sectors */
 
 #define CACHE_SLOTS 4
 

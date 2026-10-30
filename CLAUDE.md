@@ -28,7 +28,8 @@ can be cherry-picked between them.
   sheets and read back); the PNG writer (`pngwrite.c`) read back by the decoder and checked by
   Python's zlib; and the app header check (`appfile.c`) against bad `.bin` headers. Run it after
   touching any of them — they read files users drop on the drive, and a parser bug there
-  freezes or resets the calculator.
+  freezes or resets the calculator. It also builds `tests/test_alphakeys.c`: the ALPHA keyboard's
+  rules (`alphakeys.c`) key by key in [ ] / [a] / [A] -- run it after touching them.
 - User manual: `manual.html` (the screen, fonts, settings; not a Plus42/HP-42S manual), built by
   `python3 tools/manual/make_manual.py` from `tools/manual/manual.template.html`. Rebuild it after
   changing a settings screen. Its settings screenshots come from `tools/menu_shots/run.sh`: the
@@ -51,10 +52,10 @@ can be cherry-picked between them.
 - Flashing over USB (only when the user asks): `picotool reboot -f -u`, wait until
   `picotool info` sees it, then `picotool load -x build/PX-42F-Plus.uf2`
   (`~/.pico-sdk/picotool/2.3.0/picotool/picotool`). `load -f` alone gives up too early.
-  A reflash reboots: the calculator's memory is lost unless it was turned OFF first.
+  A reflash is a Memory Clear, on purpose (the user's choice): RESET and a flash clear all memory.
 - `/flash` (`tools/flash.sh`) loads the build into the connected calculator and waits for
-  it to come back. On the calculator: Settings → USB Drive → Update Firmware saves the memory to
-  `/OFFSTATE.p42` (RAM copy discarded) and calls the ROM's update mode from core 1
+  it to come back. On the calculator: Settings → USB Drive → Update Firmware saves pending settings and calls the
+  ROM's update mode from core 1 (the new firmware starts with Memory Clear, like any flash)
   (`power_update_mode()`, the `__real_` ROM function: main.c's wrapper would stop core 1).
 - The user tests on the hardware (sound, current, screen) and reports back (currents, photos of fault
   screens). Never claim something works on the device without their report.
@@ -142,12 +143,14 @@ can be cherry-picked between them.
   mode (the computer has the drive). In apps too: `key_hold_app_screenshot()` (keyhold.c), from
   app.c's key path on SHIFT down; the app gets SHIFT pressed again, cancelling its first press. SHIFT held ≥0.3 s then an arrow, in ALPHA: BST/SST
   (`free42_shift_arrow()`). Add new hold gestures there, not in the loops.
-- ALPHA keyboard, as the DM42's (`free42_app.cc`): `px_settings.alpha_mode` [ ] HP-42S keys /
+- ALPHA keyboard, as the DM42's: the rules in `alphakeys.c` (no core calls; `free42_app.cc`'s `alpha_state()`
+  describes the core, `free42_key_down()` does what `alpha_key()` returns), the tables in `keymap.h`
+  (also the menu_shots tool's). `px_settings.alpha_mode` [ ] HP-42S keys /
   [a] / [A] the printed letters (`alpha_key_matrix`); SHIFT then R/S switches, remembered
   (`settings_save_later()`), badge in the status bar. In [a]/[A]: the dot key types ',' (SHIFT+dot '.'),
   the arrows '=' (up) and '$' (down) while the ALPHA menu's first page is hidden (`alpha_menu_hidden()`:
   not drawn in [a]/[A] unless SHIFT is down; page 2 and the group menus are drawn, the arrows page them and the top row works them without SHIFT; a pick from a group goes back to the first page, hidden),
-  SHIFT+STO/RCL = ASTO/ARCL, SHIFT+letter = same letter,
+  SHIFT+STO/RCL = ASTO/ARCL, SHIFT+I..O = π ( ) " < > ^, SHIFT+other letter = same letter,
   SHIFT+digit = digit, SHIFT+÷×−+ = symbol, R/S types '?' (it doesn't run there), SHIFT+top row = soft key, SHIFT+arrow = the menu's page.
   First ALPHA ever starts in [ ], and RESET (Memory Clear) puts it back there; numeric local labels (LBL 01) need [ ].
 - Settings menu (`settings_menu.c`, SHIFT+EXIT): Off, Games & Apps, Date & Time, Sounds, Fonts, Sleep Timer,
@@ -201,7 +204,8 @@ can be cherry-picked between them.
   whenever a terminal opens the port), `!STATUS`, `!BOOTLOG`, `!PRINTER`, `!PRINTTEST`, `!SCREENSHOT`,
   `!SETDATE`, `!SETTIME`; other characters are keypresses), MSC drive "PX-42F", picotool reset,
   CDC1 printer.
-- Flash: program 0-4 MB-4 KB; settings sector at 0x3FF000; FAT16 disk 4-16 MB
+- Flash: program 0-4 MB-8 KB; settings in two sectors written in turn, 0x3FF000 and 0x3FE000
+  (`settings.c`: a count at the page's end picks the newer; a power cut mid-save keeps the other); FAT16 disk 4-16 MB
   (`flashdisk.c` write-back cache, `statefs.c` FatFs; Plus42's file I/O routes through
   `statefs_fopen`).
 - Clocks (`cpuclock.c`): 150 MHz @1.10 V while working, 48 MHz from PLL_USB @1.00 V when
@@ -277,9 +281,9 @@ can be cherry-picked between them.
 - The RAM-kept memory is re-validated after a good load (`ramstate_keep()`), so a crash
   comes back with the memory as of the last ON — but not twice in a row (`after_crash`).
   The RESET button (RUN pin) is Memory Clear: a boot that isn't ON-from-OFF and wasn't the
-  watchdog's (`!woke_from_off && !watchdog_caused_reboot()`; flashes, updates, crashes and
-  picotool all go through the watchdog, a RUN-pin reset clears its record; a power-up counts
-  too). Not POWMAN's `CHIP_RESET` `HAD_RUN_LOW` -- it stays set through every restart after
+  watchdog's (`!woke_from_off && !watchdog_caused_reboot()`; crashes go through the watchdog,
+  a RUN-pin reset clears its record; a power-up counts too; a flash or Update Firmware also
+  ends up here -- the boot log shows them as RESET -- and that's wanted: a flash clears memory). Not POWMAN's `CHIP_RESET` `HAD_RUN_LOW` -- it stays set through every restart after
   a RESET press -- and not a stopped always-on clock (RESET didn't reliably leave one, so the
   Hello wait never came). Memory Clear = `ramstate_discard()` and
   `/OFFSTATE.p42` deleted (the overflow for a memory bigger than the 128 KB RAM copy); every

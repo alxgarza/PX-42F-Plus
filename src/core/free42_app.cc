@@ -10,6 +10,8 @@
 #include "core_display.h"
 #include "display.h"
 #include "keyboard.h"
+#include "keymap.h"
+#include "alphakeys.h"
 #include "fonts.h"
 #include "icons.h"
 #include "rtc.h"
@@ -285,19 +287,20 @@ static void draw_menu_tab(int i, const char *text, int text_len, bool highlight,
         display_fill_rect((uint8_t) x0, (uint8_t) (bottom - 1), (uint8_t) x1, (uint8_t) bottom, reverse);
 }
 
-/* The front menu is one of a page's groups (ABCDE, MATH, PUNC...). */
-static bool alpha_group_menu() {
+/* The core's state, as alphakeys.c needs it. */
+static alpha_state_t alpha_state() {
     int menu = get_front_menu();
-    return menu > MENU_ALPHA2 && menu <= MENU_ALPHA_MISC2;
-}
-
-/* [a] and [A] type from the keys' own letters, so the first page of the
- * ALPHA menu (the groups of letters) isn't drawn: the bottom line stays
- * empty and the arrows type characters (alpha_key_matrix). SHIFT shows it,
- * to pick from with SHIFT + the top row; the second page and a group's menu
- * (symbols, punctuation) are drawn as they are. In [ ] it is the HP-42S's. */
-static bool alpha_menu_hidden() {
-    return px_settings.alpha_mode != ALPHA_MODE_HP42S && get_front_menu() == MENU_ALPHA1 && !mode_shift;
+    alpha_state_t s;
+    s.mode = px_settings.alpha_mode;
+    s.shift = mode_shift;
+    s.menu = !alpha_active()           ? ALPHA_MENU_NONE
+             : menu == MENU_ALPHA1     ? ALPHA_MENU_PAGE1
+             : menu == MENU_ALPHA2     ? ALPHA_MENU_PAGE2
+                                       : ALPHA_MENU_GROUP;
+    s.reg_entry = mode_command_entry && (incomplete_command == CMD_ASTO || incomplete_command == CMD_ARCL);
+    s.reg_length = incomplete_length;
+    s.reg_alpha = incomplete_alpha;
+    return s;
 }
 
 /* The calculator's part of the panel, below the status bar, from scratch. */
@@ -322,7 +325,8 @@ static void draw_lcd() {
         shown[i] = display_key_label(i, &labels[i], &lengths[i], &highlights[i], &reverses[i]);
         menu = menu || shown[i];
     }
-    bool hidden = alpha_menu_hidden();
+    alpha_state_t as = alpha_state();
+    bool hidden = alpha_menu_hidden(&as);
     for (int i = 0; i < 6; i++)
         if (shown[i] && !hidden)
             draw_menu_tab(i, labels[i], lengths[i], highlights[i], reverses[i]);
@@ -590,103 +594,15 @@ void free42_process_char(char c) {
 
 /* ============================ the keyboard ============================ */
 
-/* Physical keyboard matrix -> HP-42S key code (1-37, see keymap.txt in
- * the upstream repo), as wired on this hardware. 0 = no function at that
- * position (R7C2-C4 aren't wired to a key). */
-static const int key_matrix[KB_ROWS][KB_COLS] = {
-        /*      C0            C1        C2        C3           C4 */
-        /*R0*/ {  1,           2,        3,        4,           5 }, /* Sigma+  1/x sqrt   LOG   LN */
-        /*R1*/ {  7,           8,        9,       10,          11 }, /*    STO RCL  Rdn  SIN  COS */
-        /*R2*/ { 13,          14,       15,       16,          17 }, /*  ENTER X<>Y  CHS    E  BSP */
-        /*R3*/ { 18,          19,       20,       21,          22 }, /*     Up    7    8    9    / */
-        /*R4*/ { 23,          24,       25,       26,          27 }, /*   Down    4    5    6    x */
-        /*R5*/ { 28,          29,       30,       31,          32 }, /*  SHIFT    1    2    3    - */
-        /*R6*/ { 33,          34,       35,       36,          37 }, /* ON/EXIT   0    .  R/S    + */
-        /*R7*/ {  6,          12,        0,        0,           0 }, /*    XEQ  TAN    -    -    - */
-};
-
-/* The letters printed on the keys: what they type in ALPHA in the DM42's
- * [a] and [A] modes (px_settings.alpha_mode; in [ ], the HP-42S's, every
- * key keeps its key_matrix meaning). While alpha_active() (the core's
- * ALPHA text entry, the equation editor's included), a position with a
- * nonzero entry types that character instead -- free42_key_down() hands it
- * to the core as 1024 + the character, its ASCII/Unicode key code. A 0
- * entry keeps the key's meaning: most of column 0 -- ENTER, BSP, the
- * arrows, SHIFT, EXIT -- is needed while typing too. Also the letters the
- * settings menu types (free42_alpha_char()).
- *
- * SHIFT then a key, in [a] and [A] (free42_key_down()):
- *   - the six soft-menu keys (Sigma+ 1/x sqrt LOG LN XEQ -- the A-F keys):
- *     that soft key, so the ALPHA menu on the bottom line works as on the
- *     HP-42S -- groups, punctuation, symbols;
- *   - a digit key: the digit; the four arithmetic keys: their symbols
- *     (alpha_shifted_char()); the dot key: '.' (alone it types ',', as on
- *     the HP-41C); R/S alone types '?' (to run, leave ALPHA), SHIFT R/S: the next mode;
- *   - STO and RCL: ASTO and ARCL, as on the HP-42S;
- *   - any other letter key: the same letter -- the mode sets the case;
- *   - an arrow: the next mode (DOWN) or the one before (UP). Held down
- *     with an arrow, SHIFT does BST / SST instead (free42_shift_arrow()).
- *
- * The arrows type '=' (up) and '$' (down) while the ALPHA menu is hidden
- * (alpha_menu_hidden()): in [a] and [A] its first page isn't drawn, so the
- * arrows have no menu to page. On the second page and in a group's menu,
- * which are drawn, they are arrows. */
-static const char alpha_key_matrix[KB_ROWS][KB_COLS] = {
-        /*      C0   C1   C2   C3   C4 */
-        /*R0*/ { 'A', 'B', 'C', 'D', 'E' },
-        /*R1*/ { 'G', 'H', 'I', 'J', 'K' },
-        /*R2*/ {   0, 'M', 'N', 'O',   0 },
-        /*R3*/ { '=', 'P', 'Q', 'R', 'S' },
-        /*R4*/ { '$', 'T', 'U', 'V', 'W' },
-        /*R5*/ {   0, 'X', 'Y', 'Z', '_' },
-        /*R6*/ {   0, ':', ',', '?', ' ' },
-        /*R7*/ { 'F', 'L',   0,   0,   0 },
-};
-
-/* True for the ten HP-42S key codes that type a digit. */
-static bool is_digit_key(int key) {
-    switch (key) {
-        case KEY_0: case KEY_1: case KEY_2: case KEY_3: case KEY_4:
-        case KEY_5: case KEY_6: case KEY_7: case KEY_8: case KEY_9:
-            return true;
-        default:
-            return false;
-    }
-}
-
-/* The character a digit key types; only for is_digit_key() keys. */
-static char digit_char(int key) {
-    switch (key) {
-        case KEY_0: return '0';
-        case KEY_1: return '1';
-        case KEY_2: return '2';
-        case KEY_3: return '3';
-        case KEY_4: return '4';
-        case KEY_5: return '5';
-        case KEY_6: return '6';
-        case KEY_7: return '7';
-        case KEY_8: return '8';
-        default:    return '9';
-    }
-}
-
-/* What SHIFT + key types in ALPHA mode when it isn't just the lowercase
- * letter: digits on the digit keys, symbols on the arithmetic keys -- as a
- * Unicode code point, which core_keydown() translates to the core's own
- * character set (divide and multiply become its characters 0 and 1).
- * -1 = nothing special. */
-static int alpha_shifted_char(int key) {
-    if (is_digit_key(key))
-        return digit_char(key);
-    switch (key) {
-        case KEY_DIV: return 0x00F7; /* division sign */
-        case KEY_MUL: return 0x00D7; /* multiplication sign */
-        case KEY_ADD: return '+';
-        case KEY_SUB: return '-';
-        case KEY_DOT: return '.';
-        default:      return -1;
-    }
-}
+/* keymap.h's key codes are the core's. */
+static_assert(HPK_STO == KEY_STO && HPK_RCL == KEY_RCL && HPK_RDN == KEY_RDN && HPK_SIN == KEY_SIN
+              && HPK_COS == KEY_COS && HPK_TAN == KEY_TAN && HPK_SWAP == KEY_SWAP && HPK_CHS == KEY_CHS
+              && HPK_E == KEY_E && HPK_UP == KEY_UP && HPK_DOWN == KEY_DOWN && HPK_DIV == KEY_DIV
+              && HPK_MUL == KEY_MUL && HPK_SUB == KEY_SUB && HPK_ADD == KEY_ADD && HPK_DOT == KEY_DOT
+              && HPK_RUN == KEY_RUN && HPK_EXIT == KEY_EXIT && HPK_0 == KEY_0 && HPK_1 == KEY_1
+              && HPK_2 == KEY_2 && HPK_3 == KEY_3 && HPK_4 == KEY_4 && HPK_5 == KEY_5 && HPK_6 == KEY_6
+              && HPK_7 == KEY_7 && HPK_8 == KEY_8 && HPK_9 == KEY_9,
+              "keymap.h's key codes differ from core_globals.h's");
 
 /* State for the currently-held physical key, set by free42_key_down() and
  * consulted by the timeout/repeat/release functions below. held_key == 0
@@ -748,7 +664,7 @@ key_sound_t free42_key_sound(uint8_t row, uint8_t col) {
     }
     if (mode_shift)
         return KEY_SOUND_OP;
-    if (is_digit_key(code) || code == KEY_DOT || code == KEY_E || code == KEY_CHS || code == KEY_BSP)
+    if (hp_key_digit(code) || code == KEY_DOT || code == KEY_E || code == KEY_CHS || code == KEY_BSP)
         return KEY_SOUND_ENTRY;
     return KEY_SOUND_OP;
 }
@@ -797,82 +713,31 @@ void free42_key_down(uint8_t row, uint8_t col) {
         return;
     }
 
-    /* SHIFT then R/S, in ALPHA: the next keyboard mode, [ ] [a] [A]
-     * (alpha_key_matrix), remembered for the next ALPHA -- saved at OFF. */
-    if (alpha_active() && mode_shift && code == KEY_RUN) {
+    /* ALPHA's keyboard modes (alphakeys.h); outside ALPHA, the key. */
+    alpha_state_t state = alpha_state();
+    alpha_key_t k = alpha_key(row, col, &state);
+    if (k.kind == ALPHA_KEY_NEXT_MODE) {
+        /* Remembered for the next ALPHA -- saved at OFF. */
         set_shift(false);
         px_settings.alpha_mode = (uint8_t) ((px_settings.alpha_mode + 1) % ALPHA_MODES);
         settings_save_later();
         refresh();
         return;
     }
-
-    /* SHIFT then STO or RCL, in [a] and [A]: the core's STO and RCL are
-     * ASTO and ARCL in ALPHA, without SHIFT (SHIFT STO is something else). */
-    if (alpha_active() && px_settings.alpha_mode != ALPHA_MODE_HP42S && mode_shift
-            && (code == KEY_STO || code == KEY_RCL))
-        set_shift(false);
-
-    /* A register number after ASTO or ARCL, in [a] and [A]: the digit keys
-     * as in [ ] -- the first with SHIFT (alone they are letters, for a
-     * name), the rest without, once the core takes it as a number. */
-    bool reg_digit = alpha_active() && px_settings.alpha_mode != ALPHA_MODE_HP42S && is_digit_key(code)
-            && mode_command_entry && (incomplete_command == CMD_ASTO || incomplete_command == CMD_ARCL)
-            && (incomplete_length == 0 ? mode_shift : !incomplete_alpha);
-    if (reg_digit)
-        set_shift(false);
-
-    /* An arrow with the menu showing -- SHIFT shows it -- pages it: the
-     * core's arrow, without SHIFT. */
-    if (alpha_active() && px_settings.alpha_mode != ALPHA_MODE_HP42S && mode_shift
-            && (code == KEY_UP || code == KEY_DOWN))
-        set_shift(false);
-
-    /* One of the six soft-menu keys while the ALPHA menu is drawn -- hidden,
-     * SHIFT shows it, so SHIFT + the key as well: the soft key itself,
-     * passed to the core below as an ordinary key: an item that is a menu
-     * opens it, and a letter item types its capital -- its lowercase letter
-     * with SHIFT set, which [a] sets for it. */
-    bool soft_key = code >= 1 && code <= 6 && !alpha_menu_hidden();
-    bool in_group = soft_key && px_settings.alpha_mode != ALPHA_MODE_HP42S && alpha_group_menu();
-    if (soft_key && !mode_shift && alpha_active() && px_settings.alpha_mode == ALPHA_MODE_LOWER)
-        set_shift(true);
-
-    int ch = (unsigned char) alpha_key_matrix[row][col];
-    if (reg_digit)
-        ch = 0;
-    else if ((code == KEY_UP || code == KEY_DOWN) && (shift_before_down || !alpha_menu_hidden()))
-        ch = 0; /* the arrows page the menu that is drawn (or that SHIFT showed) */
-    else if (shift_before_down && (code == KEY_STO || code == KEY_RCL))
-        ch = 0; /* SHIFT STO / RCL: ASTO / ARCL (the core's STO / RCL in ALPHA) */
-    else if (mode_shift && alpha_shifted_char(code) >= 0)
-        ch = alpha_shifted_char(code); /* SHIFT + digit key types the digit, etc. */
-    if (ch != 0 && alpha_active() && px_settings.alpha_mode != ALPHA_MODE_HP42S && !soft_key) {
-        if (px_settings.alpha_mode == ALPHA_MODE_LOWER && ch >= 'A' && ch <= 'Z')
-            ch += 'a' - 'A';
-        int key = 1024 + ch;
-
-        held_key = key;
-        pump_running(core_keydown(key, &enqueued, &repeat));
-        held_enqueued = enqueued;
-        held_repeat = repeat;
-
-        refresh();
-        return;
-    }
-
-    if (code == 0)
+    if (k.shift != (bool) mode_shift)
+        set_shift(k.shift);
+    int key = k.kind == ALPHA_KEY_CHAR ? 1024 + k.value : k.value;
+    if (key == 0)
         return;
 
-    held_key = code;
-    pump_running(core_keydown(code, &enqueued, &repeat));
+    held_key = key;
+    pump_running(core_keydown(key, &enqueued, &repeat));
     held_enqueued = enqueued;
     held_repeat = repeat;
 
-    /* An item picked from a group's menu in [a] or [A]: back to the first
-     * page, hidden (the core stays in the group, for the next letter, and
-     * a group of the second page would go back to that page, drawn). */
-    if (in_group && alpha_active()) {
+    /* A pick from a group's menu: the core stays in the group, for the
+     * next letter -- back to the hidden first page instead. */
+    if (k.to_page1 && alpha_active()) {
         if (mode_commandmenu >= MENU_ALPHA1 && mode_commandmenu <= MENU_ALPHA_MISC2)
             mode_commandmenu = MENU_ALPHA1;
         else
@@ -972,12 +837,33 @@ void free42_load_state(const char *path) {
     refresh();
 }
 
+/* What a failed save of OFF_STATE_FILE leaves: the core writes to
+ * "OFFSTATE.p42.<date><time>.crash" first and only renames it on success. */
+static void remove_crash_files(void) {
+    char names[8][40], path[48];
+    int n = statefs_list_files("/", ".crash", (char *) names, sizeof(names[0]), 8);
+    for (int i = 0; i < n; i++)
+        if (strncmp(names[i], OFF_STATE_FILE + 1, strlen(OFF_STATE_FILE) - 1) == 0) {
+            snprintf(path, sizeof(path), "/%s.crash", names[i]);
+            statefs_remove(path);
+        }
+    statefs_sync();
+}
+
 bool free42_save_to_drive(void) {
     if (!statefs_ready())
         return false;
+    /* The RAM copy only goes once the drive has one: a full drive fails the
+     * save (the core leaves its half-written .crash file and no
+     * OFF_STATE_FILE), the app isn't started, and the RAM copy is still
+     * there for a crash before the next OFF. */
     core_save_state(OFF_STATE_FILE);
+    if (!statefs_sync() || !statefs_file_exists(OFF_STATE_FILE)) {
+        remove_crash_files();
+        return false;
+    }
     ramstate_discard();
-    return statefs_sync() && statefs_file_exists(OFF_STATE_FILE);
+    return true;
 }
 
 void free42_memory_to_ram(void) {

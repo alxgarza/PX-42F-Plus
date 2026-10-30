@@ -113,6 +113,7 @@ add_executable(PX-42F-Plus
         bootlog.c
         appdec.c
         appfile.c
+        alphakeys.c
         icons.c
         ${FREE42_CORE_SOURCES}
         )

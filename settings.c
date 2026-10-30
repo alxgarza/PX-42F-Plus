@@ -10,10 +10,23 @@
 #include "debug_checkpoint.h"
 #include "rtc.h"
 
-/* The 4KB sector just below the 4MB mark -- a fixed address (it was the
- * last sector when the build assumed a 4MB Pico 2 W), so the saved settings
- * stay put now that the board header declares the PX-42F's real 16MB. */
-#define SETTINGS_FLASH_OFFSET (4u * 1024u * 1024u - FLASH_SECTOR_SIZE)
+/* Two 4KB sectors just below the 4MB mark, written in turn: a save erases
+ * and writes the one that doesn't hold the newest record, so a power cut
+ * in the middle (a few ms) leaves the other one -- one erased sector would
+ * have lost every setting. The first is the one older firmware used alone
+ * (the last sector when the build assumed a 4MB Pico 2 W). flashdisk.c's
+ * IMAGE_LIMIT keeps the program below both. */
+#define SETTINGS_SECTORS 2
+static const uint32_t sector_offset[SETTINGS_SECTORS] = {
+    4u * 1024u * 1024u - FLASH_SECTOR_SIZE,
+    4u * 1024u * 1024u - 2 * FLASH_SECTOR_SIZE,
+};
+
+/* Which record is newer: a count at the end of the record's page, and its
+ * complement next to it -- unwritten (both 0xFF..., older firmware's
+ * record, or an erased sector) counts as 0. */
+#define SEQ_AT     (FLASH_PAGE_SIZE - 4)
+#define SEQ_INV_AT (FLASH_PAGE_SIZE - 8)
 
 #define SETTINGS_MAGIC   0x32345850u /* "PX42" */
 #define SETTINGS_VERSION 10          /* bump when px_settings_t changes */
@@ -49,7 +62,7 @@ typedef struct {
     uint32_t checksum;
 } settings_record_v6_t;
 
-_Static_assert(sizeof(settings_record_t) <= FLASH_PAGE_SIZE, "settings record must fit one flash page");
+_Static_assert(sizeof(settings_record_t) <= SEQ_INV_AT, "settings record and its count must fit one flash page");
 
 px_settings_t px_settings;
 
@@ -82,8 +95,22 @@ static uint32_t checksum(const settings_record_t *r) {
     return checksum_bytes(r, offsetof(settings_record_t, checksum));
 }
 
+static const uint8_t *sector_page(int i) {
+    return (const uint8_t *) (XIP_BASE + sector_offset[i]);
+}
+
+static uint32_t sequence(int i) {
+    uint32_t seq, inv;
+    memcpy(&seq, sector_page(i) + SEQ_AT, sizeof(seq));
+    memcpy(&inv, sector_page(i) + SEQ_INV_AT, sizeof(inv));
+    return inv == ~seq ? seq : 0;
+}
+
+/* The sector the settings were last loaded from or saved to. */
+static int current = 0;
+
 static const settings_record_t *stored_record(void) {
-    return (const settings_record_t *) (XIP_BASE + SETTINGS_FLASH_OFFSET);
+    return (const settings_record_t *) sector_page(current);
 }
 
 /* Version 7 was today's layout without the fonts, which were added at the
@@ -101,14 +128,12 @@ static const settings_record_t *stored_record(void) {
 /* The current layout, or one of the four before -- versions 6 and 7 too:
  * settings are only written when one changes, so a calculator can still
  * hold them. Anything older gets the defaults. */
-void settings_load(void) {
-    const settings_record_t *r = stored_record();
+static bool load_record(const settings_record_t *r) {
     const settings_record_v6_t *r6 = (const settings_record_v6_t *) r;
     uint32_t v7_checksum, v8_checksum, v9_checksum;
     memcpy(&v7_checksum, (const uint8_t *) r + V7_CHECKSUM_AT, sizeof(v7_checksum));
     memcpy(&v8_checksum, (const uint8_t *) r + V8_CHECKSUM_AT, sizeof(v8_checksum));
     memcpy(&v9_checksum, (const uint8_t *) r + V9_CHECKSUM_AT, sizeof(v9_checksum));
-    px_settings = defaults;
     if (r->magic == SETTINGS_MAGIC && r->version == SETTINGS_VERSION && r->checksum == checksum(r)) {
         px_settings = r->settings;
     } else if (r->magic == SETTINGS_MAGIC && r->version == 9 && v9_checksum == checksum_bytes(r, V9_CHECKSUM_AT)) {
@@ -132,6 +157,23 @@ void settings_load(void) {
         px_settings.cal_drift = o->cal_drift;
         px_settings.cal_span_h = o->cal_span_h;
         px_settings.cal_ref_ms = o->cal_ref_ms;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+/* The newest record that reads, else the other one, else the defaults. */
+void settings_load(void) {
+    int newer = sequence(1) > sequence(0) ? 1 : 0;
+    px_settings = defaults;
+    current = newer;
+    if (!load_record(stored_record())) {
+        current = 1 - newer;
+        if (!load_record(stored_record())) {
+            px_settings = defaults;
+            current = newer;
+        }
     }
     px_settings.splash_image[SPLASH_NAME_MAX] = 0;
     px_settings.key_sound[KEY_SOUND_NAME_MAX] = 0;
@@ -155,9 +197,11 @@ void settings_save_pending(void) {
         settings_save();
 }
 
+static uint32_t write_offset;
+
 static void write_record(void *param) {
-    flash_range_erase(SETTINGS_FLASH_OFFSET, FLASH_SECTOR_SIZE);
-    flash_range_program(SETTINGS_FLASH_OFFSET, (const uint8_t *) param, FLASH_PAGE_SIZE);
+    flash_range_erase(write_offset, FLASH_SECTOR_SIZE);
+    flash_range_program(write_offset, (const uint8_t *) param, FLASH_PAGE_SIZE);
 }
 
 void settings_save(void) {
@@ -175,11 +219,19 @@ void settings_save(void) {
     if (memcmp(r, stored_record(), sizeof(*r)) == 0)
         return; /* unchanged -- don't wear the flash */
 
-    debug_checkpoint(CKPT_FLASH_WRITE, SETTINGS_FLASH_OFFSET);
+    uint32_t seq = sequence(current) + 1;
+    uint32_t inv = ~seq;
+    memcpy(page + SEQ_AT, &seq, sizeof(seq));
+    memcpy(page + SEQ_INV_AT, &inv, sizeof(inv));
+    int target = 1 - current;
+    write_offset = sector_offset[target];
+    debug_checkpoint(CKPT_FLASH_WRITE, write_offset);
     watchdog_pause();
     int rc = flash_safe_execute(write_record, page, 1000);
     watchdog_resume();
     debug_checkpoint(CKPT_FLASH_DONE, (uint32_t) rc);
     if (rc != PICO_OK)
-        crash_note_flash_error(rc, SETTINGS_FLASH_OFFSET);
+        crash_note_flash_error(rc, write_offset);
+    else
+        current = target;
 }
