@@ -70,6 +70,9 @@ int docmd_unlock(arg_struct *arg);
 int docmd_ident(arg_struct *arg);
 int docmd_rcomplx(arg_struct *arg);
 int docmd_pcomplx(arg_struct *arg);
+int docmd_re(arg_struct *arg);
+int docmd_im(arg_struct *arg);
+int docmd_conj(arg_struct *arg);
 int docmd_caps(arg_struct *arg);
 int docmd_mixed(arg_struct *arg);
 int docmd_static(arg_struct *arg);
@@ -138,5 +141,6 @@ int docmd_list_t(arg_struct *arg);
 int docmd_newlist(arg_struct *arg);
 int docmd_to_list(arg_struct *arg);
 int docmd_from_list(arg_struct *arg);
+int docmd_sort(arg_struct *arg);
 
 #endif

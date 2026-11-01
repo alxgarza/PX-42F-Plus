@@ -13,6 +13,10 @@ can be cherry-picked between them.
   `shell.h`). `free42_app.cc` and `shell.cc` are the PX's own (names kept from the Free42
   port). Plus42 needs C++ exceptions (`std::bad_alloc`) and `PICO_MALLOC_PANIC=0`.
 - Plus42 can't read Free42 `.f42` states (different magic); state files are `.p42`.
+- Now Plus42 1.5.1 (`PLUS42_VERSION` in `settings_menu.c`, the Info screen). Updating: in
+  `plus42-upstream/` fetch the tag, `git merge-file` each changed `common/` file into `src/core/`
+  (old tag = base), fast-forward its master. Expect `core_tables.*` to conflict whenever new
+  commands come: take Plus42's block and add SETDATE/SETIME back at the end of the table.
 
 ## Build
 

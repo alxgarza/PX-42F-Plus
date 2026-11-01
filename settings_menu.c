@@ -40,7 +40,7 @@
 /* The Plus42 release src/core was taken from (plus42-upstream/HISTORY),
  * and the Intel Decimal Floating-Point Math Library it computes with
  * (third_party/IntelRDFPMathLib20U1). */
-#define PLUS42_VERSION  "1.4a"
+#define PLUS42_VERSION  "1.5.1"
 #define INTEL_LIB_VERSION "2.0 Update 1"
 
 /* HP-42S key codes, as free42_key_code() returns them. */

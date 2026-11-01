@@ -623,13 +623,13 @@ static int catalogmenu_item[6][6];
 static bool catalog_no_top;
 static int catsect_when_units_key_was_pressed = -1;
 
-static int custommenu_length[3][6];
-static char custommenu_label[3][6][7];
+static int custommenu_length[6][6];
+static char custommenu_label[6][6][7];
 
-static arg_struct progmenu_arg[9];
-static bool progmenu_is_gto[9];
-static int progmenu_length[6];
-static char progmenu_label[6][7];
+static arg_struct progmenu_arg[15];
+static bool progmenu_is_gto[15];
+static int progmenu_length[12];
+static char progmenu_label[12][7];
 
 static int appmenu_exitcallback;
 
@@ -687,18 +687,18 @@ bool persist_display() {
     }
     write_bool(catalog_no_top);
     write_int(catsect_when_units_key_was_pressed);
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 6; i++) {
         for (int j = 0; j < 6; j++) {
             if (!write_int(custommenu_length[i][j])) return false;
             if (fwrite(custommenu_label[i][j], 1, 7, gfile) != 7) return false;
         }
     }
-    for (int i = 0; i < 9; i++)
+    for (int i = 0; i < 15; i++)
         if (!write_arg(progmenu_arg + i))
             return false;
-    for (int i = 0; i < 9; i++)
+    for (int i = 0; i < 15; i++)
         if (!write_bool(progmenu_is_gto[i])) return false;
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 12; i++) {
         if (!write_int(progmenu_length[i])) return false;
         if (fwrite(progmenu_label[i], 1, 7, gfile) != 7) return false;
     }
@@ -770,7 +770,7 @@ bool unpersist_display(int ver) {
     } else {
         catsect_when_units_key_was_pressed = -1;
     }
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < (ver < 57 ? 3 : 6); i++) {
         for (int j = 0; j < 6; j++) {
             if (!read_int(&custommenu_length[i][j])) return false;
             if (fread(custommenu_label[i][j], 1, 7, gfile) != 7) return false;
@@ -778,17 +778,31 @@ bool unpersist_display(int ver) {
                 switch_30_and_94(custommenu_label[i][j], custommenu_length[i][j]);
         }
     }
-    for (int i = 0; i < 9; i++)
+    if (ver < 57) {
+        for (int i = 3; i < 6; i++)
+            for (int j = 0; j < 6; j++)
+                custommenu_length[i][j] = 0;
+    }
+    for (int i = 0; i < (ver < 57 ? 9 : 15); i++)
         if (!read_arg(progmenu_arg + i, false))
             return false;
-    for (int i = 0; i < 9; i++)
+    if (ver < 57)
+        for (int i = 9; i < 15; i++)
+            progmenu_arg[i].type = ARGTYPE_NONE;
+    for (int i = 0; i < (ver < 57 ? 9 : 15); i++)
         if (!read_bool(&progmenu_is_gto[i])) return false;
-    for (int i = 0; i < 6; i++) {
+    if (ver < 57)
+        for (int i = 9; i < 15; i++)
+            progmenu_is_gto[i] = false;
+    for (int i = 0; i < (ver < 57 ? 6 : 12); i++) {
         if (!read_int(&progmenu_length[i])) return false;
         if (fread(progmenu_label[i], 1, 7, gfile) != 7) return false;
         if (ver < 44)
             switch_30_and_94(progmenu_label[i], progmenu_length[i]);
     }
+    if (ver < 57)
+        for (int i = 6; i < 12; i++)
+            progmenu_length[i] = 0;
     int r, c;
     if (ver < 13) {
         r = 2;
@@ -2163,6 +2177,8 @@ static int display_prgm_line(int offset, int headers = 0, int footers = 0) {
     }
 }
 
+static void full_list_to_string(vartype *v, std::string *buf, int maxlen);
+
 static void display_level(int level, int row) {
     clear_row(row);
     if (!flags.f.big_stack && level > 3)
@@ -2209,10 +2225,16 @@ static void display_level(int level, int row) {
         char2buf(buf, len, &bufptr, "x\201z\203"[level]);
         char2buf(buf, len, &bufptr, '\200');
     }
-    if (level == -1)
-        bufptr += vartype2string(lastx, buf + bufptr, len - bufptr);
-    else if (level <= sp)
-        bufptr += vartype2string(stack[sp - level], buf + bufptr, len - bufptr);
+    vartype *v = level == -1 ? lastx : level <= sp ? stack[sp - level] : NULL;
+    if (v != NULL) {
+        if (v->type == TYPE_LIST) {
+            std::string s;
+            full_list_to_string(v, &s, len - bufptr);
+            string2buf(buf, len, &bufptr, s.c_str(), (int) s.length());
+        } else {
+            bufptr += vartype2string(v, buf + bufptr, len - bufptr);
+        }
+    }
     if (bufptr > disp_c) {
         buf[disp_c - 1] = 26;
         bufptr = disp_c;
@@ -2558,7 +2580,7 @@ int display_command(int row, int available_lines) {
                     && ((catsect = get_cat_section()) == CATSECT_PGM
                         || catsect == CATSECT_PGM_ONLY));
 
-        if (pending_command >= CMD_ASGN01 && pending_command <= CMD_ASGN18)
+        if (pending_command >= CMD_ASGN01 && pending_command <= CMD_ASGNn18)
             buf += "ASSIGN ";
         else if (!hide) {
             if (pending_command == CMD_SIMQ)
@@ -2629,7 +2651,7 @@ int display_command(int row, int available_lines) {
             buf += pending_command_arg.val.lclbl;
         }
 
-        if (pending_command >= CMD_ASGN01 && pending_command <= CMD_ASGN18) {
+        if (pending_command >= CMD_ASGN01 && pending_command <= CMD_ASGNn18) {
             int keynum = pending_command - CMD_ASGN01 + 1;
             buf += " TO ";
             buf += (char) ('0' + keynum / 10);
@@ -2912,14 +2934,14 @@ static const int ext_prgm_cat[] = {
     CMD_TRY,     CMD_TRYX,    CMD_CATCH_T,  CMD_PRTRACE, CMD_SST_RT,  CMD_SST_UP,
     CMD_GETKEY1, CMD_GETKEYA, CMD_MENU1,    CMD_VARMNU1, CMD_PGMMENU, CMD_PGMVAR,
     -2 /* 0? */, -3 /* X? */, CMD_CPXMAT_T, CMD_TYPE_T,  CMD_CSLD_T,  CMD_SKIP,
-    CMD_LSTO,    CMD_LASTO,   CMD_LCLV,     CMD_NOP,     CMD_NULL,    CMD_NULL
+    CMD_LSTO,    CMD_LASTO,   CMD_LCLV,     CMD_PARAMS,  CMD_NULL,    CMD_NULL
 };
 
 static const int ext_str_cat[] = {
-    CMD_APPEND,  CMD_EXTEND,    CMD_POS,     CMD_LENGTH,  CMD_SUBSTR, CMD_XSTR,
-    CMD_N_TO_S,  CMD_NN_TO_S,   CMD_IP_TO_S, CMD_S_TO_N,  CMD_N_TO_C, CMD_C_TO_N,
-    CMD_TO_LIST, CMD_FROM_LIST, CMD_LIST_T,  CMD_NEWLIST, CMD_HEAD,   CMD_REV,
-    CMD_XASTO,   CMD_LXASTO,    CMD_XVIEW,   CMD_NULL,    CMD_NULL,   CMD_NULL
+    CMD_LENGTH,  CMD_SUBSTR,    CMD_POS,     CMD_XSTR,   CMD_XASTO,  CMD_LXASTO,
+    CMD_N_TO_S,  CMD_NN_TO_S,   CMD_IP_TO_S, CMD_S_TO_N, CMD_N_TO_C, CMD_C_TO_N,
+    CMD_XSTR,    CMD_XVIEW,     CMD_NEWLIST, CMD_APPEND, CMD_EXTEND, CMD_LIST_T,
+    CMD_TO_LIST, CMD_FROM_LIST, CMD_HEAD,    CMD_REV,    CMD_SORT,   CMD_NULL
 };
 
 static const int ext_stk_cat[] = {
@@ -2957,48 +2979,25 @@ static const int ext_disp_cat[] = {
 };
 
 #if defined(ANDROID) || defined(IPHONE)
-#ifdef FREE42_FPTEST
 static const int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_X2LINE,  CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
-    CMD_PCOMPLX, CMD_RCOMPLX, CMD_GETMI,   CMD_PUTMI,    CMD_GETLI,       CMD_PUTLI,
+    CMD_RE,      CMD_IM,      CMD_CONJ,    CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
+    CMD_RCOMPLX, CMD_PCOMPLX, CMD_GETMI,   CMD_PUTMI,    CMD_GETLI,       CMD_PUTLI,
     CMD_LOCK,    CMD_UNLOCK,  CMD_DYNAMIC, CMD_STATIC,   CMD_MIXED,       CMD_CAPS,
-    CMD_IDENT,   CMD_PRREG,   CMD_STRACE,  CMD_LINE,     CMD_PLOT_M,      CMD_TVM,
-    CMD_SPFV,    CMD_SPPV,    CMD_USFV,    CMD_USPV,     CMD_ACCEL,       CMD_LOCAT,
-    CMD_HEADING, CMD_FPTEST,  CMD_NULL,    CMD_NULL,     CMD_NULL,        CMD_NULL
-
+    CMD_IDENT,   CMD_PRREG,   CMD_STRACE,  CMD_LINE,     CMD_PLOT_M,      CMD_NULL,
+    CMD_TVM,     CMD_SPFV,    CMD_SPPV,    CMD_USFV,     CMD_USPV,        CMD_NULL,
+    CMD_A2LINE,  CMD_A2PLINE, CMD_X2LINE,  CMD_ACCEL,    CMD_LOCAT,       CMD_HEADING
 };
 #define MISC_CAT_ROWS 6
 #else
 static const int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_X2LINE,  CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
-    CMD_PCOMPLX, CMD_RCOMPLX, CMD_GETMI,   CMD_PUTMI,    CMD_GETLI,       CMD_PUTLI,
+    CMD_RE,      CMD_IM,      CMD_CONJ,    CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
+    CMD_RCOMPLX, CMD_PCOMPLX, CMD_GETMI,   CMD_PUTMI,    CMD_GETLI,       CMD_PUTLI,
     CMD_LOCK,    CMD_UNLOCK,  CMD_DYNAMIC, CMD_STATIC,   CMD_MIXED,       CMD_CAPS,
-    CMD_IDENT,   CMD_PRREG,   CMD_STRACE,  CMD_LINE,     CMD_PLOT_M,      CMD_TVM,
-    CMD_SPFV,    CMD_SPPV,    CMD_USFV,    CMD_USPV,     CMD_ACCEL,       CMD_LOCAT,
-    CMD_HEADING, CMD_NULL,    CMD_NULL,    CMD_NULL,     CMD_NULL,        CMD_NULL
+    CMD_IDENT,   CMD_PRREG,   CMD_STRACE,  CMD_LINE,     CMD_PLOT_M,      CMD_NULL,
+    CMD_TVM,     CMD_SPFV,    CMD_SPPV,    CMD_USFV,     CMD_USPV,        CMD_NULL,
+    CMD_A2LINE,  CMD_A2PLINE, CMD_X2LINE,  CMD_NULL,     CMD_NULL,        CMD_NULL
 };
 #define MISC_CAT_ROWS 6
-#endif
-#else
-#ifdef FREE42_FPTEST
-static const int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_X2LINE,  CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
-    CMD_PCOMPLX, CMD_RCOMPLX, CMD_GETMI,   CMD_PUTMI,    CMD_GETLI,       CMD_PUTLI,
-    CMD_LOCK,    CMD_UNLOCK,  CMD_DYNAMIC, CMD_STATIC,   CMD_MIXED,       CMD_CAPS,
-    CMD_IDENT,   CMD_PRREG,   CMD_STRACE,  CMD_LINE,     CMD_PLOT_M,      CMD_TVM,
-    CMD_SPFV,    CMD_SPPV,    CMD_USFV,    CMD_USPV,     CMD_FPTEST,      CMD_NULL
-};
-#define MISC_CAT_ROWS 5
-#else
-static const int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_X2LINE,  CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
-    CMD_PCOMPLX, CMD_RCOMPLX, CMD_GETMI,   CMD_PUTMI,    CMD_GETLI,       CMD_PUTLI,
-    CMD_LOCK,    CMD_UNLOCK,  CMD_DYNAMIC, CMD_STATIC,   CMD_MIXED,       CMD_CAPS,
-    CMD_IDENT,   CMD_PRREG,   CMD_STRACE,  CMD_LINE,     CMD_PLOT_M,      CMD_TVM,
-    CMD_SPFV,    CMD_SPPV,    CMD_USFV,    CMD_USPV,     CMD_NULL,        CMD_NULL
-};
-#define MISC_CAT_ROWS 5
-#endif
 #endif
 
 static const int ext_0_cmp_cat[] = {
@@ -4227,14 +4226,21 @@ void redisplay(int mode) {
             draw_key(5, 0, 0, mode_menu_static || !mode_shift ? "XEQ" : "GTO", 3);
         } else {
             for (int i = 0; i < 6; i++) {
-                draw_key(i, 0, 1, custommenu_label[r][i],
-                                  custommenu_length[r][i]);
+                int rs = r;
+                if (mode_shift && !mode_menu_static && custommenu_length[r + 3][i] > 0)
+                    rs += 3;
+                draw_key(i, 0, 1, custommenu_label[rs][i],
+                                  custommenu_length[rs][i]);
             }
         }
         footers = 1;
     } else if (menu_id == MENU_PROGRAMMABLE) {
-        for (int i = 0; i < 6; i++)
-            draw_key(i, 0, 0, progmenu_label[i], progmenu_length[i]);
+        for (int i = 0; i < 6; i++) {
+            int k = i;
+            if (mode_shift && !mode_menu_static && progmenu_length[i + 6] > 0)
+                k += 6;
+            draw_key(i, 0, 0, progmenu_label[k], progmenu_length[k]);
+        }
         footers = 1;
     } else if (menu_id != MENU_NONE) {
         const menu_spec *m = menus + menu_id;
@@ -4888,7 +4894,7 @@ int command2buf(char *buf, int len, int cmd, const arg_struct *arg) {
     }
 
     const command_spec *cmdspec = &cmd_array[cmd];
-    if (cmd >= CMD_ASGN01 && cmd <= CMD_ASGN18) {
+    if (cmd >= CMD_ASGN01 && cmd <= CMD_ASGNn18) {
         string2buf(buf, len, &bufptr, "ASSIGN ", 7);
     } else {
         for (int i = 0; i < cmdspec->name_length; i++) {
@@ -4980,9 +4986,13 @@ int command2buf(char *buf, int len, int cmd, const arg_struct *arg) {
             char2buf(buf, len, &bufptr, d);
         }
     }
-    if (cmd >= CMD_ASGN01 && cmd <= CMD_ASGN18) {
+    if (cmd >= CMD_ASGN01 && cmd <= CMD_ASGNn18) {
         int keynum = cmd - CMD_ASGN01 + 1;
         string2buf(buf, len, &bufptr, " TO ", 4);
+        if (keynum > 18) {
+            char2buf(buf, len, &bufptr, '-');
+            keynum -= 18;
+        }
         char2buf(buf, len, &bufptr, (char) ('0' + keynum / 10));
         char2buf(buf, len, &bufptr, (char) ('0' + keynum % 10));
     }
@@ -5421,7 +5431,7 @@ void update_catalog() {
 
 void clear_custom_menu() {
     int row, key;
-    for (row = 0; row < 3; row++)
+    for (row = 0; row < 6; row++)
         for (key = 0; key < 6; key++)
             custommenu_length[row][key] = 0;
 }
@@ -5429,24 +5439,25 @@ void clear_custom_menu() {
 void assign_custom_key(int keynum, const char *name, int length) {
     int row = (keynum - 1) / 6;
     int key = (keynum - 1) % 6;
-    int i;
     custommenu_length[row][key] = length;
-    for (i = 0; i < length; i++)
+    for (int i = 0; i < length; i++)
         custommenu_label[row][key][i] = name[i];
 }
 
-void get_custom_key(int keynum, char *name, int *length) {
+void get_custom_key(int keynum, bool shift, char *name, int *length) {
     int row = (keynum - 1) / 6;
     int key = (keynum - 1) % 6;
+    if (shift && custommenu_length[row + 3][key] > 0)
+        row += 3;
     string_copy(name, length, custommenu_label[row][key],
                               custommenu_length[row][key]);
 }
 
 void clear_prgm_menu() {
     int i;
-    for (i = 0; i < 9; i++)
+    for (i = 0; i < 15; i++)
         progmenu_arg[i].type = ARGTYPE_NONE;
-    for (i = 0; i < 6; i++)
+    for (i = 0; i < 12; i++)
         progmenu_length[i] = 0;
 }
 
@@ -5456,9 +5467,11 @@ void assign_prgm_key(int keynum, bool is_gto, const arg_struct *arg) {
     progmenu_arg[keynum] = (arg_struct) *arg;
     progmenu_is_gto[keynum] = is_gto;
     length = reg_alpha_length;
-    if (keynum < 6) {
+    if (keynum < 6 || keynum >= 9) {
         if (length > 7)
             length = 7;
+        if (keynum >= 9)
+            keynum -= 3;
         for (i = 0; i < length; i++)
             progmenu_label[keynum][i] = reg_alpha[i];
         progmenu_length[keynum] = length;
@@ -5475,9 +5488,9 @@ static void save_keyx_info(int keynum) {
     }
     char *s = ((vartype_string *) keyx)->txt();
     s[0] = keynum;
-    if (keynum < 6) {
-        s[1] = progmenu_length[keynum];
-        memcpy(s + 2, progmenu_label[keynum], s[1]);
+    if (keynum < 6 || keynum >= 9) {
+        s[1] = progmenu_length[keynum >= 9 ? keynum - 3 : keynum];
+        memcpy(s + 2, progmenu_label[keynum >= 9 ? keynum - 3 : keynum], s[1]);
     }
     arg_struct *arg = progmenu_arg + keynum;
     s[9] = arg->type;
@@ -5515,14 +5528,24 @@ void do_prgm_menu_key(int keynum) {
     }
     if (progmenu_arg[keynum].type == ARGTYPE_NONE) {
         if (keynum < 6) {
+            do_null:
             pending_command = CMD_NULL;
             print_menu_trace("NULL", 4);
-        } else if (keynum == 8)
+            return;
+        } else if (keynum >= 9) {
+            if (progmenu_arg[keynum - 9].type != ARGTYPE_NONE)
+                keynum -= 9;
+            else
+                goto do_null;
+        } else if (keynum == 8) {
             pending_command = CMD_CANCELLED;
-        return;
+            return;
+        }
     }
-    if (keynum < 6)
-        print_menu_trace(progmenu_label[keynum], progmenu_length[keynum]);
+    if (keynum < 6 || keynum >= 9) {
+        int k = keynum >= 9 ? keynum - 3 : keynum;
+        print_menu_trace(progmenu_label[k], progmenu_length[k]);
+    }
     oldprgm = current_prgm;
     oldpc = pc;
     set_running(true);

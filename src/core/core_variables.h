@@ -237,6 +237,8 @@ bool purge_var(const char *name, int namelength, bool force = false, bool global
 bool vars_exist(int section);
 bool named_eqns_exist();
 bool contains_strings(const vartype_realmatrix *rm);
+bool is_real(vartype *v, bool *str, bool allow_list = true);
+bool is_complex(vartype *v, bool *str, bool allow_list = true);
 int matrix_copy(vartype *dst, const vartype *src);
 vartype *recall_private_var(const char *name, int namelength, bool allow_calling_frames = false);
 vartype *recall_private_var_from_level(const char *name, int namelength, int level);

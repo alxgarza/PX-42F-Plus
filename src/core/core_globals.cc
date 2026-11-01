@@ -37,10 +37,8 @@
 #include "shell.h"
 #include "shell_spool.h"
 
-#ifndef BCD_MATH
-// We need these locally for BID128->double conversion
-#include "bid_conf.h"
-#include "bid_functions.h"
+#ifdef FP_DECNUM
+#include "intel-conv.h"
 #endif
 
 // File used for reading and writing the state file, and for importing and
@@ -1203,8 +1201,9 @@ bool no_keystrokes_yet;
  * Version 54: 1.3.3  CAPS/Mixed and STATIC/DYNAMIC for menus
  * Version 55: 1.4    Error trapping
  * Version 56: 1.4    Error trapping: stack trace
+ * Version 57: 1.5    Shifted CUSTOM & prog menu assignments
  */
-#define PLUS42_VERSION 56
+#define PLUS42_VERSION 57
 
 
 /*******************/
@@ -4024,7 +4023,7 @@ int4 find_local_label(const arg_struct *arg) {
                 // Allow GTO ST T and GTO 112
                 char stk = prgm->text[search_pc + 2];
                 if (arg->type == ARGTYPE_STK) {
-                    if (stk = arg->val.stk)
+                    if (stk == arg->val.stk)
                         return search_pc;
                 } else if (arg->type == ARGTYPE_NUM) {
                     int num = 0;
@@ -5286,7 +5285,7 @@ static void create_stack_trace(int level) {
                 int c;
                 if (dir->labels[a].prgm == f_prgm.idx) {
                     c = a;
-                } else if (dir->labels[b].prgm = f_prgm.idx) {
+                } else if (dir->labels[b].prgm == f_prgm.idx) {
                     c = b;
                 } else {
                     while (true) {
@@ -5557,7 +5556,10 @@ bool read_phloat(phloat *d) {
                 char buf[16];
                 if (fread(buf, 1, 16, gfile) != 16)
                     return false;
-                    char *dst = (char *) d;
+                #ifdef FP_DECNUM
+                    bid_to_dpd128((decQuad *) buf, (decQuad *) buf);
+                #endif
+                char *dst = (char *) d;
                 for (int i = 0; i < 16; i++)
                     dst[i] = buf[15 - i];
                 return true;
@@ -5573,12 +5575,20 @@ bool read_phloat(phloat *d) {
         #else
             if (fread(d, 1, sizeof(phloat), gfile) != sizeof(phloat))
                 return false;
+            #ifdef FP_DECNUM
+                bid_to_dpd128(&d->val, &d->val);
+            #endif
+            return true;
         #endif
-        return true;
     }
 }
 
 bool write_phloat(phloat d) {
+    #ifdef FP_DECNUM
+        phloat d2;
+        bid_dpd_to_bid128(&d2.val, &d.val);
+        d = d2;
+    #endif
     #ifdef F42_BIG_ENDIAN
         #ifdef BCD_MATH
             char buf[16];

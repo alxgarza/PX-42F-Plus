@@ -1531,6 +1531,9 @@ bool eqn_draw() {
                 } else if (regs->type == TYPE_COMPLEXMATRIX) {
                     vartype_complexmatrix *cm = (vartype_complexmatrix *) regs;
                     curr = cm->rows * cm->columns;
+                } else if (regs->type == TYPE_LIST) {
+                    vartype_list *list = (vartype_list *) regs;
+                    curr = list->size;
                 } else {
                     curr = 0;
                 }
@@ -1664,7 +1667,7 @@ bool eqn_draw() {
             for (int k = 0; k < 6; k++) {
                 char label[7];
                 int len;
-                get_custom_key(row * 6 + k + 1, label, &len);
+                get_custom_key(row * 6 + k + 1, mode_shift && !mode_menu_static, label, &len);
                 draw_key(k, 0, 1, label, len);
             }
         } else if (edit.id == MENU_CATALOG && edit.catsect == CATSECT_FCN) {
@@ -1751,6 +1754,8 @@ int eqn_keydown(int key, int *repeat) {
             return 1;
         if (key == KEY_SHIFT) {
             set_shift(!mode_shift);
+            if (edit.id >= MENU_CUSTOM1 && edit.id <= MENU_CUSTOM3)
+                redisplay();
             return 1;
         }
         shift = mode_shift;
@@ -3522,7 +3527,7 @@ static int keydown_edit_2(int key, bool shift, int *repeat) {
             int row = edit.id - MENU_CUSTOM1;
             char label[7];
             int len;
-            get_custom_key(row * 6 + key, label, &len);
+            get_custom_key(row * 6 + key, shift, label, &len);
             if (len == 0) {
                 squeak();
                 return 1;

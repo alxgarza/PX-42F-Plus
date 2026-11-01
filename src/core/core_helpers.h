@@ -56,7 +56,7 @@ void string_copy(char *dst, unsigned short *dstlen, const char *src, int srclen)
 void string_copy(char *dst, int *dstlen, const char *src, int srclen);
 bool string_equals(const char *s1, int s1len, const char *s2, int s2len);
 int string_pos(const char *ntext, int nlen, const vartype *hs, int startpos);
-bool vartype_equals(const vartype *v1, const vartype *v2);
+bool vartype_equals(const vartype *v1, const vartype *v2, bool real_complex = false);
 int generic_comparison(const vartype *x, const vartype *y, char which);
 int anum(const char *text, int len, phloat *res);
 void fix_thousands_separators(char *buf, int *bufptr);
@@ -134,7 +134,7 @@ int ip2revstring(phloat d, char *buf, int buflen);
 
 vartype_list *get_path();
 vartype *get_dir_path(directory *dir);
-int matedit_get(vartype **res);
+int matedit_get(vartype **res, bool dsntngl = false);
 void leave_matrix_editor();
 
 void switch_30_and_94(char *text, int length);
