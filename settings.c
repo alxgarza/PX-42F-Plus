@@ -9,6 +9,7 @@
 #include "crash_report.h"
 #include "debug_checkpoint.h"
 #include "rtc.h"
+#include "printer.h"
 
 /* Two 4KB sectors just below the 4MB mark, written in turn: a save erases
  * and writes the one that doesn't hold the newest record, so a power cut
@@ -29,7 +30,7 @@ static const uint32_t sector_offset[SETTINGS_SECTORS] = {
 #define SEQ_INV_AT (FLASH_PAGE_SIZE - 8)
 
 #define SETTINGS_MAGIC   0x32345850u /* "PX42" */
-#define SETTINGS_VERSION 10          /* bump when px_settings_t changes */
+#define SETTINGS_VERSION 11          /* bump when px_settings_t changes */
 
 typedef struct {
     uint32_t magic;
@@ -80,6 +81,7 @@ static const px_settings_t defaults = {
     .large_font = "",
     .mini_font = "",
     .alpha_mode = ALPHA_MODE_HP42S, /* the DM42's first time too */
+    .screen_print = SCREEN_PRINT_UPRIGHT,
 };
 
 /* FNV-1a over everything before the checksum field. */
@@ -115,7 +117,8 @@ static const settings_record_t *stored_record(void) {
 
 /* Version 7 was today's layout without the fonts, which were added at the
  * end: its settings are the first V7_SIZE bytes, its checksum right after.
- * Versions 8 and 9, likewise, without the mini font / the alpha mode --
+ * Versions 8, 9 and 10, likewise, without the mini font / the alpha mode /
+ * the screen print --
  * their settings ended in chars, so the struct's padding to 8 (it holds a
  * uint64_t) came before the checksum. */
 #define V7_SIZE        offsetof(px_settings_t, small_font)
@@ -124,18 +127,23 @@ static const settings_record_t *stored_record(void) {
 #define V8_CHECKSUM_AT (offsetof(settings_record_t, settings) + ((V8_SIZE + 7) & ~(size_t) 7))
 #define V9_SIZE        offsetof(px_settings_t, alpha_mode)
 #define V9_CHECKSUM_AT (offsetof(settings_record_t, settings) + ((V9_SIZE + 7) & ~(size_t) 7))
+#define V10_SIZE        offsetof(px_settings_t, screen_print)
+#define V10_CHECKSUM_AT (offsetof(settings_record_t, settings) + ((V10_SIZE + 7) & ~(size_t) 7))
 
-/* The current layout, or one of the four before -- versions 6 and 7 too:
+/* The current layout, or one of the five before -- versions 6 and 7 too:
  * settings are only written when one changes, so a calculator can still
  * hold them. Anything older gets the defaults. */
 static bool load_record(const settings_record_t *r) {
     const settings_record_v6_t *r6 = (const settings_record_v6_t *) r;
-    uint32_t v7_checksum, v8_checksum, v9_checksum;
+    uint32_t v7_checksum, v8_checksum, v9_checksum, v10_checksum;
     memcpy(&v7_checksum, (const uint8_t *) r + V7_CHECKSUM_AT, sizeof(v7_checksum));
     memcpy(&v8_checksum, (const uint8_t *) r + V8_CHECKSUM_AT, sizeof(v8_checksum));
     memcpy(&v9_checksum, (const uint8_t *) r + V9_CHECKSUM_AT, sizeof(v9_checksum));
+    memcpy(&v10_checksum, (const uint8_t *) r + V10_CHECKSUM_AT, sizeof(v10_checksum));
     if (r->magic == SETTINGS_MAGIC && r->version == SETTINGS_VERSION && r->checksum == checksum(r)) {
         px_settings = r->settings;
+    } else if (r->magic == SETTINGS_MAGIC && r->version == 10 && v10_checksum == checksum_bytes(r, V10_CHECKSUM_AT)) {
+        memcpy(&px_settings, &r->settings, V10_SIZE);
     } else if (r->magic == SETTINGS_MAGIC && r->version == 9 && v9_checksum == checksum_bytes(r, V9_CHECKSUM_AT)) {
         memcpy(&px_settings, &r->settings, V9_SIZE);
     } else if (r->magic == SETTINGS_MAGIC && r->version == 8 && v8_checksum == checksum_bytes(r, V8_CHECKSUM_AT)) {
@@ -184,6 +192,8 @@ void settings_load(void) {
         px_settings.date_format = RTC_YMD;
     if (px_settings.alpha_mode >= ALPHA_MODES)
         px_settings.alpha_mode = ALPHA_MODE_HP42S;
+    if (px_settings.screen_print >= SCREEN_PRINTS)
+        px_settings.screen_print = SCREEN_PRINT_UPRIGHT;
 }
 
 static bool pending = false;

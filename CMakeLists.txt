@@ -109,6 +109,7 @@ add_executable(PX-42F-Plus
         screenshot.c
         keyhold.c
         irtx.c
+        hp82240.c
         app.c
         bootlog.c
         appdec.c

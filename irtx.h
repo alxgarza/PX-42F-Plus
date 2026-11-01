@@ -17,6 +17,10 @@ extern "C" {
  * at full speed. */
 void irtx_send(const px_ir_burst_t *burst);
 
+/* Sends bytes to an HP 82240B printer, a frame each (hp82240_frame()),
+ * 12.8 ms a byte. Blocking, feeds the watchdog; core 1. */
+void irtx_send_redeye(const uint8_t *bytes, int count);
+
 #ifdef __cplusplus
 }
 #endif

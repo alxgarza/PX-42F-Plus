@@ -17,12 +17,34 @@ extern "C" {
  * arrives as UTF-8 (HP characters like the divide sign or Sigma translated),
  * one printed line per line; graphics (PRLCD) as Unicode block art. Output
  * is dropped while no terminal has the port open, so printing never stalls
- * the calculator. */
+ * the calculator.
+ *
+ * HP 82240B: the HP infrared printer, by the IR LED (irtx.c). Text goes as
+ * the printer's own characters, those it lacks and the screen (PRLCD) as
+ * dot columns (hp82240.c), at the printer's pace: it can't answer, so this side
+ * keeps its 200-byte buffer from overflowing, and printing holds the
+ * calculator up as it did the HP-42S. */
 
 typedef enum {
     PRINTER_OFF = 0,
     PRINTER_USB_SERIAL = 1,
+    PRINTER_HP82240B = 2,
 } printer_target_t;
+
+/* PRLCD on the HP 82240B (px_settings.screen_print): the screen redrawn
+ * upright for the paper (free42_draw_paper()), or the panel's own dots,
+ * turned a quarter -- also when the screen is too wide to redraw. */
+typedef enum { SCREEN_PRINT_UPRIGHT, SCREEN_PRINT_AS_IS, SCREEN_PRINTS } screen_print_t;
+
+/* Prints to the HP 82240B (core 1) a text line, text and bits from
+ * Plus42's print_text(); the screen as it is in the framebuffer (PRLCD:
+ * the status bar, the PX's fonts and dividers, not Plus42's own 6x8
+ * display), turned a quarter to fit the paper; or the framebuffer's top
+ * height rows upright, as free42_draw_paper() left them. Each returns when
+ * it's been sent, after waiting for room in the printer's buffer. */
+void printer_hp82240b_text(const char *text, int length, const uint8_t *bits, int bytesperline, bool double_wide);
+void printer_hp82240b_screen(void);
+void printer_hp82240b_paper(int height);
 
 /* Text output, already UTF-8 (core 1). */
 void printer_write(const char *utf8, int length);

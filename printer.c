@@ -8,6 +8,10 @@
 #include "hardware/watchdog.h"
 #include "tusb.h"
 #include "settings.h"
+#include "hp82240.h"
+#include "irtx.h"
+#include "display_fb.h"
+#include "sounds.h"
 
 #define PRINTER_CDC 1 /* CDC interface number of the printer port (usb_descriptors.c) */
 
@@ -103,12 +107,82 @@ void printer_usb_pump(void) {
         irq_set_enabled((uint) usb_task_irq, true);
 }
 
+/* The HP 82240B's buffer as this side reckons it, the printer having no
+ * way to say: the lines sent, each one's bytes and when it will have
+ * printed. HP's interfacing guide: a line takes up to 1.8 s on batteries
+ * (the slowest printer, nearly flat), and its bytes leave the 200-byte
+ * buffer only once it has printed; 190 leaves the margin it advises.
+ * The fewest bytes a line takes is 3 (a blank graphics band), so 64 lines
+ * always cover the buffer. */
+#define IR_BUFFER_BYTES 190
+#define IR_LINE_MS 1800
+#define IR_LINES 64u
+static struct {
+    uint16_t bytes;
+    absolute_time_t printed;
+} ir_line[IR_LINES];
+static uint32_t ir_first, ir_end; /* free-running, like the ring's */
+static int ir_buffered;
+static uint32_t ir_lines_sent, ir_bytes_sent;
+
+static void ir_send_line(const uint8_t *bytes, int n) {
+    for (;;) {
+        while (ir_first != ir_end && time_reached(ir_line[ir_first % IR_LINES].printed)) {
+            ir_buffered -= ir_line[ir_first % IR_LINES].bytes;
+            ir_first++;
+        }
+        if (ir_buffered + n <= IR_BUFFER_BYTES && ir_end - ir_first < IR_LINES)
+            break;
+        watchdog_update();
+        tight_loop_contents();
+    }
+    /* Not under a sound: PRLCD's first line, sent during the key's click
+     * (the speaker's ~200 mA peaks), lost its graphics count, and its dots
+     * printed as characters. */
+    sounds_wait();
+    irtx_send_redeye(bytes, n);
+
+    /* It prints after the lines before it. */
+    absolute_time_t start = get_absolute_time();
+    if (ir_first != ir_end) {
+        absolute_time_t before = ir_line[(ir_end - 1) % IR_LINES].printed;
+        if (absolute_time_diff_us(start, before) > 0)
+            start = before;
+    }
+    ir_line[ir_end % IR_LINES].bytes = (uint16_t) n;
+    ir_line[ir_end % IR_LINES].printed = delayed_by_ms(start, IR_LINE_MS);
+    ir_end++;
+    ir_buffered += n;
+    ir_lines_sent++;
+    ir_bytes_sent += (uint32_t) n;
+}
+
+void printer_hp82240b_text(const char *text, int length, const uint8_t *bits, int bytesperline, bool double_wide) {
+    uint8_t line[HP82240_LINE_MAX];
+    ir_send_line(line, hp82240_text_line(line, text, length, bits, bytesperline, double_wide));
+}
+
+void printer_hp82240b_screen(void) {
+    uint8_t line[HP82240_LINE_MAX];
+    for (int band = 0; band < (DISPLAY_WIDTH + 7) / 8; band++)
+        ir_send_line(line, hp82240_screen_line(line, &display_fb[0][0], DISPLAY_STRIDE, DISPLAY_WIDTH,
+                                               DISPLAY_HEIGHT, band));
+}
+
+void printer_hp82240b_paper(int height) {
+    uint8_t line[HP82240_LINE_MAX];
+    for (int band = 0; band < (height + 7) / 8; band++)
+        ir_send_line(line, hp82240_upright_line(line, &display_fb[0][0], DISPLAY_STRIDE, DISPLAY_WIDTH, height, band));
+}
+
 void printer_report(void) {
-    printf("printer: target=%u (1=USB serial) port_connected(DTR)=%d usb_task_irq=%d\n",
+    printf("printer: target=%u (1=USB serial, 2=HP 82240B) port_connected(DTR)=%d usb_task_irq=%d\n",
            (unsigned) px_settings.printer, (int) tud_cdc_n_connected(PRINTER_CDC), usb_task_irq);
     printf("printer: calls=%lu queued=%lu sent=%lu dropped=%lu buffered=%lu core0_pumps=%lu\n",
            (unsigned long) calls, (unsigned long) bytes_queued, (unsigned long) bytes_sent,
            (unsigned long) bytes_dropped, (unsigned long) (ring_head - ring_tail), (unsigned long) pumps);
+    printf("printer: HP 82240B lines=%lu bytes=%lu buffer_after_last_line=%d\n", (unsigned long) ir_lines_sent,
+           (unsigned long) ir_bytes_sent, ir_buffered);
 }
 
 /* Unicode quadrant blocks, indexed by upper-left | upper-right << 1 |

@@ -46,6 +46,7 @@ typedef struct {
     char large_font[FONT_SETTING_MAX + 1]; /* /FONTS/LARGE/<name>.png */
     char mini_font[FONT_SETTING_MAX + 1];  /* /FONTS/MINI/<name>.png */
     uint8_t alpha_mode;      /* alpha_mode_t: the last one used, the next ALPHA starts in it */
+    uint8_t screen_print;    /* screen_print_t (printer.h): PRLCD on the HP 82240B */
 } px_settings_t;
 
 extern px_settings_t px_settings;

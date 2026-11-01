@@ -1,7 +1,8 @@
 #!/bin/bash
 # Builds and runs the host parser tests (tests/test_parsers.c) with
 # AddressSanitizer and UBSan, against the built-in sounds as WAV files,
-# and the ALPHA keyboard's rules (tests/test_alphakeys.c).
+# the ALPHA keyboard's rules (tests/test_alphakeys.c) and the HP 82240B
+# printer's bytes (tests/test_hp82240.c).
 #   tests/run.sh
 set -e
 cd "$(dirname "$0")/.."
@@ -15,6 +16,10 @@ cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-reco
 cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
    -Wno-comment -I. -Itools/menu_shots/stub tests/test_alphakeys.c alphakeys.c -o "$TMP/test_alphakeys"
 "$TMP/test_alphakeys"
+# The HP 82240B printer's bytes and infrared frames.
+cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
+   -I. tests/test_hp82240.c hp82240.c -o "$TMP/test_hp82240"
+"$TMP/test_hp82240"
 PNG_WRITE_OUT="$TMP/screen.png" "$TMP/test_parsers" $(find "$TMP/sounds" -name '*.wav' | sort)
 # The PNG writer's checksums, which png1bit.c ignores: every chunk's CRC,
 # and the Adler-32 (zlib checks it) of an image of the right size.

@@ -29,7 +29,8 @@ can be cherry-picked between them.
   Python's zlib; and the app header check (`appfile.c`) against bad `.bin` headers. Run it after
   touching any of them — they read files users drop on the drive, and a parser bug there
   freezes or resets the calculator. It also builds `tests/test_alphakeys.c`: the ALPHA keyboard's
-  rules (`alphakeys.c`) key by key in [ ] / [a] / [A] -- run it after touching them.
+  rules (`alphakeys.c`) key by key in [ ] / [a] / [A] -- run it after touching them. And
+  `tests/test_hp82240.c`: the HP 82240B printer's bytes and IR frames (`hp82240.c`).
 - User manual: `manual.html` (the screen, fonts, settings; not a Plus42/HP-42S manual), built by
   `python3 tools/manual/make_manual.py` from `tools/manual/manual.template.html`. Rebuild it after
   changing a settings screen. Its settings screenshots come from `tools/menu_shots/run.sh`: the
@@ -185,8 +186,18 @@ can be cherry-picked between them.
   simulator's stand-in is doubles (`sim/sim_dec.c`). Also `../PX-42F-MIDI-Player` (the MIDI player, local git only so far), `../PX-42F-Tiny-BASIC`, PX-BASIC (Palo
   Alto Tiny BASIC on those decimals; `make test` runs programs on the Mac).
 - IR LED (GP14, high = on, through a transistor): driven by PIO0 (`irtx.c`/`irtx.pio`), not
-  PWM: GP14 shares PWM slice 7 with the speaker. PIO0's clock is on only while sending. Only
-  apps send (`px->ir_send()`). No IR receiver on the board (learning codes would need one).
+  PWM: GP14 shares PWM slice 7 with the speaker. PIO0's clock is on only while sending. Apps
+  send (`px->ir_send()`), and so does the HP 82240B printer (Settings → Printer): `hp82240.c`
+  makes its bytes (text in ISO 8859-1, characters it lacks as graphics cut from Plus42's print
+  bitmap; PRLCD per `screen_print` (Settings → Printer → HP 82240B → Screen Print): Upright = `free42_draw_paper()`
+  redraws the screen into the framebuffer's top left in font_mini (header bar, lines, dotted lines,
+  Plus42's own menu row; only ≤27 columns, not plots), sent as rows across (~9 lines); As It Is (and
+  whatever doesn't fit) = the panel's framebuffer, redrawn by `free42_draw_screen()`, turned a quarter
+  as Plus42 turns a too-wide display, 32 lines of 8 dot columns; the screen is redrawn after either) and frames (HP's "Technical Interfacing Guide", in
+  `tests/test_hp82240.c`); `irtx_send_redeye()` sends them with irtx.pio's `redeye` program,
+  every half-bit exactly 448 cycles (the printer allows 1%); `printer.c` paces them to the
+  printer's 200-byte buffer at 1.8 s a line (it can't answer), blocking core 1. Unverified on
+  a printer. No IR receiver on the board (learning codes would need one).
 - Battery: GP28/ADC2, 1M/1M divider. Free: GP23-25, 29.
 
 ## Architecture

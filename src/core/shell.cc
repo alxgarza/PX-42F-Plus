@@ -15,7 +15,9 @@
 #include "sounds.h"
 #include "statefs.h"
 #include "printer.h"
+#include "hp82240.h"
 #include "shell_spool.h"
+#include "core_globals.h"
 #include "pico/time.h"
 #include "hardware/powman.h"
 
@@ -130,15 +132,32 @@ bool shell_clk24() {
     return px_settings.clock_24h;
 }
 
-/* Printer emulation (see printer.h): a text line goes out as UTF-8 --
- * hp2ascii() translates the HP-42S characters (divide sign, Sigma, arrows,
- * ...) -- and a graphics-only print (PRLCD: text is NULL) as block art from
- * the bitmap. */
+/* Printer emulation (see printer.h). To the HP 82240B, printer.c sends
+ * each line (hp82240.c makes its bytes), and PRLCD (text NULL) prints the
+ * screen redrawn upright, or as it is, turned (Settings -> Printer). To the USB serial port, a text line goes out as
+ * UTF-8 -- hp2ascii() translates the HP-42S characters (divide sign, Sigma,
+ * arrows, ...) -- and a graphics-only print (PRLCD: text is NULL) as block
+ * art from the bitmap. */
 void shell_print(const char *text, int length,
                  const char *bits, int bytesperline,
                  int x, int y, int width, int height) {
     (void) x;
     (void) y;
+    if (px_settings.printer == PRINTER_HP82240B) {
+        if (text != NULL) {
+            printer_hp82240b_text(text, length, (const uint8_t *) bits, bytesperline, flags.f.double_wide_print);
+        } else {
+            int height = px_settings.screen_print == SCREEN_PRINT_UPRIGHT ? free42_draw_paper(HP82240_COLUMNS) : 0;
+            if (height > 0) {
+                printer_hp82240b_paper(height);
+            } else {
+                free42_draw_screen();
+                printer_hp82240b_screen();
+            }
+            free42_draw_screen(); /* the screen back, in place of the paper */
+        }
+        return;
+    }
     if (text == NULL) {
         printer_write_bitmap((const uint8_t *) bits, bytesperline, width, height);
         return;

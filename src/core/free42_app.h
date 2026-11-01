@@ -94,6 +94,20 @@ void free42_request_timeout3(int delay_ms);
 void free42_set_printer(bool on);
 bool free42_printer_on(void);
 
+/* Draws the screen as Plus42 has it now into the framebuffer, without
+ * sending it to the panel (that still happens after the key): for PRLCD,
+ * which prints the screen as it is. */
+void free42_draw_screen(void);
+
+/* PRLCD upright on the HP 82240B: the screen redrawn narrow enough for
+ * paper_w dots, in Plus42's own 6 x 8 characters (font_mini) -- the status
+ * bar's text and angle mode on a black bar, the lines of text with a
+ * dotted line between each two, and Plus42's own menu row -- centred in
+ * paper_w at the top of the framebuffer, not sent to the panel
+ * (free42_draw_screen() puts the screen back). Returns its height, or 0
+ * when the screen doesn't fit: more than paper_w / 6 columns, or a plot. */
+int free42_draw_paper(int paper_w);
+
 /* HP-42S key code (1-37) at a keyboard-matrix position, 0 if none -- for
  * screens outside the calculator, like the settings menu. */
 int free42_key_code(uint8_t row, uint8_t col);

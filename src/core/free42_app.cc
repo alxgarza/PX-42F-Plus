@@ -442,39 +442,47 @@ static void status_char_mirrored(char c, int x) {
         }
 }
 
-static void draw_status_bar() {
-    display_fill_rect(0, 0, DISPLAY_WIDTH - 1, STATUS_H - 1, true);
-
-    bool alpha = alpha_active();
-    int header_chars = alpha ? STATUS_HEADER_CHARS_ALPHA : STATUS_HEADER_CHARS;
+/* The status bar's text, at most max_chars: Plus42's header line, or
+ * with HEADER off the date and time. */
+static std::string header_text(int max_chars) {
     if (mode_header) {
         std::string path, info;
         display_header_text(&path, &info);
         if (!info.empty())
             path += " " + info;
-        if ((int) path.length() > header_chars)
-            path = "\032" + path.substr(path.length() - (header_chars - 1)); /* … */
-        status_text(path.data(), (int) path.length(), STATUS_HEADER_X);
-    } else {
-        /* One clock reading for both, so date and time can't disagree
-         * across midnight. In the calculator's formats (YMD/DMY/MDY,
-         * CLK12/CLK24). */
-        rtc_datetime_t now;
-        rtc_get_datetime(&now);
-        char date[12], time[12];
-        rtc_format_day_month(date, sizeof(date), &now);
-        rtc_format_time(time, sizeof(time), &now, true);
-        char buf[STATUS_HEADER_CHARS + 1];
-        int n = snprintf(buf, sizeof(buf), "%s %s", date, time);
-        status_text(buf, n < header_chars ? n : header_chars, STATUS_HEADER_X);
+        if ((int) path.length() > max_chars)
+            path = "\032" + path.substr(path.length() - (max_chars - 1)); /* … */
+        return path;
     }
+    /* One clock reading for both, so date and time can't disagree across
+     * midnight. In the calculator's formats (YMD/DMY/MDY, CLK12/CLK24). */
+    rtc_datetime_t now;
+    rtc_get_datetime(&now);
+    char date[12], time[12];
+    rtc_format_day_month(date, sizeof(date), &now);
+    rtc_format_time(time, sizeof(time), &now, true);
+    char buf[32];
+    int n = snprintf(buf, sizeof(buf), "%s %s", date, time);
+    return std::string(buf, n < max_chars ? n : max_chars);
+}
+
+/* GRAD sets both annunciators ("G" and "RAD" on the HP-42S). ∡ is
+ * Plus42's POLAR mark (HPOLAR), so DEG is a degree sign. */
+static const char *angle_mark() {
+    return ann_grad ? "G" : ann_rad ? "\007" : "\023"; /* G, π, ° */
+}
+
+static void draw_status_bar() {
+    display_fill_rect(0, 0, DISPLAY_WIDTH - 1, STATUS_H - 1, true);
+
+    bool alpha = alpha_active();
+    std::string header = header_text(alpha ? STATUS_HEADER_CHARS_ALPHA : STATUS_HEADER_CHARS);
+    status_text(header.data(), (int) header.length(), STATUS_HEADER_X);
     if (alpha) /* the keyboard's mode in ALPHA: [ ] HP-42S, [a], [A] */
         status_text(px_settings.alpha_mode == ALPHA_MODE_LOWER ? "[a]"
                     : px_settings.alpha_mode == ALPHA_MODE_UPPER ? "[A]" : "[ ]", 3, STATUS_ALPHA_X);
 
-    /* GRAD sets both annunciators ("G" and "RAD" on the HP-42S). ∡ is
-     * Plus42's POLAR mark (HPOLAR), so DEG is a degree sign. */
-    status_text(ann_grad ? "G" : ann_rad ? "\007" : "\023", 1, STATUS_ANGLE_X); /* G, π, ° */
+    status_text(angle_mark(), 1, STATUS_ANGLE_X);
     if (ann_updn)
         status_text("\136\016", 2, STATUS_UPDN_X); /* ↑↓ */
     if (ann_shift)
@@ -483,6 +491,54 @@ static void draw_status_bar() {
         status_text("\006", 1, STATUS_RUN_X); /* ▶ */
 
     icon_battery(STATUS_BATTERY_X, 1, battery_level());
+}
+
+#define PAPER_BAR_H 10 /* the status bar: a character, a dot above and below */
+#define PAPER_GAP   5  /* between lines: blank, dotted in the middle, blank */
+
+int free42_draw_paper(int paper_w) {
+    int w = disp_c * 6;
+    if (lcd_bits == NULL || mode_plot_viewer || w > paper_w)
+        return 0;
+    int x0 = (paper_w - w) / 2;
+    display_fill_rect(0, 0, DISPLAY_WIDTH - 1, DISPLAY_HEIGHT - 1, false);
+
+    display_fill_rect((uint8_t) (x0 - 1), 0, (uint8_t) (x0 + w), PAPER_BAR_H - 1, true);
+    std::string header = header_text(disp_c - 2);
+    display_draw_chars(&font_mini, header.data(), (int) header.length(), (uint8_t) x0, 1, 0xFF);
+    display_draw_chars(&font_mini, angle_mark(), 1, (uint8_t) (x0 + w - 6), 1, 0xFF);
+
+    bool menu = false;
+    for (int i = 0; i < 6; i++) {
+        const char *label;
+        int length;
+        bool highlight, reverse;
+        menu = display_key_label(i, &label, &length, &highlight, &reverse) || menu;
+    }
+    int y = PAPER_BAR_H + 2;
+    for (int r = 0; r < (menu ? disp_r - 1 : disp_r); r++) {
+        if (r > 0) {
+            display_draw_dotted_hline((uint8_t) x0, (uint8_t) (x0 + w - 1), (uint8_t) (y + PAPER_GAP / 2));
+            y += PAPER_GAP;
+        }
+        for (int c = 0; c < disp_c; c++) {
+            int ch = display_cell_char(r, c);
+            int fc = ch >= 0 ? font_char(r, c, ch) : -1;
+            if (fc >= 0)
+                display_draw_char(&font_mini, (char) fc, (uint8_t) (x0 + c * 6), (uint8_t) y, 0x00);
+            else
+                draw_cell_pixels(r, c, x0 + c * 6, y, 6, 8);
+        }
+        y += 8;
+    }
+    alpha_state_t as = alpha_state();
+    if (menu && !alpha_menu_hidden(&as)) {
+        y += 3;
+        for (int c = 0; c < disp_c; c++) /* Plus42's own menu keys, as the HP-42S prints them */
+            draw_cell_pixels(disp_r - 1, c, x0 + c * 6, y, 6, 8);
+        y += 8;
+    }
+    return y;
 }
 
 /* Draws the whole screen and sends it to the panel: after every key, and
@@ -964,6 +1020,11 @@ void free42_set_printer(bool on) {
 
 bool free42_printer_on(void) {
     return flags.f.printer_exists;
+}
+
+void free42_draw_screen(void) {
+    draw_status_bar();
+    draw_lcd();
 }
 
 /* ============================ running ============================ */

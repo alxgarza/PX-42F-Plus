@@ -34,7 +34,7 @@ tools/menu_shots/build.sh "$TMP/menu_shots"
     ENTER shot:splash_timer EXIT \
     DOWN ENTER shot:splash_image ENTER shot:splash_preview EXIT EXIT \
   EXIT \
-  DOWN ENTER shot:printer EXIT \
+  DOWN ENTER shot:printer DOWN DOWN ENTER shot:screen_print EXIT shot:printer_ir EXIT \
   DOWN ENTER shot:states \
     ENTER shot:save_state EXIT \
     DOWN ENTER shot:load_state EXIT \

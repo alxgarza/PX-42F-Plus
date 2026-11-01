@@ -19,3 +19,29 @@ gap:
     nop [30]
     jmp x-- gap
 .wrap
+
+; The HP 82240B printer's frames (irtx_send_redeye()): each bit from the
+; OSR (autopulled, 30 a word: one frame) is a half-bit time, 14 periods of
+; 32768 Hz -- 448 cycles here, run at 32 x 32768 Hz. A 1 starts it with a
+; burst of 8 periods at 50%, a 0 is dark. Every half-bit takes exactly 448
+; cycles whichever it is: the printer wants the bursts seven half-bits
+; apart within 1% of nominal (the pulse/gap program above gains 4 cycles
+; at every switch). Between frames, waiting for the next word, it's dark.
+
+.program redeye
+.wrap_target
+    out x, 1
+    jmp !x dark
+    set y, 7
+burst:
+    set pins, 1 [15]
+    set pins, 0 [14]
+    jmp y-- burst            ; 3 + 8 x 32 = 259 cycles so far
+    set y, 4 [28]            ; + 29 + 5 x 32 = 448
+delay:
+    nop [30]
+    jmp y-- delay
+.wrap
+dark:
+    set y, 12 [28]           ; 2 + 29 + 1 + 13 x 32 = 448
+    jmp delay

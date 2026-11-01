@@ -886,8 +886,15 @@ static edit_result_t do_splash_image(void) {
 static const char *const printer_names[] = {
         "Off",
         "USB Serial",
+        "HP 82240B (IR)",
 };
 #define PRINTER_CHOICES ((int) (sizeof(printer_names) / sizeof(printer_names[0])))
+
+/* Indexed by screen_print_t. */
+static const char *const screen_print_names[] = {
+        "Upright",
+        "As It Is",
+};
 
 static edit_result_t do_printer(void) {
     int selected = px_settings.printer < PRINTER_CHOICES ? px_settings.printer : 0;
@@ -907,6 +914,22 @@ static edit_result_t do_printer(void) {
         static const char *const lines[] = {"Printing to the USB serial", "port \"PX-42F Printer\".", "",
                                             "Open it in a terminal on the", "computer to see the output."};
         edit_result_t r = show_message("Printer", lines, 5, "Exit:Back");
+        if (r == EDIT_POWER_OFF)
+            return r;
+    } else if (pick == PRINTER_HP82240B) {
+        /* PRLCD: Exit keeps the one set. */
+        int how = px_settings.screen_print;
+        int screen = run_list("Screen Print", screen_print_names, SCREEN_PRINTS, NULL, &how, "Enter:Select  Exit:Keep");
+        if (screen == LIST_POWER_OFF)
+            return EDIT_POWER_OFF;
+        if (screen != LIST_BACK) {
+            px_settings.screen_print = (uint8_t) screen;
+            settings_save();
+        }
+        static const char *const lines[] = {"Printing to an HP 82240B", "infrared printer.", "",
+                                            "Aim the calculator at the", "printer's window. A line takes",
+                                            "about 2 s to print."};
+        edit_result_t r = show_message("Printer", lines, 6, "Exit:Back");
         if (r == EDIT_POWER_OFF)
             return r;
     }
