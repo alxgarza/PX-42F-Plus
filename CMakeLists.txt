@@ -111,6 +111,8 @@ add_executable(PX-42F-Plus
         irtx.c
         hp82240.c
         app.c
+        px_draw.c
+        px_layer.c
         bootlog.c
         appdec.c
         appfile.c

@@ -26,6 +26,7 @@
 #include "keyboard.h"
 #include "keyhold.h"
 #include "px_app.h"
+#include "px_draw.h"
 #include "retained.h"
 #include "rtc.h"
 #include "settings.h"
@@ -228,6 +229,24 @@ static void api_line(int x0, int y0, int x1, int y1, int black) { /* Bresenham *
             y0 += sy;
         }
     }
+}
+
+static const px_canvas_t screen_canvas = {(uint8_t *) RETAINED_DISPLAY_FB, DISPLAY_WIDTH, DISPLAY_HEIGHT, PX_SCREEN_STRIDE};
+
+static void api_box(int x, int y, int w, int h, int t, int black) {
+    px_draw_box(&screen_canvas, x, y, w, h, t, black);
+}
+
+static void api_ellipse(int x, int y, int rx, int ry, int t, int black) {
+    px_draw_ellipse(&screen_canvas, x, y, rx, ry, t, black);
+}
+
+static void api_thick_line(int x0, int y0, int x1, int y1, int t, int black) {
+    px_draw_line(&screen_canvas, x0, y0, x1, y1, t, black);
+}
+
+static void api_polygon(const px_point_t *points, int n, int t, int black) {
+    px_draw_polygon(&screen_canvas, points, n, t, black);
 }
 
 static void api_bitmap(int x, int y, int w, int h, const uint8_t *bits, int stride) {
@@ -543,6 +562,10 @@ static const px_api_t api = {
         .on_key = api_on_key,
         .midi_play = api_midi_play,
         .midi_status = api_midi_status,
+        .box = api_box,
+        .ellipse = api_ellipse,
+        .thick_line = api_thick_line,
+        .polygon = api_polygon,
 };
 
 void app_folders(void) {

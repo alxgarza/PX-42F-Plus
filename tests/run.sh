@@ -1,8 +1,9 @@
 #!/bin/bash
 # Builds and runs the host parser tests (tests/test_parsers.c) with
 # AddressSanitizer and UBSan, against the built-in sounds as WAV files,
-# the ALPHA keyboard's rules (tests/test_alphakeys.c) and the HP 82240B
-# printer's bytes (tests/test_hp82240.c).
+# the ALPHA keyboard's rules (tests/test_alphakeys.c), the HP 82240B
+# printer's bytes (tests/test_hp82240.c) and the app table's shapes
+# (tests/test_draw.c).
 #   tests/run.sh
 set -e
 cd "$(dirname "$0")/.."
@@ -20,6 +21,10 @@ cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-reco
 cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
    -I. tests/test_hp82240.c hp82240.c -o "$TMP/test_hp82240"
 "$TMP/test_hp82240"
+# The shapes of the app table.
+cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
+   -I. tests/test_draw.c px_draw.c px_layer.c -o "$TMP/test_draw"
+"$TMP/test_draw"
 PNG_WRITE_OUT="$TMP/screen.png" "$TMP/test_parsers" $(find "$TMP/sounds" -name '*.wav' | sort)
 # The PNG writer's checksums, which png1bit.c ignores: every chunk's CRC,
 # and the Adler-32 (zlib checks it) of an image of the right size.
