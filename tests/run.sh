@@ -63,4 +63,6 @@ for job in $(jobs -p); do wait "$job"; done
 c++ -fsanitize=address,undefined "$TMP"/core/*.o -o "$TMP/test_catalog"
 "$TMP/test_catalog"
 # The command tables are Plus42's plus the PX's; plus42-upstream/ isn't tracked.
-[ -d plus42-upstream/common ] && python3 -I tools/px_core_tables.py --check
+if [ -d plus42-upstream/common ]; then
+    python3 -I tools/px_core_tables.py --check
+fi

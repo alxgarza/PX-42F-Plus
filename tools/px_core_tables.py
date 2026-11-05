@@ -106,6 +106,13 @@ def replace_once(pattern, new, text, what):
     return result
 
 
+def check_own():
+    for what, values in (('name', [c[0] for _, g in COMMANDS for c in g]), ('code', [c[2] for _, g in COMMANDS for c in g])):
+        twice = sorted({v for v in values if values.count(v) > 1})
+        if twice:
+            sys.exit('two PX commands have the same %s: %s' % (what, twice))
+
+
 def check_free(cc):
     taken = {(int(a, 16) << 8) | int(b, 16): name for name, a, b in UPSTREAM_ROW.findall(cc)}
     names = set(taken.values())
@@ -202,6 +209,7 @@ def main():
     ap.add_argument('--out', default=os.path.join(ROOT, 'src', 'core'))
     args = ap.parse_args()
 
+    check_own()
     check_catalog()
     stale = []
     for filename, make in (('core_tables.h', header), ('core_tables.cc', table)):
