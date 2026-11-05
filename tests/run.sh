@@ -13,6 +13,10 @@ python3 -I tools/make_sounds.py --wav "$TMP/sounds" >/dev/null
 cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
    -I. -Ifonts -Itests tests/test_parsers.c png1bit.c wav.c fontsheet.c pngwrite.c appfile.c soundname.c midiplay.c dutyshape.c images/splash_image.c \
    fonts/font_8x12_data.c fonts/font_10x16_data.c fonts/font_6x8_data.c -lm -o "$TMP/test_parsers"
+# Saving a small file so a failure can't lose the old one.
+cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
+   -I. tests/test_safefile.c safefile.c -o "$TMP/test_safefile"
+"$TMP/test_safefile" "$TMP"
 # The ALPHA keyboard's rules (keyboard.h needs the Pico SDK's types: menu_shots' stand-ins).
 cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
    -Wno-comment -I. -Itools/menu_shots/stub tests/test_alphakeys.c alphakeys.c -o "$TMP/test_alphakeys"

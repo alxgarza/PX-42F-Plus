@@ -117,6 +117,7 @@ add_executable(PX-42F-Plus
         appdec.c
         appfile.c
         soundname.c
+        safefile.c
         timemodule.c
         alarms.c
         stopwatch.c

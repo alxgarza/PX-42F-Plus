@@ -25,6 +25,7 @@
 #include "px_layer.h"
 #include "icons.h"
 #include "rtc.h"
+#include "safefile.h"
 #include "battery.h"
 #include "splash.h"
 #include "power.h"
@@ -740,19 +741,10 @@ const char *free42_state_source(void) {
 static void alarms_save() {
     if (!alarms_dirty() || !statefs_ready())
         return;
-    if (alarms_count() == 0) {
-        statefs_remove(ALARMS_FILE);
-    } else {
-        FILE *f = statefs_fopen(ALARMS_FILE, "wb");
-        if (f != NULL) {
-            size_t size;
-            const void *image = alarms_image(&size);
-            fwrite(image, 1, size, f);
-            fclose(f);
-        }
-    }
-    statefs_sync();
-    alarms_mark_saved();
+    size_t size;
+    const void *image = alarms_image(&size);
+    if (alarms_count() == 0 ? safefile_remove(ALARMS_FILE) : safefile_save(ALARMS_FILE, image, size))
+        alarms_mark_saved();
 }
 
 #define STOPWATCH_FILE "/STOPWATCH.DAT"
@@ -760,56 +752,36 @@ static void alarms_save() {
 static void stopwatch_save() {
     if (!stopwatch_dirty() || !statefs_ready())
         return;
-    if (stopwatch_is_zero()) {
-        if (statefs_file_exists(STOPWATCH_FILE))
-            statefs_remove(STOPWATCH_FILE);
-    } else {
-        FILE *f = statefs_fopen(STOPWATCH_FILE, "wb");
-        if (f != NULL) {
-            size_t size;
-            const void *image = stopwatch_image(&size);
-            fwrite(image, 1, size, f);
-            fclose(f);
-        }
-    }
-    statefs_sync();
-    stopwatch_mark_saved();
+    size_t size;
+    const void *image = stopwatch_image(&size);
+    if (stopwatch_is_zero() ? safefile_remove(STOPWATCH_FILE) : safefile_save(STOPWATCH_FILE, image, size))
+        stopwatch_mark_saved();
 }
 
 static void stopwatch_read() {
     static char image[64];
-    if (!statefs_ready() || !statefs_file_exists(STOPWATCH_FILE))
+    if (!statefs_ready())
         return;
-    FILE *f = statefs_fopen(STOPWATCH_FILE, "rb");
-    if (f == NULL)
-        return;
-    size_t size = fread(image, 1, sizeof(image), f);
-    fclose(f);
-    stopwatch_load(image, size);
+    size_t size = safefile_read(STOPWATCH_FILE, false, image, sizeof(image));
+    if (!stopwatch_load(image, size))
+        stopwatch_load(image, safefile_read(STOPWATCH_FILE, true, image, sizeof(image)));
 }
 
 static void alarms_read() {
     static char image[sizeof(uint32_t) * 2 + ALARMS_MAX * sizeof(alarm_t) + 1];
-    if (!statefs_ready() || !statefs_file_exists(ALARMS_FILE))
+    if (!statefs_ready())
         return;
-    FILE *f = statefs_fopen(ALARMS_FILE, "rb");
-    if (f == NULL)
-        return;
-    size_t size = fread(image, 1, sizeof(image), f);
-    fclose(f);
-    alarms_load(image, size);
+    size_t size = safefile_read(ALARMS_FILE, false, image, sizeof(image));
+    if (!alarms_load(image, size))
+        alarms_load(image, safefile_read(ALARMS_FILE, true, image, sizeof(image)));
 }
 
 void free42_init(bool after_crash, bool memory_clear) {
     alarm_woke = power_woke_for_alarm();
     if (memory_clear) { /* with the rest of the memory, as on the HP-41 */
-        if (statefs_ready() && statefs_file_exists(ALARMS_FILE)) {
-            statefs_remove(ALARMS_FILE);
-            statefs_sync();
-        }
-        if (statefs_ready() && statefs_file_exists(STOPWATCH_FILE)) {
-            statefs_remove(STOPWATCH_FILE);
-            statefs_sync();
+        if (statefs_ready()) {
+            safefile_remove(ALARMS_FILE);
+            safefile_remove(STOPWATCH_FILE);
         }
     } else {
         alarms_read();
