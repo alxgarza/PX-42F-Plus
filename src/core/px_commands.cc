@@ -185,15 +185,8 @@ int docmd_xyzalm(arg_struct *arg) {
     alarm_t probe;
     probe.length = (uint8_t) reg_alpha_length;
     memcpy(probe.text, reg_alpha, (size_t) reg_alpha_length);
-    if (alarm_kind(&probe) != ALARM_MESSAGE) {
-        int length;
-        const char *label = alarm_label(&probe, &length);
-        if (length > 7)
-            return ERR_ALPHA_DATA_IS_INVALID;
-        for (int i = 0; i < length; i++)
-            if (label[i] < ' ' || label[i] > '~')
-                return ERR_ALPHA_DATA_IS_INVALID;
-    }
+    if (!alarm_label_ok(&probe))
+        return ERR_ALPHA_DATA_IS_INVALID;
 
     uint64_t at = (uint64_t) days * 86400000 + (uint64_t) ms_of_day;
     if (!alarms_add(at, (uint64_t) repeat_ms, reg_alpha, reg_alpha_length, now))

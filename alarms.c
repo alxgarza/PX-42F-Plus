@@ -28,6 +28,19 @@ const char *alarm_label(const alarm_t *a, int *length) {
     return a->text + skip;
 }
 
+bool alarm_label_ok(const alarm_t *a) {
+    if (alarm_kind(a) == ALARM_MESSAGE)
+        return true;
+    int length;
+    const char *label = alarm_label(a, &length);
+    if (length > 7)
+        return false;
+    for (int i = 0; i < length; i++)
+        if (label[i] < ' ' || label[i] > '~')
+            return false;
+    return true;
+}
+
 int alarms_count(void) {
     return (int) table.count;
 }
@@ -158,7 +171,7 @@ bool alarms_load(const void *data, size_t size) {
     for (uint32_t i = 0; i < head[1]; i++) {
         alarm_t a;
         memcpy(&a, (const char *) data + header + i * sizeof(alarm_t), sizeof(a));
-        if (a.length > ALARM_TEXT_MAX || a.sound > ALARM_SOUND_MIDI
+        if (a.length > ALARM_TEXT_MAX || !alarm_label_ok(&a) || a.sound > ALARM_SOUND_MIDI
             || memchr(a.sound_name, 0, sizeof(a.sound_name)) == NULL) {
             table.count = 0;
             return false;

@@ -46,6 +46,10 @@ alarm_kind_t alarm_kind(const alarm_t *a);
 /* The label a control or conditional alarm runs: length 0 = the current line. */
 const char *alarm_label(const alarm_t *a, int *length);
 
+/* A message, or a label the shell can run by name: at most 7 plain characters
+ * (core_keydown_command() and arg_struct's text take no more). */
+bool alarm_label_ok(const alarm_t *a);
+
 /* The table, earliest first, then in the order they were set. */
 int alarms_count(void);
 const alarm_t *alarms_get(int i);

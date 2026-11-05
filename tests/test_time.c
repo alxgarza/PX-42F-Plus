@@ -72,6 +72,25 @@ static void test_alarm_sounds(void) {
     second->sound = ALARM_SOUND_MIDI;
     memset(second->sound_name, 'x', sizeof(second->sound_name));
     CHECK(!alarms_load(copy, size) && alarms_count() == 0, "unterminated name refused");
+    /* A label runs by name, into 8 bytes: too long or not plain, the whole file goes. */
+    second->sound_name[0] = 0;
+    char *text = second->text;
+    int length = second->length;
+    second->length = ALARM_TEXT_MAX;
+    memset(text, 'A', ALARM_TEXT_MAX);
+    text[0] = text[1] = ALARM_ARROW;
+    CHECK(!alarms_load(copy, size) && alarms_count() == 0, "a 42-letter control label refused");
+    text[1] = 'A';
+    CHECK(!alarms_load(copy, size) && alarms_count() == 0, "a 43-letter conditional label refused");
+    second->length = 9;
+    text[1] = ALARM_ARROW;
+    CHECK(alarms_load(copy, size) && alarms_count() == 2, "a 7-letter label loads");
+    text[2] = (char) 0x80;
+    CHECK(!alarms_load(copy, size) && alarms_count() == 0, "a label that isn't plain refused");
+    text[0] = 'A';
+    second->length = ALARM_TEXT_MAX;
+    CHECK(alarms_load(copy, size) && alarms_count() == 2, "any 44 characters do as a message");
+    second->length = (uint8_t) length;
     uint32_t old_magic = 0x314D4C41u; /* "ALM1", the layout without a sound */
     memcpy(copy, &old_magic, sizeof(old_magic));
     CHECK(!alarms_load(copy, size), "older file refused");
