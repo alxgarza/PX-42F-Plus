@@ -803,10 +803,10 @@ void free42_init(bool after_crash, bool memory_clear) {
             settings_save_later();
         }
         ramstate_discard();
-        if (statefs_ready() && statefs_file_exists(OFF_STATE_FILE)) {
-            statefs_remove(OFF_STATE_FILE);
-            statefs_sync();
-        }
+        if (statefs_ready())
+            safefile_remove(OFF_STATE_FILE);
+    } else if (statefs_ready()) {
+        safefile_recover(OFF_STATE_FILE);
     }
     bool from_ram = ramstate_valid();
     if (from_ram) {
@@ -1154,28 +1154,36 @@ static void remove_crash_files(void) {
     statefs_sync();
 }
 
-bool free42_save_to_drive(void) {
+/* The memory to OFF_STATE_FILE, or false with the old copy untouched. Saved
+ * beside it: a save that fails (a full drive) leaves only the core's .crash file,
+ * and an older OFF_STATE_FILE mustn't pass for this one. */
+static bool memory_to_drive(void) {
     if (!statefs_ready())
         return false;
-    /* The RAM copy only goes once the drive has one: a full drive fails the
-     * save (the core leaves its half-written .crash file and no
-     * OFF_STATE_FILE), the app isn't started, and the RAM copy is still
-     * there for a crash before the next OFF. */
-    core_save_state(OFF_STATE_FILE);
-    if (!statefs_sync() || !statefs_file_exists(OFF_STATE_FILE)) {
-        remove_crash_files();
+    static const char fresh[] = OFF_STATE_FILE ".NEW";
+    if (statefs_file_exists(fresh))
+        statefs_remove(fresh);
+    core_save_state(fresh);
+    bool ok = statefs_sync() && safefile_take_new(OFF_STATE_FILE);
+    if (!ok && statefs_file_exists(fresh))
+        statefs_remove(fresh);
+    remove_crash_files();
+    return ok;
+}
+
+bool free42_save_to_drive(void) {
+    /* The RAM copy only goes once the drive has one: if it can't, the app isn't
+     * started, and the RAM copy is still there for a crash before the next OFF. */
+    if (!memory_to_drive())
         return false;
-    }
     ramstate_discard();
     return true;
 }
 
 void free42_memory_to_ram(void) {
     core_save_state(RAMSTATE_PATH);
-    if (ramstate_valid() && statefs_ready() && statefs_file_exists(OFF_STATE_FILE)) {
-        statefs_remove(OFF_STATE_FILE);
-        statefs_sync();
-    }
+    if (ramstate_valid() && statefs_ready())
+        safefile_remove(OFF_STATE_FILE);
 }
 
 /* ============================ programs ============================ */
@@ -1844,16 +1852,23 @@ void free42_sleep(bool quiet) {
      * picks it up again. A memory too big for the buffer goes to the drive
      * instead. */
     core_save_state(RAMSTATE_PATH);
-    if (!ramstate_valid()) {
-        core_save_state(OFF_STATE_FILE);
-        statefs_sync();
-    } else if (statefs_ready() && statefs_file_exists(OFF_STATE_FILE)) {
-        statefs_remove(OFF_STATE_FILE); /* from when the memory was bigger: stale now */
-        statefs_sync();
-    }
+    bool saved = ramstate_valid();
+    if (!saved)
+        saved = memory_to_drive();
+    else if (statefs_ready())
+        safefile_remove(OFF_STATE_FILE); /* from when the memory was bigger: stale now */
     settings_save_pending(); /* DMY, CLK12, a time set exactly... since the last save */
     alarms_save();
     stopwatch_save();
+    /* Too big for the RAM copy and no room on the drive: off would lose it, so it
+     * stays on and says so. Unless the battery is empty: then there's no choice. */
+    if (!saved && !quiet) {
+        draw_message(0, "Memory not saved:", 17, false);
+        draw_message(1, "drive full", 10, false);
+        squeak();
+        refresh();
+        return;
+    }
     /* Each flash write ends by turning the 100ms watchdog back on, and the
      * splash below waits longer than that: off again (the caller had
      * stopped it; power_deep_off() starts its own). */

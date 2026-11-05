@@ -15,6 +15,14 @@ extern "C" {
  * itself is missing or doesn't load. */
 bool safefile_save(const char *path, const void *data, size_t size);
 
+/* For a file someone else writes, to name + ".NEW": that takes the file's place.
+ * False if the old one is still what's there. */
+bool safefile_take_new(const char *path);
+
+/* After a cut in safefile_take_new(): the file is missing and its .NEW is
+ * whole, so it becomes the file. Only for writers that make .NEW all at once. */
+void safefile_recover(const char *path);
+
 /* The file and its .NEW. False if the drive couldn't be written. */
 bool safefile_remove(const char *path);
 

@@ -25,11 +25,23 @@ bool safefile_save(const char *path, const void *data, size_t size) {
         statefs_sync();
         return false;
     }
+    return safefile_take_new(path);
+}
+
+bool safefile_take_new(const char *path) {
+    char fresh[NEW_PATH_MAX];
+    if (!new_path(fresh, path) || !statefs_file_exists(fresh))
+        return false;
     /* FatFs won't rename over a file. */
     if (statefs_file_exists(path))
         statefs_remove(path);
-    ok = statefs_rename(fresh, path) == 0;
+    bool ok = statefs_rename(fresh, path) == 0;
     return statefs_sync() && ok;
+}
+
+void safefile_recover(const char *path) {
+    if (!statefs_file_exists(path))
+        safefile_take_new(path);
 }
 
 bool safefile_remove(const char *path) {

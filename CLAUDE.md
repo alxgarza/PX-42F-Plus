@@ -172,7 +172,7 @@ can be cherry-picked between them.
   (`alarms_save()`), read at boot, deleted by Memory Clear. While off: `RETAINED_NEXT_ALARM` (`retained.h`) is in `next_wake()`; when due,
   `power_off_wake()` boots fully, `power_woke_for_alarm()`, and it turns itself off afterwards unless a key was pressed. Bell in the status bar
   (`icon_bell()`) when any is set, Settings -> Alarms lists, deletes and picks each alarm's sound (`alarm_t.sound`: Plus42's tones, `/SOUNDS/*.wav` or `/MIDI/*.mid`; `alarm_sound()` falls back to the tones if the file is gone, and a song outlasts the 20 s). Not done from the HP-41: past-due alarms activating at OFF, the
-  bypassed-alarm order, the catalog's T/D/R keys, catalog-2 function names. Unverified on the hardware.
+  bypassed-alarm order, the catalog's T/D/R keys, catalog-2 function names. An alarm has rung on the hardware (the user, Nov 2026); the rest is unverified.
 - Stopwatch (HP-41 Time Module; manual: HP-41CX vol. 2, section 17): the rules in `stopwatch.c` (no hardware; the clock passed in, the registers as functions; `tests/test_time.c`), the keys and the top line in `free42_app.cc`, REGS and the commands in `px_commands.cc`. SW/SWPT return ERR_INTERRUPTIBLE, and `free42_service()` doesn't call the core while `sw_showing`, so the keys are all the stopwatch's and a program goes on after EXIT. Counts from the always-on clock, so it runs through OFF; `rtc.c` tells it when the clock is set (`stopwatch_clock_moved()`). `/STOPWATCH.DAT` written at OFF if changed, deleted by Memory Clear. A negative time's zero is in `next_alarm_ms()`: it wakes the calculator from OFF, and shows as `ALARM_TIMER`, not in the alarm table. Unverified on the hardware.
 - Settings menu (`settings_menu.c`, SHIFT+EXIT): Off, Games & Apps, Date & Time, Alarms, Sounds, Fonts, Sleep Timer,
   Splash (Timer, Image), Printer, States (save/load/rename/delete), Programs (Plus42 `.raw`
@@ -251,7 +251,7 @@ can be cherry-picked between them.
   (`keyboard_wait_any`, a core-1 hardware alarm + column IRQs); 10 ms polling on USB.
 - OFF (`power.c`): POWMAN power-down, only SRAM bank 1 + always-on domain kept, ON key
   (GPIO level-low) wakes = full reboot. Calculator memory is saved to retained RAM
-  (`ramstate.c`) and restored by `free42_init()`. With a Splash Time, a POWMAN timer alarm
+  (`ramstate.c`) and restored by `free42_init()`; too big for that, to `/OFFSTATE.p42` (`memory_to_drive()`), and if that fails too it stays on and says so, unless the battery is empty. With a Splash Time, a POWMAN timer alarm
   wakes the chip each minute: `power_off_wake()` (first thing in `main()`) redraws the
   clock bar and powers down again. It also wakes every 10 min while off (`RECAL_MS`) to measure
   the LPOSC again (~70 ms at 1.00 V, scaled by the power-off's two-voltage measurement kept in

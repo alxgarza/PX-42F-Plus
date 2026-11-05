@@ -107,6 +107,18 @@ int main(int argc, char **argv) {
     CHECK(safefile_read(file, false, (char[8]) {0}, 8) == 0, "the file itself is gone then");
     CHECK(holds(file, true, "fourth"), "and the new copy can be read");
 
+    safefile_recover(file);
+    CHECK(holds(file, false, "fourth") && !statefs_file_exists("/SAFE.DAT.NEW"), "the new copy becomes the file");
+    CHECK(!safefile_take_new(file) && holds(file, false, "fourth"), "no new copy: the file stays");
+
+    /* Someone else's writer leaves a .NEW: while the file is there it isn't touched. */
+    FILE *other = statefs_fopen("/SAFE.DAT.NEW", "wb");
+    fwrite("fifth", 1, 5, other);
+    fclose(other);
+    safefile_recover(file);
+    CHECK(holds(file, false, "fourth"), "recovering leaves a file that's there");
+    CHECK(safefile_take_new(file) && holds(file, false, "fifth"), "and taking it replaces the file");
+
     CHECK(safefile_remove(file) && !statefs_file_exists(file) && !statefs_file_exists("/SAFE.DAT.NEW"), "removed");
     CHECK(safefile_remove(file), "removing what isn't there is fine");
 
