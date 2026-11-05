@@ -72,6 +72,12 @@ int main(int argc, char **argv) {
     errors += text(dir, "alpha_hp42s", "[ ]", false); /* ALPHA's keyboard modes */
     errors += text(dir, "alpha_lower", "[a]", false);
     errors += text(dir, "alpha_upper", "[A]", false);
+    bar(10);
+    icon_bell(1, 1);
+    errors += save(dir, "bell", 10);
+    bar(ICON_PRINTER_W + 2);
+    icon_printer(1, 1);
+    errors += save(dir, "printer", ICON_PRINTER_W + 2);
     for (int level = 0; level <= 4; level++) {
         char name[16];
         snprintf(name, sizeof(name), "battery%d", level);

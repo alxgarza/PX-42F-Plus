@@ -96,12 +96,15 @@ void irtx_send(const px_ir_burst_t *b) {
     sm_end();
 }
 
-void irtx_send_redeye(const uint8_t *bytes, int count) {
+void irtx_send_redeye(const uint8_t *bytes, int count, bool (*between)(void)) {
     uint offset = load(&redeye_program, &redeye_offset);
     pio_sm_config c = redeye_program_get_default_config(offset);
     sm_config_set_out_shift(&c, false, true, 30); /* a frame a word, from bit 31 down */
     sm_begin(&c, offset, 32768.0f * CYCLES_PER_PERIOD);
-    for (int i = 0; i < count; i++)
+    for (int i = 0; i < count; i++) {
         put(hp82240_frame(bytes[i]));
+        if (between != NULL) /* the FIFO keeps the frames' timing meanwhile */
+            between();
+    }
     sm_end();
 }

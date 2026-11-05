@@ -11,6 +11,10 @@
  * it after a wake to update the splash clock (power.c). */
 #define RETAINED_DISPLAY_FB 0x2005F000u
 
+/* When the next alarm comes due, for the wakes while off (power.c): after the
+ * framebuffer's 3904 bytes. */
+#define RETAINED_NEXT_ALARM 0x2005FFF8u
+
 /* The calculator's memory while off (ramstate.c), the top 128KB. */
 #define RETAINED_RAMSTATE   0x20060000u
 

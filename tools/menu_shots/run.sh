@@ -24,6 +24,7 @@ tools/menu_shots/build.sh "$TMP/menu_shots"
       DOWN ENTER shot:exact_time EXIT \
     EXIT \
   EXIT \
+  DOWN ENTER shot:alarms ENTER shot:alarm_detail ENTER shot:alarm_sound EXIT EXIT EXIT \
   DOWN ENTER shot:sounds ENTER shot:key_sound EXIT EXIT \
   DOWN ENTER shot:fonts \
     ENTER shot:font_large ENTER shot:font_large_preview EXIT EXIT \

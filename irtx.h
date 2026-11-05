@@ -1,6 +1,8 @@
 #ifndef IRTX_H
 #define IRTX_H
 
+#include <stdbool.h>
+
 #include "px_app.h"
 
 #ifdef __cplusplus
@@ -18,8 +20,9 @@ extern "C" {
 void irtx_send(const px_ir_burst_t *burst);
 
 /* Sends bytes to an HP 82240B printer, a frame each (hp82240_frame()),
- * 12.8 ms a byte. Blocking, feeds the watchdog; core 1. */
-void irtx_send_redeye(const uint8_t *bytes, int count);
+ * 12.8 ms a byte. Blocking, feeds the watchdog; core 1. between, if not NULL,
+ * is called after each frame goes in the queue; what it returns is ignored. */
+void irtx_send_redeye(const uint8_t *bytes, int count, bool (*between)(void));
 
 #ifdef __cplusplus
 }

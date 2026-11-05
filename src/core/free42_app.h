@@ -7,6 +7,8 @@
 #include "pico/types.h"
 #include "sounds.h"
 
+#include "px_draw.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -89,15 +91,58 @@ bool free42_next_timeout(absolute_time_t *at);
 bool free42_slice_expired(void);
 void free42_request_timeout3(int delay_ms);
 
-/* Free42's "printer present" flag (55) -- what PRON/PROFF set; printing
- * commands and TRACE/NORM printing only do anything while it's on. */
+/* CLOCK: shows the running clock until the next key. */
+void free42_clock_start(void);
+
+/* ALMCAT: the alarms, on the top lines, until a key leaves them. */
+void free42_almcat_start(void);
+
+/* SW and SWPT: the stopwatch's keyboard and display, until EXIT (or the close
+ * below, when the core ends it), and then the error it ended with. */
+void free42_stopwatch_open(int store, int recall, bool delta);
+bool free42_stopwatch_showing(void);
+void free42_stopwatch_close(void);
+int free42_stopwatch_error(void);
+
+/* What PRON/PROFF do: Free42's "printer present" flag (55), without which
+ * printing commands and TRACE/NORM printing do nothing, and "printer enable"
+ * (21), without which a running program's don't, and VIEW and AVIEW in one
+ * don't print. Set at every start from the Printer setting. */
 void free42_set_printer(bool on);
 bool free42_printer_on(void);
+
+/* Plus42's flag 26, clear: no squeak, no error sound, no BEEP or TONE. The
+ * flag is the setting, as a program or a state changes it: Memory Clear
+ * sets it. */
+void free42_set_quiet(bool quiet);
+bool free42_quiet(void);
 
 /* Draws the screen as Plus42 has it now into the framebuffer, without
  * sending it to the panel (that still happens after the key): for PRLCD,
  * which prints the screen as it is. */
-void free42_draw_screen(void);
+void free42_draw_screen(bool with_print_icon);
+
+/* Puts the printer icon in the status bar, on the panel at once. It goes when
+ * the last line has been sent. */
+void free42_printing_show(void);
+
+/* Stopping PRLCD, which holds core 1: free42_print_stop() is true from the moment
+ * EXIT or R/S goes down, not one already held when it began (the R/S that started
+ * the program). free42_print_stop_end() waits for the key to be released, so it
+ * does nothing else, and has free42_service() stop a running program with it. */
+void free42_print_stop_begin(void);
+bool free42_print_stop(void);
+void free42_print_stop_end(void);
+
+/* The shapes' two pictures of the whole panel, for a shape to draw in, cleared if
+ * none is showing: what it paints black in ink and white in wipe, and the opposite
+ * for a white pen. False if there's no memory for them. */
+bool free42_shape_canvases(px_canvas_t *ink, px_canvas_t *wipe);
+bool free42_shape_memory(void);
+void free42_shapes_changed(void);
+
+/* Plus42 cleared its display (CLLCD, or starting a screen afresh). */
+void free42_forget_shapes(void);
 
 /* PRLCD upright on the HP 82240B: the screen redrawn narrow enough for
  * paper_w dots, in Plus42's own 6 x 8 characters (font_mini) -- the status

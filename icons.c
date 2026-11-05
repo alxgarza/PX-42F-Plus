@@ -25,3 +25,20 @@ void icon_battery(uint8_t x, uint8_t y, int level) {
             white(x + 4 + 3 * bar, y + r);
         }
 }
+
+void icon_bell(uint8_t x, uint8_t y) {
+    static const uint8_t rows[10] = {0x18, 0x3C, 0x7E, 0x7E, 0x7E, 0x7E, 0x7E, 0xFF, 0x00, 0x18};
+    for (int r = 0; r < 10; r++)
+        for (int c = 0; c < 8; c++)
+            if (rows[r] & (0x80 >> c))
+                white(x + c, y + r);
+}
+
+void icon_printer(uint8_t x, uint8_t y) {
+    /* The dots of annunciator 3 in Plus42's skin (skins/Plus42.gif). */
+    static const uint32_t rows[7] = {0x07C000, 0x0FFC00, 0x1FFFC0, 0x1FFFFC, 0x0FDFFF, 0x0FC07F, 0x033F00};
+    for (int r = 0; r < 7; r++)
+        for (int c = 0; c < ICON_PRINTER_W; c++)
+            if (rows[r] & (1u << (ICON_PRINTER_W - 1 - c)))
+                white(x + c, y + 2 + r);
+}

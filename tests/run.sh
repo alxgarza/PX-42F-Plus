@@ -2,8 +2,8 @@
 # Builds and runs the host parser tests (tests/test_parsers.c) with
 # AddressSanitizer and UBSan, against the built-in sounds as WAV files,
 # the ALPHA keyboard's rules (tests/test_alphakeys.c), the HP 82240B
-# printer's bytes (tests/test_hp82240.c) and the app table's shapes
-# (tests/test_draw.c).
+# printer's bytes (tests/test_hp82240.c), the app table's shapes
+# (tests/test_draw.c) and the Catalog's PX42 page (tests/test_catalog.cc).
 #   tests/run.sh
 set -e
 cd "$(dirname "$0")/.."
@@ -11,7 +11,7 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 python3 -I tools/make_sounds.py --wav "$TMP/sounds" >/dev/null
 cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
-   -I. -Ifonts -Itests tests/test_parsers.c png1bit.c wav.c fontsheet.c pngwrite.c appfile.c midiplay.c dutyshape.c images/splash_image.c \
+   -I. -Ifonts -Itests tests/test_parsers.c png1bit.c wav.c fontsheet.c pngwrite.c appfile.c soundname.c midiplay.c dutyshape.c images/splash_image.c \
    fonts/font_8x12_data.c fonts/font_10x16_data.c fonts/font_6x8_data.c -lm -o "$TMP/test_parsers"
 # The ALPHA keyboard's rules (keyboard.h needs the Pico SDK's types: menu_shots' stand-ins).
 cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
@@ -21,6 +21,9 @@ cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-reco
 cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
    -I. tests/test_hp82240.c hp82240.c -o "$TMP/test_hp82240"
 "$TMP/test_hp82240"
+cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
+   -I. tests/test_time.c timemodule.c alarms.c stopwatch.c rtc_format.c -o "$TMP/test_time"
+"$TMP/test_time"
 # The shapes of the app table.
 cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
    -I. tests/test_draw.c px_draw.c px_layer.c -o "$TMP/test_draw"
@@ -46,3 +49,14 @@ assert kinds == [b'IHDR', b'IDAT', b'IEND'] and pos == len(data), 'chunks'
 assert len(zlib.decompress(idat)) == 122 * 33, 'image data size'
 print('PNG writer: checksums good')
 PY
+# The Catalog's PX42 page, by pressing keys on the real core (binary math: no libbid here).
+CORE_FLAGS="-std=c++11 -w -g -O0 -fsanitize=address,undefined -DPX42 -D_WCHAR_T -DFP_BINARY -Itests/catalog_stub -Isrc/core -I."
+mkdir "$TMP/core"
+for f in src/core/core_*.cc tests/test_catalog.cc; do
+    c++ $CORE_FLAGS -c "$f" -o "$TMP/core/$(basename "$f").o" &
+done
+for job in $(jobs -p); do wait "$job"; done
+c++ -fsanitize=address,undefined "$TMP"/core/*.o -o "$TMP/test_catalog"
+"$TMP/test_catalog"
+# The command tables are Plus42's plus the PX's; plus42-upstream/ isn't tracked.
+[ -d plus42-upstream/common ] && python3 -I tools/px_core_tables.py --check

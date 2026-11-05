@@ -54,7 +54,7 @@ alpha_key_t alpha_key(uint8_t row, uint8_t col, const alpha_state_t *s) {
     alpha_key_t k = {ALPHA_KEY_CORE, code, s->shift, false};
     if (s->menu == ALPHA_MENU_NONE)
         return k;
-    if (s->shift && code == HPK_RUN) {
+    if (s->shift && code == HPK_ENTER) {
         k.kind = ALPHA_KEY_NEXT_MODE;
         k.shift = false;
         return k;
@@ -63,11 +63,10 @@ alpha_key_t alpha_key(uint8_t row, uint8_t col, const alpha_state_t *s) {
         return k;
 
     /* Keys that reach the core as themselves, without SHIFT: a register
-     * number's digits, ASTO / ARCL, an arrow paging a drawn menu (or the
-     * one SHIFT shows). */
+     * number's digits, ASTO / ARCL, the arrows paging the menu. */
     if ((hp_key_digit(code) && s->reg_entry && (s->reg_length == 0 ? s->shift : !s->reg_alpha))
             || (s->shift && (code == HPK_STO || code == HPK_RCL))
-            || ((code == HPK_UP || code == HPK_DOWN) && !alpha_menu_hidden(s))) {
+            || code == HPK_UP || code == HPK_DOWN) {
         k.shift = false;
         return k;
     }

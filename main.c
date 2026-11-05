@@ -449,7 +449,7 @@ static void core1_main(void)
     if (hello_off)
         free42_request_powerdown(); /* the main loop's first pass turns it off */
     debug_checkpoint(CKPT_ON_SOUND, 0);
-    if (woke_from_off && !crashed && px_settings.on_sound)
+    if (woke_from_off && !crashed && px_settings.on_sound && !power_woke_for_alarm())
         sounds_play_on(); /* turned on with ON: the stack is already back on screen */
     free42_set_printer(px_settings.printer != PRINTER_OFF);
     printf("Ready. Type !HELP for commands.\n");
@@ -588,11 +588,10 @@ static void core1_main(void)
             bool shown_name = false;
             bool shown_null = false;
 
-            /* Must feed the watchdog in here too: any ordinary human
-             * keypress (even just 100-200ms, completely normal) already
-             * exceeds the 100ms watchdog window, so without this every
-             * single button press -- not just a stuck/miswired one --
-             * would starve the watchdog and reboot. The serial input path
+            /* Must feed the watchdog in here too: a key can be held longer
+             * than the watchdog's window, and a press shouldn't reboot. It
+             * also leaves the whole window to the command run when the key
+             * is let go (watchdog_cfg.h). The serial input path
              * never hits this because it has no release-wait at all.
              *
              * This must NOT give up early on a still-held key: an earlier

@@ -12,7 +12,17 @@
 #include "keyboard.h"
 #include "keymap.h"
 #include "alphakeys.h"
+#include "alarms.h"
+#include "stopwatch.h"
+#include "px_commands.h"
+#include "core_commands2.h"
+#include "core_equations.h"
+#include "timemodule.h"
+#include "power.h"
+#include "sounds.h"
 #include "fonts.h"
+#include "display_fb.h"
+#include "px_layer.h"
 #include "icons.h"
 #include "rtc.h"
 #include "battery.h"
@@ -20,6 +30,7 @@
 #include "power.h"
 #include "settings.h"
 #include "sounds.h"
+#include "printer.h"
 #include "ramstate.h"
 #include "statefs.h"
 #include "shell.h"
@@ -78,6 +89,23 @@ static int key_for_char(char c) {
 
 static bool run_pending = false;      /* the core wants core_keydown(0) calls */
 static uint64_t slice_start_us;
+/* The alarms: section below. */
+static int alarm_active = -1;
+static bool alarm_woke;      /* on only for an alarm: back off after it */
+static int almcat_at = -1;
+static void alarm_end(bool acknowledged);
+static bool almcat_key(int code);
+/* The stopwatch: its section is below the alarms'. */
+static bool sw_showing = false;
+static absolute_time_t sw_next;
+static void sw_key_down(int code);
+static void sw_key_up(void);
+
+/* CLOCK: a message that keeps being redrawn until the next key, on the second
+ * (the date's format: on the minute, which saves power, as on the HP-41). */
+static bool clock_showing = false;
+static absolute_time_t clock_next;
+
 static bool timeout3_armed = false;   /* shell_request_timeout3(): PSE etc. */
 static absolute_time_t timeout3_at;
 
@@ -89,11 +117,40 @@ bool free42_slice_expired(void) {
     return time_us_64() - slice_start_us >= SLICE_US;
 }
 
+/* Printing: on from the first line, off in free42_service() when the last has
+ * been sent. */
+#define PRINT_ICON_CHECK_MS 250
+static bool print_icon;
+
+/* A running alarm's next step, or the next alarm: alarm_service() below. */
+static bool alarm_next_timeout(absolute_time_t *at);
+
 bool free42_next_timeout(absolute_time_t *at) {
-    if (!timeout3_armed)
-        return false;
-    *at = timeout3_at;
-    return true;
+    absolute_time_t alarm;
+    bool found = false;
+    if (timeout3_armed) {
+        *at = timeout3_at;
+        found = true;
+    }
+    if (clock_showing && (!found || absolute_time_diff_us(*at, clock_next) < 0)) {
+        *at = clock_next;
+        found = true;
+    }
+    if (sw_showing && stopwatch_ticking() && (!found || absolute_time_diff_us(*at, sw_next) < 0)) {
+        *at = sw_next;
+        found = true;
+    }
+    if (alarm_next_timeout(&alarm) && (!found || absolute_time_diff_us(*at, alarm) < 0)) {
+        *at = alarm;
+        found = true;
+    }
+    if (print_icon) { /* free42_service() takes it away when printing ends */
+        absolute_time_t soon = make_timeout_time_ms(PRINT_ICON_CHECK_MS);
+        if (!found || absolute_time_diff_us(*at, soon) < 0)
+            *at = soon;
+        found = true;
+    }
+    return found;
 }
 
 void free42_request_timeout3(int delay_ms) {
@@ -303,6 +360,8 @@ static alpha_state_t alpha_state() {
     return s;
 }
 
+static bool shapes_showing();
+
 /* The calculator's part of the panel, below the status bar, from scratch. */
 static void draw_lcd() {
     display_fill_rect(0, LCD_TOP, DISPLAY_WIDTH - 1, DISPLAY_HEIGHT - 1, false);
@@ -327,8 +386,10 @@ static void draw_lcd() {
     }
     alpha_state_t as = alpha_state();
     bool hidden = alpha_menu_hidden(&as);
+    /* The stopwatch has all the keys, and the core waiting for it hasn't redrawn
+     * since the key that started it: those tabs would be the catalog's, or nobody's. */
     for (int i = 0; i < 6; i++)
-        if (shown[i] && !hidden)
+        if (shown[i] && !hidden && !sw_showing)
             draw_menu_tab(i, labels[i], lengths[i], highlights[i], reverses[i]);
 
     int lines = menu ? disp_r - 1 : disp_r;
@@ -336,7 +397,8 @@ static void draw_lcd() {
     if (lines < 1)
         return;
     /* Dotted lines between all the lines of text, or none. */
-    bool dividers = height / lines - l->cell_h >= DIVIDER_GAP;
+    /* A picture (CLLCD, graphics) has no lines of text to divide. */
+    bool dividers = height / lines - l->cell_h >= DIVIDER_GAP && mode_message_lines != ALL_LINES && !shapes_showing();
     int prev_bottom = -1;
     for (int r = 0; r < lines; r++) {
         int top = row_top(r, lines, height);
@@ -358,14 +420,68 @@ static void draw_lcd() {
     }
 }
 
+/* Shapes (BOX, ELLIPSE ...) use the panel's 250 x 122, which Plus42's bitmap
+ * can't: it has as many dots as its rows and columns make, and those are redrawn
+ * in fonts. So they're two pictures on top of what's drawn, each a whole panel:
+ * dots painted black and dots painted white, either way over Plus42's own text
+ * and over the status bar. They last as Plus42's graphics do: a message's lines
+ * are what keeps them (mode_message_lines), so a key clears them, and so does
+ * CLLCD (free42_forget_shapes()). The memory is only taken by a program that
+ * draws, and then kept. */
+static uint8_t *shape_ink, *shape_wipe;
+static bool shapes_shown;
+
+static bool shapes_showing() {
+    return shapes_shown && mode_message_lines != 0;
+}
+
+bool free42_shape_memory(void) {
+    if (shape_ink == NULL) {
+        shape_ink = (uint8_t *) malloc(2 * FB_SIZE);
+        if (shape_ink == NULL)
+            return false;
+        shape_wipe = shape_ink + FB_SIZE;
+    }
+    return true;
+}
+
+bool free42_shape_canvases(px_canvas_t *ink, px_canvas_t *wipe) {
+    if (!free42_shape_memory())
+        return false;
+    if (!shapes_showing()) {
+        memset(shape_ink, 0, 2 * FB_SIZE);
+        shapes_shown = true;
+    }
+    *ink = {shape_ink, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_STRIDE};
+    *wipe = {shape_wipe, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_STRIDE};
+    return true;
+}
+
+void free42_shapes_changed(void) {
+    screen_dirty = true;
+}
+
+void free42_forget_shapes(void) {
+    shapes_shown = false;
+}
+
+static void draw_shapes() {
+    if (!shapes_showing())
+        return;
+    const px_canvas_t ink = {shape_ink, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_STRIDE};
+    const px_canvas_t wipe = {shape_wipe, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_STRIDE};
+    px_layer_compose(&display_fb[0][0], &ink, &wipe);
+}
+
 /* The HP-42S's annunciators, in the status bar: the last value of each
- * (-1 = unchanged). PRT isn't shown: printing to USB is over before it
- * would be. */
-static bool ann_updn, ann_shift, ann_run, ann_grad, ann_rad;
+ * (-1 = unchanged). PRT is on for all of a listing, between its lines too: part
+ * of what keeps print_icon on, see free42_service(). */
+static bool ann_updn, ann_shift, ann_prt, ann_run, ann_grad, ann_rad;
 
 void shell_annunciators(int updn, int shf, int prt, int run, int g, int rad) {
     if (updn != -1) ann_updn = updn;
     if (shf != -1) ann_shift = shf;
+    if (prt != -1) ann_prt = prt;
     if (run != -1) ann_run = run;
     if (g != -1) ann_grad = g;
     if (rad != -1) ann_rad = rad;
@@ -418,10 +534,10 @@ static void mirror_formats() {
 #define STATUS_SHIFT_X   (STATUS_ANGLE_X - 2 - STATUS_CHAR)
 #define STATUS_UPDN_X    (STATUS_SHIFT_X - 2 - 2 * STATUS_CHAR)
 #define STATUS_RUN_X     (STATUS_UPDN_X - 2 - STATUS_CHAR)
-#define STATUS_ALPHA_X   (STATUS_RUN_X - 2 - 3 * STATUS_CHAR) /* [a]: in ALPHA, the header gives way */
+#define STATUS_BELL_X    (STATUS_RUN_X - 2 - STATUS_CHAR)
+#define STATUS_PRINT_X   (STATUS_BELL_X - 2 - ICON_PRINTER_W)
+#define STATUS_ALPHA_W   (3 * STATUS_CHAR) /* [a]: in ALPHA, the header gives way, and to the printer */
 #define STATUS_HEADER_X  1
-#define STATUS_HEADER_CHARS ((STATUS_RUN_X - 2 - STATUS_HEADER_X) / STATUS_CHAR)
-#define STATUS_HEADER_CHARS_ALPHA ((STATUS_ALPHA_X - 2 - STATUS_HEADER_X) / STATUS_CHAR)
 
 static void status_text(const char *s, int length, int x) {
     display_draw_chars(&font_small, s, length, (uint8_t) x, 0, 0xFF);
@@ -472,15 +588,23 @@ static const char *angle_mark() {
     return ann_grad ? "G" : ann_rad ? "\007" : "\023"; /* G, π, ° */
 }
 
-static void draw_status_bar() {
+/* Graphics have the whole panel, the bar's rows too, until they go. */
+static void draw_status_bar(bool with_print_icon = true) {
+    if (shapes_showing()) {
+        display_fill_rect(0, 0, DISPLAY_WIDTH - 1, STATUS_H - 1, false);
+        return;
+    }
     display_fill_rect(0, 0, DISPLAY_WIDTH - 1, STATUS_H - 1, true);
 
     bool alpha = alpha_active();
-    std::string header = header_text(alpha ? STATUS_HEADER_CHARS_ALPHA : STATUS_HEADER_CHARS);
+    bool printing = print_icon && with_print_icon;
+    int right = printing ? STATUS_PRINT_X : STATUS_BELL_X;
+    int alpha_x = right - 2 - STATUS_ALPHA_W;
+    std::string header = header_text(((alpha ? alpha_x : right) - 2 - STATUS_HEADER_X) / STATUS_CHAR);
     status_text(header.data(), (int) header.length(), STATUS_HEADER_X);
     if (alpha) /* the keyboard's mode in ALPHA: [ ] HP-42S, [a], [A] */
         status_text(px_settings.alpha_mode == ALPHA_MODE_LOWER ? "[a]"
-                    : px_settings.alpha_mode == ALPHA_MODE_UPPER ? "[A]" : "[ ]", 3, STATUS_ALPHA_X);
+                    : px_settings.alpha_mode == ALPHA_MODE_UPPER ? "[A]" : "[ ]", 3, alpha_x);
 
     status_text(angle_mark(), 1, STATUS_ANGLE_X);
     if (ann_updn)
@@ -489,6 +613,10 @@ static void draw_status_bar() {
         status_char_mirrored('\r', STATUS_SHIFT_X); /* ↵ (code 13), pointing right */
     if (ann_run)
         status_text("\006", 1, STATUS_RUN_X); /* ▶ */
+    if (alarms_count() > 0)
+        icon_bell(STATUS_BELL_X, 1);
+    if (printing)
+        icon_printer(STATUS_PRINT_X, 1);
 
     icon_battery(STATUS_BATTERY_X, 1, battery_level());
 }
@@ -498,7 +626,7 @@ static void draw_status_bar() {
 
 int free42_draw_paper(int paper_w) {
     int w = disp_c * 6;
-    if (lcd_bits == NULL || mode_plot_viewer || w > paper_w)
+    if (lcd_bits == NULL || mode_plot_viewer || w > paper_w || shapes_showing())
         return 0;
     int x0 = (paper_w - w) / 2;
     display_fill_rect(0, 0, DISPLAY_WIDTH - 1, DISPLAY_HEIGHT - 1, false);
@@ -543,14 +671,37 @@ int free42_draw_paper(int paper_w) {
 
 /* Draws the whole screen and sends it to the panel: after every key, and
  * while a program runs. A ROW+ or SETDS first gets its new size. */
+/* Plus42 shows an error ("Divide by 0") silently; its squeak is for keys it
+ * can't take. display_error() is wrapped at link time (CMakeLists.txt), so the
+ * core stays as it is: errors flag 25 or a trap swallow never get here, and
+ * those shown by core_display.cc itself (a menu with no variables) aren't
+ * seen, the linker only wrapping calls from other files. Interrupted: the
+ * user's own EXIT. */
+static bool error_shown = false;
+
+extern "C" void __real__Z13display_errori(int error);
+
+extern "C" void __wrap__Z13display_errori(int error) {
+    __real__Z13display_errori(error);
+    if (error != ERR_INTERRUPTED)
+        error_shown = true;
+}
+
 static void refresh() {
     mirror_formats();
     fit_display(false);
     draw_status_bar();
     draw_lcd();
+    draw_shapes();
     debug_checkpoint(CKPT_DISPLAY_FLUSH, 0);
     display_flush();
     screen_dirty = false;
+    /* After the panel: squeak() waits for the sound, the message comes first. */
+    if (error_shown) {
+        error_shown = false;
+        if (px_settings.error_sound)
+            squeak();
+    }
 }
 
 /* ============================ start / state ============================ */
@@ -582,7 +733,88 @@ const char *free42_state_source(void) {
     return state_source_name;
 }
 
+/* The alarms stay in RAM and reach the drive at OFF, as the settings do: a
+ * program setting one in a loop must not wear the flash out. */
+#define ALARMS_FILE "/ALARMS.DAT"
+
+static void alarms_save() {
+    if (!alarms_dirty() || !statefs_ready())
+        return;
+    if (alarms_count() == 0) {
+        statefs_remove(ALARMS_FILE);
+    } else {
+        FILE *f = statefs_fopen(ALARMS_FILE, "wb");
+        if (f != NULL) {
+            size_t size;
+            const void *image = alarms_image(&size);
+            fwrite(image, 1, size, f);
+            fclose(f);
+        }
+    }
+    statefs_sync();
+    alarms_mark_saved();
+}
+
+#define STOPWATCH_FILE "/STOPWATCH.DAT"
+
+static void stopwatch_save() {
+    if (!stopwatch_dirty() || !statefs_ready())
+        return;
+    if (stopwatch_is_zero()) {
+        if (statefs_file_exists(STOPWATCH_FILE))
+            statefs_remove(STOPWATCH_FILE);
+    } else {
+        FILE *f = statefs_fopen(STOPWATCH_FILE, "wb");
+        if (f != NULL) {
+            size_t size;
+            const void *image = stopwatch_image(&size);
+            fwrite(image, 1, size, f);
+            fclose(f);
+        }
+    }
+    statefs_sync();
+    stopwatch_mark_saved();
+}
+
+static void stopwatch_read() {
+    static char image[64];
+    if (!statefs_ready() || !statefs_file_exists(STOPWATCH_FILE))
+        return;
+    FILE *f = statefs_fopen(STOPWATCH_FILE, "rb");
+    if (f == NULL)
+        return;
+    size_t size = fread(image, 1, sizeof(image), f);
+    fclose(f);
+    stopwatch_load(image, size);
+}
+
+static void alarms_read() {
+    static char image[sizeof(uint32_t) * 2 + ALARMS_MAX * sizeof(alarm_t) + 1];
+    if (!statefs_ready() || !statefs_file_exists(ALARMS_FILE))
+        return;
+    FILE *f = statefs_fopen(ALARMS_FILE, "rb");
+    if (f == NULL)
+        return;
+    size_t size = fread(image, 1, sizeof(image), f);
+    fclose(f);
+    alarms_load(image, size);
+}
+
 void free42_init(bool after_crash, bool memory_clear) {
+    alarm_woke = power_woke_for_alarm();
+    if (memory_clear) { /* with the rest of the memory, as on the HP-41 */
+        if (statefs_ready() && statefs_file_exists(ALARMS_FILE)) {
+            statefs_remove(ALARMS_FILE);
+            statefs_sync();
+        }
+        if (statefs_ready() && statefs_file_exists(STOPWATCH_FILE)) {
+            statefs_remove(STOPWATCH_FILE);
+            statefs_sync();
+        }
+    } else {
+        alarms_read();
+        stopwatch_read();
+    }
     /* The memory saved at the last OFF, from RAM or, failing that, the
      * drive. It's kept after loading, so a crash later on comes back to it
      * (the memory as of this ON) instead of Memory Clear -- but not when
@@ -657,7 +889,7 @@ static_assert(HPK_STO == KEY_STO && HPK_RCL == KEY_RCL && HPK_RDN == KEY_RDN && 
               && HPK_MUL == KEY_MUL && HPK_SUB == KEY_SUB && HPK_ADD == KEY_ADD && HPK_DOT == KEY_DOT
               && HPK_RUN == KEY_RUN && HPK_EXIT == KEY_EXIT && HPK_0 == KEY_0 && HPK_1 == KEY_1
               && HPK_2 == KEY_2 && HPK_3 == KEY_3 && HPK_4 == KEY_4 && HPK_5 == KEY_5 && HPK_6 == KEY_6
-              && HPK_7 == KEY_7 && HPK_8 == KEY_8 && HPK_9 == KEY_9,
+              && HPK_7 == KEY_7 && HPK_8 == KEY_8 && HPK_9 == KEY_9 && HPK_ENTER == KEY_ENTER,
               "keymap.h's key codes differ from core_globals.h's");
 
 /* State for the currently-held physical key, set by free42_key_down() and
@@ -686,6 +918,10 @@ static bool shift_before_down = false;
  * (core_keydown_2()). With no calculator key down (the settings menu),
  * nothing to do. */
 void free42_key_cancel(void) {
+    if (sw_showing) { /* the core is waiting: it would queue the key */
+        set_shift(shift_before_down);
+        return;
+    }
     if (down_code == KEY_SHIFT && mode_shift != shift_before_down) {
         bool enqueued;
         int repeat;
@@ -737,6 +973,30 @@ bool free42_settings_pending(void) {
 
 void free42_key_down(uint8_t row, uint8_t col) {
     down_code = free42_key_code(row, col);
+    if (alarm_active >= 0) {
+        /* STO keeps it as past due; anything else acknowledges it. */
+        held_key = 0;
+        held_enqueued = false;
+        held_repeat = 0;
+        alarm_end(down_code != KEY_STO);
+        return;
+    }
+    alarm_woke = false;
+    if (sw_showing) {
+        shift_before_down = mode_shift;
+        held_key = 0;
+        held_enqueued = false;
+        held_repeat = 0;
+        sw_key_down(down_code);
+        return;
+    }
+    if (almcat_at >= 0 && almcat_key(down_code)) {
+        held_key = 0;
+        held_enqueued = false;
+        held_repeat = 0;
+        return;
+    }
+    clock_showing = false; /* the core takes its message away, and does the key */
     shift_before_down = mode_shift;
     held_key = 0;
     held_enqueued = false;
@@ -767,6 +1027,20 @@ void free42_key_down(uint8_t row, uint8_t col) {
         settings_requested = true;
         refresh();
         return;
+    }
+
+    /* R/S stops a sound from PLAYWAV or PLAYMID, which can outlast the program.
+     * A running program stops too, with the key; with none running the key
+     * does no more, or it would start the program again. GETKEY and anything
+     * being typed get the key as ever. */
+    if (!mode_shift && code == KEY_RUN && sounds_file_playing()) {
+        if (program_running()) {
+            if (!mode_getkey)
+                sounds_stop();
+        } else if (!alpha_active() && !mode_command_entry && !flags.f.prgm_mode) {
+            sounds_stop();
+            return;
+        }
     }
 
     /* ALPHA's keyboard modes (alphakeys.h); outside ALPHA, the key. */
@@ -851,6 +1125,8 @@ void free42_key_up(void) {
     held_enqueued = false;
     held_repeat = 0;
 
+    if (sw_showing)
+        sw_key_up();
     refresh();
 }
 
@@ -859,7 +1135,7 @@ void free42_key_up(void) {
  * there (free42_key_down()), and the core's ALPHA has no BST. Through the
  * commands themselves, so text entry ends first as with the core's SST. */
 bool free42_shift_arrow(int code) {
-    if (!alpha_active() || (code != KEY_UP && code != KEY_DOWN))
+    if (sw_showing || !alpha_active() || (code != KEY_UP && code != KEY_DOWN))
         return false;
     set_shift(false);
     bool enqueued;
@@ -1011,28 +1287,514 @@ int free42_import_programs(const char *path) {
 }
 
 bool free42_auto_off_enabled(void) {
-    return !shell_always_on(-1);
+    return !shell_always_on(-1) && !sw_showing; /* the manual's page 267 */
 }
 
 void free42_set_printer(bool on) {
-    flags.f.printer_exists = on ? 1 : 0; /* flag 55, same as PRON / PROFF */
+    /* Both flags, as PRON / PROFF: with 55 alone the keyboard's PRX printed,
+     * but a program's print commands did nothing, without a word. */
+    flags.f.printer_exists = on ? 1 : 0; /* flag 55 */
+    flags.f.printer_enable = on ? 1 : 0; /* flag 21 */
 }
 
 bool free42_printer_on(void) {
     return flags.f.printer_exists;
 }
 
-void free42_draw_screen(void) {
-    draw_status_bar();
+void free42_set_quiet(bool quiet) {
+    flags.f.audio_enable = quiet ? 0 : 1; /* flag 26, what QUIET toggles */
+}
+
+bool free42_quiet(void) {
+    return !flags.f.audio_enable;
+}
+
+void free42_draw_screen(bool with_print_icon) {
+    draw_status_bar(with_print_icon);
     draw_lcd();
+    draw_shapes();
+}
+
+static bool print_stop_armed, print_stop_pressed, print_stop_program;
+
+static bool print_stop_key_held() {
+    for (int r = 0; r < KB_ROWS; r++)
+        for (int c = 0; c < KB_COLS; c++)
+            if ((key_matrix[r][c] == KEY_EXIT || key_matrix[r][c] == KEY_RUN) && keyboard_is_held((uint8_t) r, (uint8_t) c))
+                return true;
+    return false;
+}
+
+void free42_print_stop_begin(void) {
+    print_stop_armed = false;
+    print_stop_pressed = false;
+}
+
+bool free42_print_stop(void) {
+    if (!print_stop_pressed) {
+        bool held = print_stop_key_held();
+        if (held && print_stop_armed)
+            print_stop_pressed = true;
+        else if (!held)
+            print_stop_armed = true;
+    }
+    return print_stop_pressed;
+}
+
+#define PRINT_STOP_RELEASE_MS 5000 /* a stuck key mustn't hang the calculator */
+
+void free42_print_stop_end(void) {
+    if (!print_stop_pressed)
+        return;
+    for (int i = 0; i < PRINT_STOP_RELEASE_MS / 10 && print_stop_key_held(); i++) {
+        watchdog_update();
+        sleep_ms(10);
+    }
+    sleep_ms(20); /* its contacts' chatter isn't a new press */
+    print_stop_program = program_running();
+}
+
+/* Sent to the panel at once: PRLCD holds core 1 until it has been sent, up to 2
+ * minutes, with nothing else drawn. */
+void free42_printing_show(void) {
+    if (print_icon)
+        return;
+    print_icon = true;
+    draw_status_bar();
+    display_flush();
 }
 
 /* ============================ running ============================ */
 
 #define RUN_REDRAW_US 250000 /* screen refresh while a program runs */
 
+void free42_clock_start(void) {
+    clock_showing = true;
+    clock_next = get_absolute_time();
+}
+
+static void clock_tick(void) {
+    if (!clock_showing || program_running() || !time_reached(clock_next))
+        return;
+    rtc_datetime_t now;
+    rtc_get_datetime(&now);
+    char text[24];
+    rtc_format_clock(text, sizeof(text), &now, px_settings.clock_with_date);
+    draw_message(0, text, (int) strlen(text));
+    refresh();
+    clock_next = make_timeout_time_ms(px_settings.clock_with_date ? (uint32_t) (60000 - (now.sec * 1000 + now.ms))
+                                                                  : (uint32_t) (1000 - now.ms));
+}
+
+/* ============================ alarms ============================ */
+
+/* When each kind comes due goes by the manual's table (HP-41CX, volume 2,
+ * appendix B): a message alarm sounds and shows itself, whatever is going on;
+ * a control alarm runs its label, as a subroutine of a running program; a
+ * conditional one runs it only if off or showing the clock. Running: two tones,
+ * and past due. Otherwise it behaves as a message. Keys, settings and apps aren't
+ * interrupted: this only runs from the main loop, between a program's slices. */
+
+#define ALARM_TICK_MS      250
+#define ALARM_FLASH_TICKS  4   /* a second of steady display first */
+#define ALARM_TONES_TICKS  16  /* five flashes, then the tones: */
+#define ALARM_END_TICKS    80  /* ... 16 pairs, one a second, then it's past due */
+#define ALARM_RETRY_MS     250 /* one that has to wait for a moment it can run in */
+
+static int alarm_ticks;
+static absolute_time_t alarm_tick_at;
+static bool alarm_reminded;
+static bool alarm_own_sound; /* the active alarm started a file */
+static bool almcat_draw_due;
+
+static void alarm_tones() {
+    if (flags.f.audio_enable) {
+        sounds_play_tone(8, true);
+        sounds_play_tone(9, false);
+    }
+}
+
+/* Its own sound, or the tones. Also if its file has gone from the drive: an
+ * alarm must not go silent for that. */
+static void alarm_sound(const alarm_t *a) {
+    if (!flags.f.audio_enable)
+        return;
+    char path[ALARM_SOUND_PATH_MAX];
+    if (alarm_sound_path(a, path, sizeof(path))
+        && (a->sound == ALARM_SOUND_WAV ? sounds_play_file(path, false) : sounds_midi_play(path) == 0)) {
+        alarm_own_sound = true;
+        return;
+    }
+    alarm_tones();
+}
+
+static int alarm_rows(const alarm_t *a) {
+    return a->length == 0 ? 1 : (a->length + disp_c - 1) / disp_c;
+}
+
+/* A stopwatch counting up through zero: sounds and shows like a message alarm, but
+ * isn't in the table and can't become past due (the manual's page 274). */
+#define ALARM_TIMER ALARMS_MAX
+static alarm_t timer_alarm;
+
+static const alarm_t *active_alarm() {
+    return alarm_active == ALARM_TIMER ? &timer_alarm : alarms_get(alarm_active);
+}
+
+static void alarm_draw(bool shown) {
+    const alarm_t *a = active_alarm();
+    if (!shown) {
+        for (int r = 0; r < alarm_rows(a); r++)
+            draw_message(r, "", 0, false);
+    } else if (a->length == 0) { /* no message: the time and date */
+        rtc_datetime_t now;
+        rtc_get_datetime(&now);
+        char text[24];
+        rtc_format_clock(text, sizeof(text), &now, true);
+        draw_message(0, text, (int) strlen(text), false);
+    } else {
+        draw_long_message(0, a->text, a->length, false);
+    }
+    refresh();
+}
+
+static void alarm_end(bool acknowledged) {
+    if (alarm_own_sound)
+        sounds_stop();
+    if (alarm_active == ALARM_TIMER)
+        ; /* nothing to keep */
+    else if (acknowledged)
+        alarms_done(alarm_active, rtc_now_ms());
+    else
+        alarms_mark_past_due(alarm_active);
+    alarm_active = -1;
+    clear_message();
+    redisplay();
+    refresh();
+}
+
+static void alarm_activate(int i) {
+    alarm_active = i;
+    alarm_ticks = 0;
+    alarm_own_sound = false;
+    alarm_tick_at = get_absolute_time();
+    clock_showing = false;
+}
+
+static void alarm_tick() {
+    if (!time_reached(alarm_tick_at))
+        return;
+    int tick = alarm_ticks++;
+    alarm_tick_at = make_timeout_time_ms(ALARM_TICK_MS);
+    /* A song longer than the alarm's 20 s plays on until it ends or a key. */
+    bool playing = alarm_own_sound && sounds_file_playing();
+    if (tick >= ALARM_END_TICKS && !playing) {
+        alarm_end(false);
+        return;
+    }
+    if (tick == 0)
+        alarm_draw(true);
+    else if (tick >= ALARM_FLASH_TICKS)
+        alarm_draw(tick % 2 == 0);
+    if (!playing && (tick == 0 || (tick >= ALARM_TONES_TICKS && tick % 4 == 0)))
+        alarm_sound(active_alarm());
+}
+
+/* Its label, by name, as a key mapped to XEQ "NAME" does: nothing in the core
+ * had to change for it. Empty: on from the current line. */
+static void alarm_run_at_keyboard(const alarm_t *a) {
+    int length;
+    const char *label = alarm_label(a, &length);
+    bool enqueued;
+    int repeat;
+    if (length == 0) {
+        pump_running(core_keydown(KEY_RUN, &enqueued, &repeat));
+    } else {
+        char name[8];
+        memcpy(name, label, (size_t) length);
+        name[length] = 0;
+        pump_running(core_keydown_command(name, 1, &enqueued, &repeat));
+    }
+    pump_running(core_keyup());
+}
+
+static void alarm_run_as_subroutine(const alarm_t *a) {
+    int length;
+    const char *label = alarm_label(a, &length);
+    if (length == 0)
+        return; /* the current line: it's on its way there already */
+    arg_struct target;
+    target.type = ARGTYPE_STR;
+    target.length = (unsigned short) length;
+    memcpy(target.val.text, label, (size_t) length);
+    int error = docmd_xeq(&target);
+    if (error != ERR_NONE)
+        display_error(error);
+}
+
+static void alarm_service() {
+    if (!alarm_reminded) {
+        alarm_reminded = true;
+        if (!alarm_woke && alarms_any_past_due())
+            alarm_tones(); /* only a reminder, as on the HP-41 */
+    }
+    if (alarm_active >= 0) {
+        alarm_tick();
+        return;
+    }
+    if (almcat_at >= 0 || sw_showing || held_key != 0)
+        return; /* alarms wait for the stopwatch's keyboard, as on the HP-41 */
+
+    uint64_t now = rtc_now_ms();
+    uint64_t timer = stopwatch_timer_at();
+    if (timer != 0 && now >= timer) {
+        stopwatch_timer_done(now);
+        memset(&timer_alarm, 0, sizeof(timer_alarm));
+        timer_alarm.length = 11;
+        memcpy(timer_alarm.text, "TIMER ALARM", 11);
+        alarm_activate(ALARM_TIMER);
+        return;
+    }
+    int due = alarms_due(now);
+    if (due < 0) {
+        if (alarm_woke && !program_running() && !run_pending) {
+            alarm_woke = false;
+            free42_request_powerdown();
+        }
+        return;
+    }
+
+    const alarm_t *a = alarms_get(due);
+    alarm_kind_t kind = alarm_kind(a);
+    if (kind == ALARM_MESSAGE) {
+        alarm_activate(due);
+    } else if (program_running()) {
+        if (kind == ALARM_CONDITIONAL) {
+            alarm_sound(a);
+            alarms_mark_past_due(due);
+        } else if (!mode_getkey && !mode_pause && mode_interruptible == NULL) {
+            alarm_run_as_subroutine(a);
+            alarms_done(due, now);
+            refresh();
+        }
+    } else if (kind == ALARM_CONDITIONAL && !alarm_woke && !clock_showing) {
+        alarm_activate(due);
+    } else if (!flags.f.prgm_mode && !alpha_active() && !mode_command_entry && !eqn_active()
+               && mode_interruptible == NULL) {
+        alarm_t copy = *a;
+        clock_showing = false;
+        alarms_done(due, now);
+        alarm_run_at_keyboard(&copy);
+        refresh();
+    }
+}
+
+/* An alarm's or the stopwatch's timer: what wakes the calculator from OFF too. */
+static uint64_t next_alarm_ms() {
+    uint64_t alarm = alarms_next_at(), timer = stopwatch_timer_at();
+    return alarm == 0 ? timer : timer == 0 || alarm < timer ? alarm : timer;
+}
+
+static bool alarm_next_timeout(absolute_time_t *at) {
+    if (alarm_active >= 0) {
+        *at = alarm_tick_at;
+        return true;
+    }
+    uint64_t next = next_alarm_ms();
+    if (next == 0)
+        return false;
+    uint64_t now = rtc_now_ms();
+    uint64_t wait = next > now ? next - now : ALARM_RETRY_MS;
+    *at = make_timeout_time_ms(wait > 3600000 ? 3600000 : (uint32_t) wait);
+    return true;
+}
+
+/* ALMCAT: the list on the top two lines, ↑ and ↓ to move, ← deletes, EXIT
+ * leaves; any other key leaves and does its job. The drawing waits for the core
+ * to have finished the command. */
+void free42_almcat_start(void) {
+    if (alarms_count() == 0) {
+        draw_message(0, "No Alarms", 9, false);
+        return;
+    }
+    almcat_at = 0;
+    almcat_draw_due = true;
+}
+
+static void almcat_draw() {
+    const alarm_t *a = alarms_get(almcat_at);
+    rtc_datetime_t when;
+    time_ms_to_datetime(a->at_ms, &when);
+    char date[16], time[12], line[40];
+    rtc_format_date(date, sizeof(date), &when);
+    rtc_format_time(time, sizeof(time), &when, true);
+    int n = snprintf(line, sizeof(line), "%d%s %s %s", almcat_at + 1, a->past_due ? "!" : "", date, time);
+    draw_message(0, line, n > disp_c ? disp_c : n, false);
+    draw_message(1, a->text, a->length > disp_c ? disp_c : a->length, false);
+    refresh();
+}
+
+static bool almcat_key(int code) {
+    if (code == KEY_UP || code == KEY_DOWN) {
+        int count = alarms_count();
+        almcat_at = (almcat_at + (code == KEY_UP ? count - 1 : 1)) % count;
+        almcat_draw();
+        return true;
+    }
+    if (code == KEY_BSP) {
+        alarms_remove(almcat_at);
+        if (alarms_count() > 0) {
+            if (almcat_at >= alarms_count())
+                almcat_at = alarms_count() - 1;
+            almcat_draw();
+            return true;
+        }
+    }
+    almcat_at = -1;
+    clear_message();
+    redisplay();
+    refresh();
+    return code == KEY_EXIT || code == KEY_BSP;
+}
+
+/* ============================ stopwatch ============================ */
+
+/* The rules are stopwatch.c's. What's here is the PX's: the keys, the top line,
+ * and a redraw 10 times a second while it runs, as the HP-41's tenths change. */
+
+#define SW_REDRAW_MS 100
+
+static bool sw_draw_due;
+static int sw_error;
+
+void free42_stopwatch_open(int store, int recall, bool delta) {
+    stopwatch_keyboard_open(store, recall, delta);
+    sw_showing = true;
+    sw_draw_due = true;
+    sw_error = ERR_NONE;
+    clock_showing = false;
+}
+
+bool free42_stopwatch_showing(void) {
+    return sw_showing;
+}
+
+void free42_stopwatch_close(void) {
+    sw_showing = false;
+    sw_draw_due = false;
+    set_shift(false);
+    clear_message();
+}
+
+int free42_stopwatch_error(void) {
+    return sw_error;
+}
+
+static void sw_draw() {
+    char text[STOPWATCH_TEXT_MAX];
+    stopwatch_text(text, sizeof(text), rtc_now_ms(), px_stopwatch_registers());
+    draw_message(0, text, (int) strlen(text), false);
+    refresh();
+    sw_next = make_timeout_time_ms(SW_REDRAW_MS);
+}
+
+static void sw_result(int result) {
+    if ((result & STOPWATCH_BEEP) && flags.f.audio_enable)
+        sounds_play_tone(8, false);
+    if (result & STOPWATCH_LEAVE) {
+        sw_error = (result & STOPWATCH_NONEXISTENT) ? ERR_NONEXISTENT : ERR_NONE;
+        free42_stopwatch_close();
+        refresh(); /* free42_service() has the core go on */
+    } else {
+        sw_draw();
+    }
+}
+
+/* Where the HP-41's overlay has them, which is the HP-42S's ENTER row with +/-
+ * and E for its CHS and EEX. SHIFT ← is EXIT, as there; the PX has EXIT too. */
+static stopwatch_key_t sw_key_of(int code, bool shift) {
+    switch (code) {
+        case KEY_RUN: return STOPWATCH_KEY_RUN;
+        case KEY_BSP: return STOPWATCH_KEY_CLEAR;
+        case KEY_ENTER: return STOPWATCH_KEY_SPLIT;
+        case KEY_RCL: return STOPWATCH_KEY_RECALL;
+        case KEY_CHS: return STOPWATCH_KEY_DELTA;
+        case KEY_DOWN: return shift ? STOPWATCH_KEY_BST : STOPWATCH_KEY_SST;
+        case KEY_UP: return STOPWATCH_KEY_BST;
+        case KEY_E: return shift ? STOPWATCH_KEY_RNNN : STOPWATCH_KEY_REG;
+        case KEY_0: return STOPWATCH_KEY_0;
+        case KEY_1: case KEY_2: case KEY_3:
+            return (stopwatch_key_t) (STOPWATCH_KEY_0 + 1 + code - KEY_1);
+        case KEY_4: case KEY_5: case KEY_6:
+            return (stopwatch_key_t) (STOPWATCH_KEY_0 + 4 + code - KEY_4);
+        case KEY_7: case KEY_8: case KEY_9:
+            return (stopwatch_key_t) (STOPWATCH_KEY_0 + 7 + code - KEY_7);
+        default: return STOPWATCH_KEY_OTHER;
+    }
+}
+
+static void sw_key_down(int code) {
+    if (code == KEY_SHIFT) {
+        set_shift(!mode_shift);
+        refresh();
+        return;
+    }
+    bool shift = mode_shift;
+    set_shift(false);
+    if (code == KEY_EXIT || (code == KEY_BSP && shift))
+        sw_result(STOPWATCH_LEAVE);
+    else
+        sw_result(stopwatch_key_down(sw_key_of(code, shift), rtc_now_ms(), px_stopwatch_registers()));
+}
+
+static void sw_key_up(void) {
+    sw_result(stopwatch_key_up(px_stopwatch_registers()));
+}
+
+/* The keyboard being on, a timer reaching zero is only the two tones. */
+static void sw_tick() {
+    uint64_t now = rtc_now_ms();
+    uint64_t timer = stopwatch_timer_at();
+    if (timer != 0 && now >= timer) {
+        stopwatch_timer_done(now);
+        alarm_tones();
+        sw_draw_due = true;
+    }
+    if (sw_draw_due || (stopwatch_ticking() && time_reached(sw_next))) {
+        sw_draw_due = false;
+        sw_draw();
+    }
+}
+
 bool free42_service(void) {
     static uint64_t last_draw_us;
+
+    /* Still going: a listing, a line just sent, or a program held up for room in
+     * the printer's buffer to print its next. */
+    if (print_icon && !ann_prt && !printer_busy() && !(run_pending && !printer_ready())) {
+        print_icon = false;
+        refresh();
+    }
+    if (print_stop_program) {
+        print_stop_program = false;
+        bool enqueued;
+        int repeat;
+        pump_running(core_keydown(KEY_EXIT, &enqueued, &repeat));
+        pump_running(core_keyup());
+        refresh();
+    }
+    clock_tick();
+    alarm_service();
+    if (alarm_active >= 0)
+        return false; /* a running program waits for it */
+    if (sw_showing) {
+        sw_tick();
+        return false; /* and the core for this, until EXIT (px_commands.cc) */
+    }
+    if (almcat_draw_due && !program_running()) {
+        almcat_draw_due = false;
+        almcat_draw();
+    }
 
     if (timeout3_armed && time_reached(timeout3_at)) {
         timeout3_armed = false;
@@ -1043,6 +1805,13 @@ bool free42_service(void) {
 
     if (!run_pending)
         return false;
+
+    /* A print waiting for the printer's buffer waits here, in the main
+     * loop's time: inside shell_print() the keys were only read for an
+     * instant between lines, 1.8 s apart. A PRP looked like a hang, and a
+     * tap of EXIT rarely stopped it. */
+    if (!printer_ready())
+        return true;
 
     slice_start_us = time_us_64();
     bool enqueued;
@@ -1079,6 +1848,8 @@ bool free42_powerdown_requested(void) {
 
 void free42_sleep(bool quiet) {
     powerdown_requested = false;
+    if (alarm_active >= 0)
+        alarm_end(false); /* holding ON through one: past due, as it would become */
     held_key = 0;
     held_enqueued = false;
     held_repeat = 0;
@@ -1109,6 +1880,8 @@ void free42_sleep(bool quiet) {
         statefs_sync();
     }
     settings_save_pending(); /* DMY, CLK12, a time set exactly... since the last save */
+    alarms_save();
+    stopwatch_save();
     /* Each flash write ends by turning the 100ms watchdog back on, and the
      * splash below waits longer than that: off again (the caller had
      * stopped it; power_deep_off() starts its own). */
@@ -1122,5 +1895,5 @@ void free42_sleep(bool quiet) {
         splash_show_static();
         splash_until_ms = powman_timer_get_ms() + (uint64_t) px_settings.splash_minutes * 60000;
     }
-    power_deep_off(on_row, on_col, splash_until_ms);
+    power_deep_off(on_row, on_col, splash_until_ms, next_alarm_ms());
 }

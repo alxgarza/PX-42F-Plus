@@ -23,6 +23,9 @@
 #include "core_display.h"
 #include "core_commands2.h"
 #include "core_commands8.h"
+#ifdef PX42
+#include "px_commands.h"
+#endif
 #include "core_equations.h"
 #include "core_globals.h"
 #include "core_helpers.h"
@@ -875,6 +878,7 @@ void reset_display() {
 
 #ifdef PX42
 static void px_forget_keys();
+extern "C" void free42_forget_shapes();
 #endif
 
 void clear_display() {
@@ -886,6 +890,7 @@ void clear_display() {
     crosshair_visible = false;
 #ifdef PX42
     px_forget_keys();
+    free42_forget_shapes();
 #endif
 }
 
@@ -972,6 +977,10 @@ void draw_line(int x1, int y1, int x2, int y2) {
 }
 
 void draw_pattern(phloat dx, phloat dy, const char *pattern, int pattern_width){
+#ifdef PX42
+    px_pattern(dx, dy, pattern, pattern_width);
+    return;
+#endif
     int x, y, h, v, hmin, hmax, vmin, vmax;
     x = dx < 0 ? to_int(-floor(-dx + 0.5)) : to_int(floor(dx + 0.5));
     y = dy < 0 ? to_int(-floor(-dy + 0.5)) : to_int(floor(dy + 0.5));
@@ -1817,9 +1826,9 @@ bool should_highlight(int cmd) {
         case CMD_NLINE:
             return mode_multi_line;
         case CMD_LTOP:
-            return mode_lastx_top;
+            return mode_ltop_atop == TOP_L || mode_ltop_atop == TOP_LA || mode_ltop_atop == TOP_AL;
         case CMD_ATOP:
-            return mode_alpha_top;
+            return mode_ltop_atop == TOP_A || mode_ltop_atop == TOP_LA || mode_ltop_atop == TOP_AL;
         case CMD_HFLAGS:
             return mode_header_flags;
         case CMD_HPOLAR:
@@ -2177,7 +2186,7 @@ static int display_prgm_line(int offset, int headers = 0, int footers = 0) {
     }
 }
 
-static void full_list_to_string(vartype *v, std::string *buf, int maxlen);
+static void full_list_to_string_cpp(vartype *v, std::string *buf, int maxlen);
 
 static void display_level(int level, int row) {
     clear_row(row);
@@ -2229,7 +2238,7 @@ static void display_level(int level, int row) {
     if (v != NULL) {
         if (v->type == TYPE_LIST) {
             std::string s;
-            full_list_to_string(v, &s, len - bufptr);
+            full_list_to_string_cpp(v, &s, len - bufptr);
             string2buf(buf, len, &bufptr, s.c_str(), (int) s.length());
         } else {
             bufptr += vartype2string(v, buf + bufptr, len - bufptr);
@@ -2242,7 +2251,7 @@ static void display_level(int level, int row) {
     draw_string(0, row, buf, bufptr);
 }
 
-static void full_list_to_string(vartype *v, std::string *buf, int maxlen) {
+static void full_list_to_string_cpp(vartype *v, std::string *buf, int maxlen) {
     *buf += "{ ";
     if (buf->length() >= maxlen)
         return;
@@ -2250,7 +2259,7 @@ static void full_list_to_string(vartype *v, std::string *buf, int maxlen) {
     for (int i = 0; i < list->size; i++) {
         vartype *v2 = list->array->data[i];
         if (v2->type == TYPE_LIST) {
-            full_list_to_string(v2, buf, maxlen);
+            full_list_to_string_cpp(v2, buf, maxlen);
         } else if (v2->type == TYPE_STRING || v2->type == TYPE_EQUATION) {
             const char *text;
             int length;
@@ -2280,6 +2289,14 @@ static void full_list_to_string(vartype *v, std::string *buf, int maxlen) {
             return;
     }
     *buf += "} ";
+}
+
+int full_list_to_string(vartype *v, char *buf, int buflen) {
+    std::string str;
+    full_list_to_string_cpp(v, &str, buflen + 1);
+    int len = 0;
+    string2buf(buf, buflen, &len, str.c_str(), (int) str.length());
+    return len;
 }
 
 static void full_real_matrix_to_string(vartype *v, std::string *buf, int lines_available) {
@@ -2425,7 +2442,7 @@ static int display_x(int row, int lines_available) {
                 line += std::string(u->text, u->length);
             } else if (v->type == TYPE_LIST) {
                 int maxlen = lines_available * disp_c;
-                full_list_to_string(v, &line, maxlen + 2);
+                full_list_to_string_cpp(v, &line, maxlen + 2);
                 line.erase(line.length() - 1);
                 if (line.length() > maxlen) {
                     line.erase(maxlen - 1);
@@ -2923,11 +2940,20 @@ static const int ext_base_cat[] = {
     CMD_SB,      CMD_CB,      CMD_B_T,     CMD_NUM_B,   CMD_MASKL,   CMD_MASKR,
     CMD_SC,      CMD_CC,      CMD_C_T,     CMD_NULL,    CMD_NULL,    CMD_NULL,
     CMD_SLN,     CMD_SRN,     CMD_ASRN,    CMD_RJ,      CMD_NULL,    CMD_NULL,
+#ifndef NO_BASE_FLOAT
     CMD_N_TO_BS, CMD_BS_TO_N, CMD_N_TO_BD, CMD_BD_TO_N, CMD_N_TO_BQ, CMD_BQ_TO_N,
     CMD_N_TO_DS, CMD_DS_TO_N, CMD_N_TO_DD, CMD_DD_TO_N, CMD_N_TO_DQ, CMD_DQ_TO_N,
+    CMD_N_TO_PS, CMD_PS_TO_N, CMD_N_TO_PD, CMD_PD_TO_N, CMD_N_TO_PQ, CMD_PQ_TO_N,
+#endif
     CMD_BRESET,  CMD_BSIGNED, CMD_BWRAP,   CMD_WSIZE,   CMD_WSIZE_T, CMD_A_THRU_F_2,
     CMD_DECINT,  CMD_NULL,    CMD_HEXSEP,  CMD_DECSEP,  CMD_OCTSEP,  CMD_BINSEP
 };
+
+#ifndef NO_BASE_FLOAT
+#define BASE_FLOAT_ROWS 10
+#else
+#define BASE_FLOAT_ROWS 7
+#endif
 
 static const int ext_prgm_cat[] = {
     CMD_FUNC,    CMD_RTNYES,  CMD_RTNNO,    CMD_RTNERR,  CMD_ERRMSG,  CMD_ERRNO,
@@ -2980,22 +3006,22 @@ static const int ext_disp_cat[] = {
 
 #if defined(ANDROID) || defined(IPHONE)
 static const int ext_misc_cat[] = {
-    CMD_RE,      CMD_IM,      CMD_CONJ,    CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
-    CMD_RCOMPLX, CMD_PCOMPLX, CMD_GETMI,   CMD_PUTMI,    CMD_GETLI,       CMD_PUTLI,
-    CMD_LOCK,    CMD_UNLOCK,  CMD_DYNAMIC, CMD_STATIC,   CMD_MIXED,       CMD_CAPS,
-    CMD_IDENT,   CMD_PRREG,   CMD_STRACE,  CMD_LINE,     CMD_PLOT_M,      CMD_NULL,
-    CMD_TVM,     CMD_SPFV,    CMD_SPPV,    CMD_USFV,     CMD_USPV,        CMD_NULL,
-    CMD_A2LINE,  CMD_A2PLINE, CMD_X2LINE,  CMD_ACCEL,    CMD_LOCAT,       CMD_HEADING
+    CMD_RE,      CMD_IM,      CMD_CONJ,    CMD_ARG,    CMD_C_LN_1_X, CMD_C_E_POW_X_1,
+    CMD_FMA,     CMD_PRREG,   CMD_STRACE,  CMD_LINE,   CMD_PLOT_M,   CMD_IDENT,
+    CMD_RCOMPLX, CMD_PCOMPLX, CMD_GETMI,   CMD_PUTMI,  CMD_GETLI,    CMD_PUTLI,
+    CMD_LOCK,    CMD_UNLOCK,  CMD_DYNAMIC, CMD_STATIC, CMD_MIXED,    CMD_CAPS,
+    CMD_A2LINE,  CMD_A2PLINE, CMD_X2LINE,  CMD_ACCEL,  CMD_LOCAT,    CMD_HEADING,
+    CMD_TVM,     CMD_SPFV,    CMD_SPPV,    CMD_USFV,   CMD_USPV,     CMD_NULL
 };
 #define MISC_CAT_ROWS 6
 #else
 static const int ext_misc_cat[] = {
-    CMD_RE,      CMD_IM,      CMD_CONJ,    CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
-    CMD_RCOMPLX, CMD_PCOMPLX, CMD_GETMI,   CMD_PUTMI,    CMD_GETLI,       CMD_PUTLI,
-    CMD_LOCK,    CMD_UNLOCK,  CMD_DYNAMIC, CMD_STATIC,   CMD_MIXED,       CMD_CAPS,
-    CMD_IDENT,   CMD_PRREG,   CMD_STRACE,  CMD_LINE,     CMD_PLOT_M,      CMD_NULL,
-    CMD_TVM,     CMD_SPFV,    CMD_SPPV,    CMD_USFV,     CMD_USPV,        CMD_NULL,
-    CMD_A2LINE,  CMD_A2PLINE, CMD_X2LINE,  CMD_NULL,     CMD_NULL,        CMD_NULL
+    CMD_RE,      CMD_IM,      CMD_CONJ,    CMD_ARG,    CMD_C_LN_1_X, CMD_C_E_POW_X_1,
+    CMD_FMA,     CMD_PRREG,   CMD_STRACE,  CMD_LINE,   CMD_PLOT_M,   CMD_IDENT,
+    CMD_RCOMPLX, CMD_PCOMPLX, CMD_GETMI,   CMD_PUTMI,  CMD_GETLI,    CMD_PUTLI,
+    CMD_LOCK,    CMD_UNLOCK,  CMD_DYNAMIC, CMD_STATIC, CMD_MIXED,    CMD_CAPS,
+    CMD_A2LINE,  CMD_A2PLINE, CMD_X2LINE,  CMD_NULL,   CMD_NULL,     CMD_NULL,
+    CMD_TVM,     CMD_SPFV,    CMD_SPPV,    CMD_USFV,   CMD_USPV,     CMD_NULL
 };
 #define MISC_CAT_ROWS 6
 #endif
@@ -3093,6 +3119,17 @@ static void draw_catalog() {
         draw_key(5, 0, 0, "MISC", 4);
         mode_updown = true;
         set_annunciators(1, -1, -1, -1, -1, -1);
+#ifdef PX42
+    } else if (catsect == CATSECT_PX) {
+        for (int i = 0; i < 6; i++) {
+            if (i < PX_CAT_TABS)
+                draw_key(i, 0, 0, px_cat_tabs[i].title, px_cat_tabs[i].title_length);
+            else
+                draw_key(i, 0, 0, "", 0);
+        }
+        mode_updown = true;
+        set_annunciators(1, -1, -1, -1, -1, -1);
+#endif
     } else if (catsect == CATSECT_PGM
             || catsect == CATSECT_PGM_ONLY
             || catsect == CATSECT_PGM_SOLVE
@@ -3217,6 +3254,9 @@ static void draw_catalog() {
         mode_updown = catalogmenu_rows[catindex] > 1;
         set_annunciators(mode_updown, -1, -1, -1, -1, -1);
     } else if (catsect == CATSECT_FCN
+#ifdef PX42
+            || PX_CAT_TAB(catsect)
+#endif
             || catsect >= CATSECT_EXT_TIME && catsect <= CATSECT_EXT_X_CMP) {
         const int *subcat;
         int subcat_rows;
@@ -3224,7 +3264,7 @@ static void draw_catalog() {
             case CATSECT_FCN: subcat = fcn_cat; subcat_rows = 43; break;
             case CATSECT_EXT_TIME: subcat = ext_time_cat; subcat_rows = 3; break;
             case CATSECT_EXT_XFCN: subcat = ext_xfcn_cat; subcat_rows = 1; break;
-            case CATSECT_EXT_BASE: subcat = ext_base_cat; subcat_rows = 9; break;
+            case CATSECT_EXT_BASE: subcat = ext_base_cat; subcat_rows = BASE_FLOAT_ROWS; break;
             case CATSECT_EXT_PRGM: subcat = ext_prgm_cat; subcat_rows = 5; break;
             case CATSECT_EXT_STR: subcat = ext_str_cat; subcat_rows = 4; break;
             case CATSECT_EXT_STK: subcat = ext_stk_cat; subcat_rows = 3; break;
@@ -3236,6 +3276,12 @@ static void draw_catalog() {
             case CATSECT_EXT_MISC: subcat = ext_misc_cat; subcat_rows = MISC_CAT_ROWS; break;
             case CATSECT_EXT_0_CMP: subcat = ext_0_cmp_cat; subcat_rows = 1; break;
             case CATSECT_EXT_X_CMP: subcat = ext_x_cmp_cat; subcat_rows = 1; break;
+#ifdef PX42
+            default:
+                subcat = px_cat_tabs[catsect - CATSECT_PX_TAB].cmds;
+                subcat_rows = px_cat_tabs[catsect - CATSECT_PX_TAB].rows;
+                break;
+#endif
         }
 
         int desired_row = catalogmenu_row[catindex];
@@ -3881,7 +3927,7 @@ void show() {
                 try {
                     int maxlen = disp_r * disp_c;
                     std::string s;
-                    full_list_to_string(rx, &s, maxlen + 2);
+                    full_list_to_string_cpp(rx, &s, maxlen + 2);
                     s.erase(s.length() - 1);
                     if (s.length() > maxlen) {
                         s.erase(maxlen - 1);
@@ -4593,33 +4639,31 @@ void redisplay(int mode) {
             display_level(space - r, r);
     } else {
         do_run_mode:
-        bool lastx_shown = false;
-        if (mode_lastx_top) {
-            int lastx_line = HEADER_ROWS;
-            if (lastx_line >= headers && available > 1) {
-                display_level(-1, lastx_line);
-                headers++;
-                available--;
-                lastx_shown = true;
-            }
-        }
-        if (mode_alpha_top) {
-            int alpha_line = HEADER_ROWS;
-            if (lastx_shown)
-                alpha_line++;
-            if (alpha_line >= headers && available > 1) {
-                clear_row(alpha_line);
-                draw_string(0, alpha_line, "\205\200\"", 3);
-                int len = reg_alpha_length;
-                bool ellipsis = false;
-                if (len > disp_c - 4) {
-                    len = disp_c - 4;
-                    ellipsis = true;
+        for (int i = 0; i < 2; i++) {
+            if (i == 0 ? mode_ltop_atop == TOP_L || mode_ltop_atop == TOP_LA : mode_ltop_atop == TOP_AL) {
+                int lastx_line = HEADER_ROWS + i;
+                if (lastx_line >= headers && available > 1) {
+                    display_level(-1, lastx_line);
+                    headers++;
+                    available--;
                 }
-                draw_string(3, alpha_line, reg_alpha, len);
-                draw_char(len + 3, alpha_line, ellipsis ? 26 : '"');
-                headers++;
-                available--;
+            }
+            if (i == 0 ? mode_ltop_atop == TOP_A || mode_ltop_atop == TOP_AL : mode_ltop_atop == TOP_LA) {
+                int alpha_line = HEADER_ROWS + i;
+                if (alpha_line >= headers && available > 1) {
+                    clear_row(alpha_line);
+                    draw_string(0, alpha_line, "\205\200\"", 3);
+                    int len = reg_alpha_length;
+                    bool ellipsis = false;
+                    if (len > disp_c - 4) {
+                        len = disp_c - 4;
+                        ellipsis = true;
+                    }
+                    draw_string(3, alpha_line, reg_alpha, len);
+                    draw_char(len + 3, alpha_line, ellipsis ? 26 : '"');
+                    headers++;
+                    available--;
+                }
             }
         }
         int space = disp_r - headers - footers;
@@ -5162,6 +5206,10 @@ void set_catalog_menu(int section) {
     set_cat_section(section);
     if (section >= CATSECT_UNITS_1 && section <= CATSECT_UNITS_VISC)
         return;
+#ifdef PX42
+    if (section == CATSECT_PX || PX_CAT_TAB(section))
+        return;
+#endif
     switch (section) {
         case CATSECT_TOP:
         case CATSECT_FCN:
@@ -5350,6 +5398,10 @@ void update_catalog() {
     if (*the_menu != MENU_CATALOG)
         return;
     int section = get_cat_section();
+#ifdef PX42
+    if (section == CATSECT_PX || PX_CAT_TAB(section))
+        return;
+#endif
     switch (section) {
         case CATSECT_TOP:
         case CATSECT_FCN:

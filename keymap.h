@@ -17,6 +17,7 @@
 #define HPK_SWAP 14
 #define HPK_CHS  15
 #define HPK_E    16
+#define HPK_ENTER 13 /* SHIFT then ENTER: ALPHA */
 #define HPK_UP   18
 #define HPK_7    19
 #define HPK_8    20
@@ -54,16 +55,15 @@ static const int key_matrix[KB_ROWS][KB_COLS] = {
 
 /* The characters printed on the keys: what they type in ALPHA in the
  * DM42's [a] and [A] modes (alphakeys.h says when). 0 keeps the key's
- * meaning: most of column 0 -- ENTER, BSP, SHIFT, EXIT -- is needed while
- * typing too. The arrows type '=' and '$' only while the ALPHA menu is
- * hidden. Also the letters the settings menu types (free42_alpha_char()). */
+ * meaning: column 0 -- ENTER, BSP, the arrows, SHIFT, EXIT -- is needed
+ * while typing too (the arrows page the ALPHA menu). Also the letters the settings menu types (free42_alpha_char()). */
 static const char alpha_key_matrix[KB_ROWS][KB_COLS] = {
         /*      C0   C1   C2   C3   C4 */
         /*R0*/ { 'A', 'B', 'C', 'D', 'E' },
         /*R1*/ { 'G', 'H', 'I', 'J', 'K' },
         /*R2*/ {   0, 'M', 'N', 'O',   0 },
-        /*R3*/ { '=', 'P', 'Q', 'R', 'S' },
-        /*R4*/ { '$', 'T', 'U', 'V', 'W' },
+        /*R3*/ {   0, 'P', 'Q', 'R', 'S' },
+        /*R4*/ {   0, 'T', 'U', 'V', 'W' },
         /*R5*/ {   0, 'X', 'Y', 'Z', '_' },
         /*R6*/ {   0, ':', ',', '?', ' ' },
         /*R7*/ { 'F', 'L',   0,   0,   0 },

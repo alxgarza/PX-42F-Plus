@@ -51,24 +51,29 @@ int main(void) {
     CORE(HPK_RUN, state(LO, true, ALPHA_MENU_NONE), true);
     CORE(1, state(UP, false, ALPHA_MENU_NONE), false);
 
-    /* [ ]: the HP-42S's keys; SHIFT R/S is the next mode. */
+    /* [ ]: the HP-42S's keys; ALPHA (SHIFT ENTER) is the next mode, in
+     * every mode, and SHIFT R/S is the HP-42S's again (PRGM). */
     CORE(HPK_STO, state(HP, false, ALPHA_MENU_PAGE1), false);
     CORE(HPK_UP, state(HP, true, ALPHA_MENU_PAGE1), true);
     CORE(1, state(HP, false, ALPHA_MENU_PAGE1), false);
-    NEXT_MODE(HPK_RUN, state(HP, true, ALPHA_MENU_PAGE1));
-    NEXT_MODE(HPK_RUN, state(LO, true, ALPHA_MENU_GROUP));
+    CORE(HPK_RUN, state(HP, true, ALPHA_MENU_PAGE1), true);
+    CORE(HPK_ENTER, state(HP, false, ALPHA_MENU_PAGE1), false);
+    NEXT_MODE(HPK_ENTER, state(HP, true, ALPHA_MENU_PAGE1));
+    NEXT_MODE(HPK_ENTER, state(LO, true, ALPHA_MENU_GROUP));
+    NEXT_MODE(HPK_ENTER, state(UP, true, ALPHA_MENU_PAGE1));
+    CORE(HPK_ENTER, state(LO, true, ALPHA_MENU_NONE), true); /* outside ALPHA: ALPHA itself */
 
     /* [a] / [A], the first page hidden: the printed characters. */
     alpha_state_t lo = state(LO, false, ALPHA_MENU_PAGE1), up = state(UP, false, ALPHA_MENU_PAGE1);
     CHAR(1, lo, 'a');
     CHAR(1, up, 'A');
     CHAR(6, lo, 'f'); /* XEQ */
-    CHAR(HPK_UP, lo, '=');
-    CHAR(HPK_DOWN, up, '$');
+    CORE(HPK_UP, lo, false);   /* the arrows page the hidden menu */
+    CORE(HPK_DOWN, up, false);
     CHAR(HPK_DOT, lo, ',');
     CHAR(HPK_RUN, lo, '?');
     CHAR(HPK_0, up, ':');
-    CORE(13, lo, false); /* ENTER */
+    CORE(HPK_ENTER, lo, false);
     CORE(17, lo, false); /* BSP */
 
     /* SHIFT: digits, symbols, ASTO / ARCL; the arrows page the shown menu. */
@@ -85,6 +90,7 @@ int main(void) {
     CHAR(HPK_CHS, up_s, '>');
     CHAR(HPK_E, up_s, '^');
     CHAR(HPK_8, lo_s, '8'); /* its digit, not Q */
+    CHAR(HPK_RUN, up_s, '?');
     CORE(HPK_STO, lo_s, false);
     CORE(HPK_RCL, up_s, false);
     CORE(HPK_UP, lo_s, false);

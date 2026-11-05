@@ -1,4 +1,6 @@
 #include "rtc.h"
+#include "timemodule.h"
+#include "stopwatch.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -21,40 +23,6 @@
 
 #define MS_PER_DAY (86400ull * 1000ull)
 
-/* Days since 1970-01-01 for a Gregorian date, and back. Algorithms from
- * Howard Hinnant's "chrono-Compatible Low-Level Date Algorithms": they
- * work in 400-year eras (146097 days each), which builds the full leap
- * rule in -- every 4th year, except centuries, except every 400th. */
-static int64_t days_from_civil(int y, int m, int d) {
-    y -= m <= 2;
-    int64_t era = (y >= 0 ? y : y - 399) / 400;
-    int yoe = (int) (y - era * 400);                               /* 0-399 */
-    int doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;      /* 0-365, counted from March 1 */
-    int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;               /* 0-146096 */
-    return era * 146097 + doe - 719468;
-}
-
-static void civil_from_days(int64_t z, int *y, int *m, int *d) {
-    z += 719468;
-    int64_t era = (z >= 0 ? z : z - 146096) / 146097;
-    int doe = (int) (z - era * 146097);
-    int yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    int doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    int mp = (5 * doy + 2) / 153;
-    *d = doy - (153 * mp + 2) / 5 + 1;
-    *m = mp < 10 ? mp + 3 : mp - 9;
-    *y = (int) (yoe + era * 400) + (*m <= 2);
-}
-
-static bool is_leap_year(int y) {
-    return y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
-}
-
-static int days_in_month(int y, int m) {
-    static const int days[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    return m == 2 && is_leap_year(y) ? 29 : days[m - 1];
-}
-
 /* A rate in Hz with the trim applied: telling the clock its source runs
  * a little slower than it does makes it count faster, and vice versa. */
 static uint32_t trimmed(uint32_t hz) {
@@ -76,23 +44,18 @@ void rtc_clock_init(void) {
      * reset can leave it running with the correct time -- only start it
      * over from the default after an actual power-on. */
     if (!powman_timer_is_running()) {
-        powman_timer_set_ms((uint64_t) days_from_civil(RTC_DEFAULT_YEAR, RTC_DEFAULT_MONTH, RTC_DEFAULT_DAY) * MS_PER_DAY
+        powman_timer_set_ms((uint64_t) time_days_from_civil(RTC_DEFAULT_YEAR, RTC_DEFAULT_MONTH, RTC_DEFAULT_DAY) * MS_PER_DAY
                             + ((uint64_t) RTC_DEFAULT_HOUR * 3600 + RTC_DEFAULT_MINUTE * 60) * 1000);
         powman_timer_start();
     }
 }
 
-void rtc_get_datetime(rtc_datetime_t *dt) {
-    uint64_t now = powman_timer_get_ms();
-    int64_t days = (int64_t) (now / MS_PER_DAY);
-    uint32_t ms_of_day = (uint32_t) (now % MS_PER_DAY);
+uint64_t rtc_now_ms(void) {
+    return powman_timer_get_ms();
+}
 
-    civil_from_days(days, &dt->year, &dt->month, &dt->day);
-    dt->hour = (int) (ms_of_day / 3600000);
-    dt->min = (int) (ms_of_day / 60000 % 60);
-    dt->sec = (int) (ms_of_day / 1000 % 60);
-    dt->ms = (int) (ms_of_day % 1000);
-    dt->weekday = (int) ((days + 4) % 7); /* 1970-01-01 was a Thursday */
+void rtc_get_datetime(rtc_datetime_t *dt) {
+    time_ms_to_datetime(powman_timer_get_ms(), dt);
 }
 
 void rtc_get_hms(int *hour, int *min, int *sec) {
@@ -125,21 +88,49 @@ static void note_time_set(uint64_t old_ms, uint64_t new_ms) {
     settings_save_later();
 }
 
-void rtc_set_hms(int hour, int min, int sec) {
+void rtc_set_ms_of_day(uint32_t ms) {
     uint64_t old_ms = powman_timer_get_ms();
-    uint64_t days = old_ms / MS_PER_DAY;
-    uint64_t ms_of_day = ((uint64_t) hour * 3600 + (uint64_t) min * 60 + (uint64_t) sec) * 1000;
-    uint64_t new_ms = days * MS_PER_DAY + ms_of_day;
+    uint64_t new_ms = old_ms / MS_PER_DAY * MS_PER_DAY + ms;
     powman_timer_set_ms(new_ms);
+    stopwatch_clock_moved((int64_t) (new_ms - old_ms));
     note_time_set(old_ms, new_ms);
 }
 
+void rtc_set_hms(int hour, int min, int sec) {
+    rtc_set_ms_of_day((uint32_t) (hour * 3600 + min * 60 + sec) * 1000);
+}
+
+bool rtc_add_ms(int64_t ms) {
+    uint64_t old_ms = powman_timer_get_ms();
+    if (ms < 0 && (uint64_t) -ms > old_ms)
+        return false;
+    powman_timer_set_ms(old_ms + (uint64_t) ms);
+    stopwatch_clock_moved(ms);
+    if (px_settings.cal_ref_ms != 0) {
+        px_settings.cal_ref_ms += (uint64_t) ms;
+        settings_save_later();
+    }
+    return true;
+}
+
+void rtc_set_trim(int tenths) {
+    px_settings.time_trim = (int16_t) (tenths > 9999 ? 9999 : tenths < -9999 ? -9999 : tenths);
+    rtc_apply_trim();
+}
+
+void rtc_measure_from_now(void) {
+    px_settings.cal_ref_ms = powman_timer_get_ms();
+    px_settings.cal_span_h = 0;
+    settings_save_later();
+}
+
 bool rtc_set_date(int year, int month, int day) {
-    if (year < 1970 || month < 1 || month > 12 || day < 1 || day > days_in_month(year, month))
+    if (year < 1970 || month < 1 || month > 12 || day < 1 || day > time_days_in_month(year, month))
         return false;
     uint64_t old_ms = powman_timer_get_ms();
-    uint64_t new_ms = (uint64_t) days_from_civil(year, month, day) * MS_PER_DAY + old_ms % MS_PER_DAY;
+    uint64_t new_ms = (uint64_t) time_days_from_civil(year, month, day) * MS_PER_DAY + old_ms % MS_PER_DAY;
     powman_timer_set_ms(new_ms);
+    stopwatch_clock_moved((int64_t) (new_ms - old_ms));
     /* Whole days moved: the calibration reference moves with them. */
     if (px_settings.cal_ref_ms != 0 && new_ms != old_ms) {
         px_settings.cal_ref_ms += new_ms - old_ms;

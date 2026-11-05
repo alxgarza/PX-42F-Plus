@@ -14,6 +14,14 @@ extern "C" {
  * from the drive (fonts.h) can't break it. (x, y) is its top left. */
 void icon_battery(uint8_t x, uint8_t y, int level);
 
+/* A bell, 8 x 10, the same way: alarms are set (alarms.h). */
+void icon_bell(uint8_t x, uint8_t y);
+
+/* Plus42's and the HP-42S's print annunciator, in the same 10 rows, the same way:
+ * sending to the printer. */
+#define ICON_PRINTER_W 21
+void icon_printer(uint8_t x, uint8_t y);
+
 #ifdef __cplusplus
 }
 #endif

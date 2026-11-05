@@ -16,6 +16,8 @@
 #include "keyboard.h"
 #include "rtc.h"
 #include "settings.h"
+#include "alarms.h"
+#include "timemodule.h"
 #include "speaker.h"
 #include "statefs.h"
 #include "flashdisk.h"
@@ -40,7 +42,7 @@
 /* The Plus42 release src/core was taken from (plus42-upstream/HISTORY),
  * and the Intel Decimal Floating-Point Math Library it computes with
  * (third_party/IntelRDFPMathLib20U1). */
-#define PLUS42_VERSION  "1.5.1"
+#define PLUS42_VERSION  "1.5.2"
 #define INTEL_LIB_VERSION "2.0 Update 1"
 
 /* HP-42S key codes, as free42_key_code() returns them. */
@@ -592,12 +594,7 @@ static void cal_value(int item, char *buf, size_t size) {
 }
 
 static void set_trim(int tenths) {
-    if (tenths > 9999)
-        tenths = 9999;
-    if (tenths < -9999)
-        tenths = -9999;
-    px_settings.time_trim = (int16_t) tenths;
-    rtc_apply_trim();
+    rtc_set_trim(tenths);
     settings_save();
 }
 
@@ -892,8 +889,8 @@ static const char *const printer_names[] = {
 
 /* Indexed by screen_print_t. */
 static const char *const screen_print_names[] = {
-        "Upright",
-        "As It Is",
+        "Portrait",
+        "Landscape",
 };
 
 static edit_result_t do_printer(void) {
@@ -906,7 +903,7 @@ static edit_result_t do_printer(void) {
 
     px_settings.printer = (uint8_t) pick;
     settings_save();
-    /* Choosing a printer also turns Free42's printer on (PRON, flag 55),
+    /* Choosing a printer also turns Free42's printer on (PRON, flags 21, 55),
      * Off turns it off -- so the print commands just work. */
     free42_set_printer(pick != PRINTER_OFF);
 
@@ -1004,6 +1001,8 @@ enum {
     SOUND_KEY,
     SOUND_ON,
     SOUND_OFF,
+    SOUND_ERROR,
+    SOUND_QUIET,
     SOUND_COUNT
 };
 
@@ -1011,6 +1010,8 @@ static const char *const sound_items[SOUND_COUNT] = {
         "Key Sound",
         "On Sound",
         "Off Sound",
+        "Calc Error Sound",
+        "Silence Plus42",
 };
 
 static void sound_value(int item, char *buf, size_t size) {
@@ -1027,11 +1028,18 @@ static void sound_value(int item, char *buf, size_t size) {
         case SOUND_OFF:
             snprintf(buf, size, "%s", px_settings.off_sound ? "On" : "Off");
             break;
+        case SOUND_ERROR:
+            snprintf(buf, size, "%s", px_settings.error_sound ? "On" : "Off");
+            break;
+        case SOUND_QUIET:
+            snprintf(buf, size, "%s", free42_quiet() ? "On" : "Off");
+            break;
     }
 }
 
-/* All the sound settings. On and Off Sound toggle with ENTER, playing the
- * sound when turned on; the files are in /SOUNDS on the drive. The boot
+/* All the sound settings. On, Off and Calc Error Sound toggle with ENTER,
+ * playing the sound when turned on; the files are in /SOUNDS on the drive.
+ * Silence Plus42 is Plus42's own flag 26, not saved with these. The boot
  * sound has no setting: it always plays (its file can be replaced). */
 static edit_result_t do_sounds(void) {
     static int selected = 0;
@@ -1055,6 +1063,14 @@ static edit_result_t do_sounds(void) {
                 px_settings.off_sound = !px_settings.off_sound;
                 if (px_settings.off_sound)
                     sounds_play_off();
+                break;
+            case SOUND_ERROR:
+                px_settings.error_sound = !px_settings.error_sound;
+                if (px_settings.error_sound)
+                    error_beep();
+                break;
+            case SOUND_QUIET:
+                free42_set_quiet(!free42_quiet());
                 break;
         }
     }
@@ -1210,6 +1226,171 @@ static edit_result_t do_delete_state(void) {
     bool ok = statefs_delete_state(name);
     snprintf(line, sizeof(line), ok ? "Deleted %s" : "Could not delete %s", name);
     return show_result("Delete State", ok, line);
+}
+
+/* ===================== alarms ===================== */
+
+/* The HP-42S's characters as this font shows them: only code 0 can't go in a
+ * C string. */
+static void alarm_text(char *buf, size_t size, const alarm_t *a) {
+    size_t n = (size_t) a->length < size - 1 ? (size_t) a->length : size - 1;
+    for (size_t i = 0; i < n; i++)
+        buf[i] = a->text[i] == 0 ? '?' : a->text[i];
+    buf[n] = 0;
+}
+
+static void alarm_when(char *buf, size_t size, const alarm_t *a) {
+    rtc_datetime_t when;
+    char date[16], time[12];
+    time_ms_to_datetime(a->at_ms, &when);
+    rtc_format_date(date, sizeof(date), &when);
+    rtc_format_time(time, sizeof(time), &when, true);
+    snprintf(buf, size, "%s %s", date, time);
+}
+
+static void alarm_sound_shown(char *buf, size_t size, const alarm_t *a) {
+    if (a->sound == ALARM_SOUND_PLUS42)
+        snprintf(buf, size, "Plus42");
+    else if (strlen(a->sound_name) <= 13)
+        snprintf(buf, size, "%s", a->sound_name);
+    else
+        snprintf(buf, size, "%.11s..", a->sound_name);
+}
+
+#define ALARM_SOUND_CHOICES 64
+
+static int alarm_sound_chosen;
+
+static void alarm_sound_mark(int item, char *buf, size_t size) {
+    snprintf(buf, size, "%s", item == alarm_sound_chosen ? "<" : "");
+}
+
+/* Plus42's tones, the WAVs in /SOUNDS, the songs in /MIDI. As with Key Sound,
+ * ENTER chooses and plays, staying in the list; one that can't play isn't
+ * chosen. */
+static edit_result_t do_alarm_sound(int alarm) {
+    char files[ALARM_SOUND_CHOICES][ALARM_SOUND_NAME_MAX + 1];
+    char shown[ALARM_SOUND_CHOICES + 1][ALARM_SOUND_NAME_MAX + 5];
+    const char *rows[ALARM_SOUND_CHOICES + 1];
+    int wavs = statefs_list_files(SOUNDS_DIR, ".wav", (char *) files, ALARM_SOUND_NAME_MAX + 1, ALARM_SOUND_CHOICES);
+    int songs = statefs_list_files(MIDI_DIR, ".mid", (char *) files[wavs], ALARM_SOUND_NAME_MAX + 1,
+                                   ALARM_SOUND_CHOICES - wavs);
+    const alarm_t *a = alarms_get(alarm);
+    alarm_sound_chosen = 0;
+    strcpy(shown[0], "Plus42 tones");
+    rows[0] = shown[0];
+    for (int i = 0; i < wavs + songs; i++) {
+        alarm_sound_t kind = i < wavs ? ALARM_SOUND_WAV : ALARM_SOUND_MIDI;
+        snprintf(shown[i + 1], sizeof(shown[i + 1]), "%s%s", files[i], i < wavs ? ".wav" : ".mid");
+        rows[i + 1] = shown[i + 1];
+        if (a->sound == kind && strcmp(a->sound_name, files[i]) == 0)
+            alarm_sound_chosen = i + 1;
+    }
+    int selected = alarm_sound_chosen;
+    while (true) {
+        int pick = run_list("Alarm Sound", rows, wavs + songs + 1, alarm_sound_mark, &selected,
+                            "Enter:Choose+Play  Exit:Back");
+        if (pick == LIST_POWER_OFF || pick == LIST_BACK) {
+            sounds_stop();
+            return pick == LIST_POWER_OFF ? EDIT_POWER_OFF : EDIT_OK;
+        }
+        if (pick == 0) {
+            alarms_set_sound(alarm, ALARM_SOUND_PLUS42, "");
+            sounds_play_tone(8, true);
+            sounds_play_tone(9, false);
+            alarm_sound_chosen = 0;
+            continue;
+        }
+        alarm_sound_t kind = pick - 1 < wavs ? ALARM_SOUND_WAV : ALARM_SOUND_MIDI;
+        alarm_t candidate = *a;
+        candidate.sound = (uint8_t) kind;
+        snprintf(candidate.sound_name, sizeof(candidate.sound_name), "%s", files[pick - 1]);
+        char path[ALARM_SOUND_PATH_MAX];
+        if (alarm_sound_path(&candidate, path, sizeof(path))
+            && (kind == ALARM_SOUND_WAV ? sounds_play_file(path, false) : sounds_midi_play(path) == 0)) {
+            alarms_set_sound(alarm, kind, files[pick - 1]);
+            alarm_sound_chosen = pick;
+        } else {
+            const char *lines[] = {rows[pick], "can't be played."};
+            if (show_message("Alarm Sound", lines, 2, "Exit:Back") == EDIT_POWER_OFF)
+                return EDIT_POWER_OFF;
+        }
+    }
+}
+
+static const alarm_t *alarm_opened;
+static int alarm_opened_sound_row;
+
+static void alarm_row_value(int item, char *buf, size_t size) {
+    if (item == alarm_opened_sound_row)
+        alarm_sound_shown(buf, size, alarm_opened);
+    else
+        buf[0] = 0;
+}
+
+/* The list set by XYZALM, earliest first; ! = past due. */
+static edit_result_t do_alarms(void) {
+    static char rows[ALARMS_MAX][48];
+    static const char *names[ALARMS_MAX];
+    int selected = 0;
+    while (true) {
+        int count = alarms_count();
+        if (count == 0) {
+            const char *const lines[] = {"No alarms set.", "", "XYZALM sets them."};
+            edit_result_t r = show_message("Alarms", lines, 3, "Exit:Back");
+            return r == EDIT_POWER_OFF ? r : EDIT_OK;
+        }
+        for (int i = 0; i < count; i++) {
+            const alarm_t *a = alarms_get(i);
+            char when[32], text[ALARM_TEXT_MAX + 1];
+            alarm_when(when, sizeof(when), a);
+            alarm_text(text, sizeof(text), a);
+            snprintf(rows[i], sizeof(rows[i]), "%s%s %s", a->past_due ? "!" : "", when, text);
+            names[i] = rows[i];
+        }
+        int pick = run_list("Alarms", names, count, NULL, &selected, "Enter:Open  Exit:Back");
+        if (pick == LIST_POWER_OFF)
+            return EDIT_POWER_OFF;
+        if (pick == LIST_BACK)
+            return EDIT_OK;
+
+        const alarm_t *a = alarms_get(pick);
+        char when[32], text[ALARM_TEXT_MAX + 1], repeat[40];
+        alarm_when(when, sizeof(when), a);
+        alarm_text(text, sizeof(text), a);
+        const char *state = a->past_due ? ", past due" : "";
+        if (a->repeat_ms == 0)
+            snprintf(repeat, sizeof(repeat), "Once%s", state);
+        else
+            snprintf(repeat, sizeof(repeat), "Every %d:%02d:%02d%s", (int) (a->repeat_ms / 3600000),
+                     (int) (a->repeat_ms / 60000 % 60), (int) (a->repeat_ms / 1000 % 60), state);
+
+        /* A control alarm only runs its program: it never sounds. */
+        bool sounds = alarm_kind(a) != ALARM_CONTROL;
+        const char *rows_open[5] = {when, repeat, text};
+        int count_open = 3;
+        alarm_opened = a;
+        alarm_opened_sound_row = sounds ? count_open : -1;
+        if (sounds)
+            rows_open[count_open++] = "Sound";
+        int delete_row = count_open;
+        rows_open[count_open++] = "Delete";
+        int row = sounds ? alarm_opened_sound_row : delete_row;
+        while (true) {
+            int choice = run_list("Alarm", rows_open, count_open, alarm_row_value, &row,
+                                  "Enter:Select  Exit:Back");
+            if (choice == LIST_POWER_OFF)
+                return EDIT_POWER_OFF;
+            if (choice == LIST_BACK)
+                break;
+            if (choice == delete_row) {
+                alarms_remove(pick);
+                break;
+            }
+            if (choice == alarm_opened_sound_row && do_alarm_sound(pick) == EDIT_POWER_OFF)
+                return EDIT_POWER_OFF;
+        }
+    }
 }
 
 /* Connect to Computer -- like the DM42's USB disk mode: the computer gets
@@ -1783,6 +1964,7 @@ enum {
     ITEM_OFF,
     ITEM_APPS,
     ITEM_DATE_TIME,
+    ITEM_ALARMS,
     ITEM_SOUNDS,
     ITEM_FONTS,
     ITEM_SLEEP,
@@ -1799,6 +1981,7 @@ static const char *const item_names[ITEM_COUNT] = {
         "Off",
         "Games & Apps",
         "Date & Time",
+        "Alarms",
         "Sounds",
         "Fonts",
         "Sleep Timer",
@@ -1862,6 +2045,9 @@ settings_menu_result_t settings_menu_run(void) {
                 break;
             case ITEM_DATE_TIME:
                 r = do_date_time();
+                break;
+            case ITEM_ALARMS:
+                r = do_alarms();
                 break;
             case ITEM_SOUNDS:
                 r = do_sounds();

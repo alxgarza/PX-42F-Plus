@@ -49,6 +49,20 @@ void rtc_format_stamp(char *buf, size_t size, const rtc_datetime_t *dt) {
     snprintf(buf, size, "%04d%02d%02d-%02d%02d%02d", dt->year, dt->month, dt->day, dt->hour, dt->min, dt->sec);
 }
 
+void rtc_format_clock(char *buf, size_t size, const rtc_datetime_t *dt, bool with_date) {
+    if (with_date) {
+        char time[12], date[16];
+        rtc_format_time(time, sizeof(time), dt, false);
+        rtc_format_day_month(date, sizeof(date), dt);
+        snprintf(buf, size, "%s %s", time, date);
+    } else if (px_settings.clock_24h) {
+        snprintf(buf, size, "%02d:%02d:%02d", dt->hour, dt->min, dt->sec);
+    } else {
+        snprintf(buf, size, "%d:%02d:%02d %s", dt->hour % 12 == 0 ? 12 : dt->hour % 12, dt->min, dt->sec,
+                 dt->hour >= 12 ? "PM" : "AM");
+    }
+}
+
 void rtc_format_time(char *buf, size_t size, const rtc_datetime_t *dt, bool compact) {
     if (px_settings.clock_24h) {
         snprintf(buf, size, "%02d:%02d", dt->hour, dt->min);

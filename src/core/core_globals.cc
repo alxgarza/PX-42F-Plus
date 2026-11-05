@@ -620,7 +620,11 @@ const menu_spec menus[] = {
                       { { 0x1000 + CMD_SC,  0, ""      },
                         { 0x1000 + CMD_CC,  0, ""      },
                         { 0x1000 + CMD_C_T, 0, ""      },
+#ifdef NO_BASE_FLOAT
+                        { 0x1000 + CMD_NULL, 0, ""     },
+#else
                         { MENU_BASE_FLOAT1, 5, "FLOAT" },
+#endif
                         { MENU_BASE_MODES,  5, "MODES" },
                         { MENU_BASE_DISP,   4, "DISP"  } } },
     { /* MENU_BASE_A_THRU_F */ MENU_BASE1, MENU_NONE, MENU_NONE,
@@ -637,20 +641,27 @@ const menu_spec menus[] = {
                         { 0x1000 + CMD_NOT,   0, "" },
                         { 0x1000 + CMD_BIT_T, 0, "" },
                         { 0x1000 + CMD_ROTXY, 0, "" } } },
-    { /* MENU_BASE_FLOAT1 */ MENU_BASE5, MENU_BASE_FLOAT2, MENU_BASE_FLOAT2,
+    { /* MENU_BASE_FLOAT1 */ MENU_BASE5, MENU_BASE_FLOAT2, MENU_BASE_FLOAT3,
                       { { 0x1000 + CMD_N_TO_BS, 0, "" },
                         { 0x1000 + CMD_BS_TO_N, 0, "" },
                         { 0x1000 + CMD_N_TO_BD, 0, "" },
                         { 0x1000 + CMD_BD_TO_N, 0, "" },
                         { 0x1000 + CMD_N_TO_BQ, 0, "" },
                         { 0x1000 + CMD_BQ_TO_N, 0, "" } } },
-    { /* MENU_BASE_FLOAT2 */ MENU_BASE5, MENU_BASE_FLOAT1, MENU_BASE_FLOAT1,
+    { /* MENU_BASE_FLOAT2 */ MENU_BASE5, MENU_BASE_FLOAT3, MENU_BASE_FLOAT1,
                       { { 0x1000 + CMD_N_TO_DS, 0, "" },
                         { 0x1000 + CMD_DS_TO_N, 0, "" },
                         { 0x1000 + CMD_N_TO_DD, 0, "" },
                         { 0x1000 + CMD_DD_TO_N, 0, "" },
                         { 0x1000 + CMD_N_TO_DQ, 0, "" },
                         { 0x1000 + CMD_DQ_TO_N, 0, "" } } },
+    { /* MENU_BASE_FLOAT3 */ MENU_BASE5, MENU_BASE_FLOAT1, MENU_BASE_FLOAT2,
+                      { { 0x1000 + CMD_N_TO_PS, 0, "" },
+                        { 0x1000 + CMD_PS_TO_N, 0, "" },
+                        { 0x1000 + CMD_N_TO_PD, 0, "" },
+                        { 0x1000 + CMD_PD_TO_N, 0, "" },
+                        { 0x1000 + CMD_N_TO_PQ, 0, "" },
+                        { 0x1000 + CMD_PQ_TO_N, 0, "" } } },
     { /* MENU_BASE_MODES */ MENU_BASE5, MENU_NONE, MENU_NONE,
                       { { 0x1000 + CMD_WSIZE,   0, "" },
                         { 0x1000 + CMD_WSIZE_T, 0, "" },
@@ -1052,8 +1063,7 @@ int mode_plot_sp;
 vartype *mode_plot_inv;
 int mode_plot_result_width;
 bool mode_multi_line;
-bool mode_lastx_top;
-bool mode_alpha_top;
+char mode_ltop_atop;
 bool mode_header_flags;
 bool mode_header_polar;
 bool mode_matedit_stk;
@@ -1202,8 +1212,10 @@ bool no_keystrokes_yet;
  * Version 55: 1.4    Error trapping
  * Version 56: 1.4    Error trapping: stack trace
  * Version 57: 1.5    Shifted CUSTOM & prog menu assignments
+ * Version 58: 1.5.2  Added third row to BASE->FLOAT menu
+ * Version 59: 1.5.2  User-controllable LTOP/ATOP order
  */
-#define PLUS42_VERSION 57
+#define PLUS42_VERSION 59
 
 
 /*******************/
@@ -2166,9 +2178,7 @@ static bool persist_globals() {
         goto done;
     if (!write_bool(mode_multi_line))
         goto done;
-    if (!write_bool(mode_lastx_top))
-        goto done;
-    if (!write_bool(mode_alpha_top))
+    if (!write_char(mode_ltop_atop))
         goto done;
     if (!write_bool(mode_header_flags))
         goto done;
@@ -2516,22 +2526,31 @@ static bool unpersist_globals() {
         mode_multi_line = true;
     }
 
-    if (ver >= 29) {
-        if (!read_bool(&mode_lastx_top)) {
-            mode_lastx_top = false;
+    if (ver >= 59) {
+        if (!read_char(&mode_ltop_atop)) {
+            mode_ltop_atop = TOP_NONE;
             goto done;
         }
     } else {
-        mode_lastx_top = false;
-    }
+        bool ltop, atop;
+        if (ver >= 29) {
+            if (!read_bool(&ltop)) {
+                mode_ltop_atop = TOP_NONE;
+                goto done;
+            }
+        } else {
+            ltop = false;
+        }
 
-    if (ver >= 30) {
-        if (!read_bool(&mode_alpha_top)) {
-            mode_alpha_top = false;
-            goto done;
+        if (ver >= 30) {
+            if (!read_bool(&atop)) {
+                mode_ltop_atop = TOP_NONE;
+                goto done;
+            }
+        } else {
+            atop = false;
         }
-    } else {
-        mode_alpha_top = false;
+        mode_ltop_atop = ltop ? atop ? TOP_LA : TOP_L : atop ? TOP_A : TOP_NONE;
     }
 
     if (ver >= 31) {
@@ -5823,6 +5842,9 @@ static bool load_state2(bool *clear, bool *too_new) {
     if (ver < 54)
         // inserted MENU_MODES_MENUS
         menu_adjust(28, INT_MAX, 1);
+    if (ver < 58)
+        // inserted MENU_BASE_FLOAT3
+        menu_adjust(78, INT_MAX, 1);
     if (!read_bool(&mode_running)) return false;
     if (ver < 28)
         mode_caller_stack_lift_disabled = false;
@@ -6301,11 +6323,10 @@ void hard_reset(int reason) {
     mode_plot_inv = NULL;
     mode_plot_result_width = 0;
     mode_multi_line = true;
-    mode_lastx_top = false;
 #ifdef PX42
-    mode_alpha_top = true; /* ALPHA on top, as on the PX-42F */
+    mode_ltop_atop = TOP_A; /* ALPHA on top, as on the PX-42F */
 #else
-    mode_alpha_top = false;
+    mode_ltop_atop = TOP_NONE;
 #endif
     mode_header_flags = false;
     mode_header_polar = false;

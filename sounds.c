@@ -192,6 +192,10 @@ static bool midi_loaded; /* midi_player holds a song */
 
 /* Stops the sound playing, and closes the last one's file -- left open
  * by a sound that ended by itself, until the next one or this. */
+/* The sound playing came from sounds_play_file(); every other sound goes
+ * through sounds_stop() first. */
+static bool file_asked;
+
 void sounds_stop(void) {
     speaker_stop();
     if (play_open) {
@@ -201,6 +205,7 @@ void sounds_stop(void) {
     free(midi_buf);
     midi_buf = NULL;
     midi_loaded = false;
+    file_asked = false;
 }
 
 bool sounds_playing(void) {
@@ -242,7 +247,10 @@ void sounds_play_off(void) {
 bool sounds_play_file(const char *path, bool wait) {
     sounds_stop();
     const char *error;
-    return open_file(&play_stream, path, UINT32_MAX, &error) && play_stream_now(wait);
+    if (!open_file(&play_stream, path, UINT32_MAX, &error))
+        return false;
+    file_asked = true;
+    return play_stream_now(wait);
 }
 
 void sounds_play_tone(int tone, bool wait) {
@@ -291,6 +299,10 @@ int sounds_midi_play(const char *path) {
     return 0;
 }
 
+bool sounds_file_playing(void) {
+    return (midi_loaded || file_asked) && speaker_busy();
+}
+
 bool sounds_midi_status(uint32_t *length_ms, uint32_t *elapsed_ms, uint32_t *channels, uint32_t *voices) {
     if (!midi_loaded || !speaker_busy())
         return false;
@@ -330,8 +342,8 @@ static uint32_t key_fill(void *ctx, uint16_t *buf, uint32_t max) {
 
 void sounds_key_play(key_sound_t kind) {
     static key_play_t k; /* core 0 reads it as it plays */
-    if (key_len[kind] == 0 || (midi_loaded && speaker_busy()))
-        return; /* a song in the settings menu plays through the keypresses */
+    if (key_len[kind] == 0 || sounds_file_playing())
+        return; /* a song or file someone asked for plays through the keypresses */
     sounds_stop();
     k = (key_play_t) {key_start[kind], key_start[kind] + key_len[kind]};
     speaker_start(key_fill, &k);

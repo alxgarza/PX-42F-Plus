@@ -17,6 +17,7 @@
 #include "fontsheet.h"
 #include "pngwrite.h"
 #include "appfile.h"
+#include "soundname.h"
 #include "midiplay.h"
 #include "speaker.h"
 #include "fonts/font_8x12.h"
@@ -682,7 +683,29 @@ static void test_midi(void) {
     }
 }
 
+static void test_sound_name(void) {
+    char p[64];
+#define NAME(s, slashes) sound_name_path(p, sizeof(p), "/MIDI", ".mid", slashes, s, (int) sizeof(s) - 1)
+    CHECK(NAME("Canon", false) && !strcmp(p, "/MIDI/Canon.mid"), "plain name: %s", p);
+    CHECK(NAME("TONES/TONE3", true) && !strcmp(p, "/MIDI/TONES/TONE3.mid"), "folder: %s", p);
+    CHECK(NAME("MY SONG 2", false) && !strcmp(p, "/MIDI/MY SONG 2.mid"), "spaces: %s", p);
+    CHECK(!NAME("", false), "empty ALPHA");
+    CHECK(!NAME("A/B", false), "a folder where there are none");
+    CHECK(!NAME("..", true), "..");
+    CHECK(!NAME("A/../B", true), "a .. inside");
+    CHECK(!NAME("A\\B", true), "backslash");
+    CHECK(!NAME("\x05", false), "an HP-42S symbol");
+    CHECK(!NAME("\x80", false), "above ASCII");
+    /* ALPHA isn't a C string: only len counts. */
+    CHECK(sound_name_path(p, sizeof(p), "/MIDI", ".mid", false, "AB\x05", 2) && !strcmp(p, "/MIDI/AB.mid"), "len: %s", p);
+    /* 44 characters, ALPHA's most, fit what docmd_playmid() gives. */
+    CHECK(NAME("12345678901234567890123456789012345678901234", false), "a full ALPHA");
+    CHECK(!sound_name_path(p, 8, "/MIDI", ".mid", false, "Canon", 5), "doesn't fit");
+#undef NAME
+}
+
 int main(int argc, char **argv) {
+    test_sound_name();
     signal(SIGALRM, on_alarm);
     test_png("images/splash.png", true);
     test_png("fonts/font_10x16.png", false);

@@ -31,11 +31,22 @@ typedef struct {
 
 void rtc_get_datetime(rtc_datetime_t *dt);
 
+/* The clock as it counts: ms since 1970. */
+uint64_t rtc_now_ms(void);
+
 /* Current time of day. hour is 0-23. */
 void rtc_get_hms(int *hour, int *min, int *sec);
 
 /* Sets the time of day, keeping the date. hour is 0-23. */
 void rtc_set_hms(int hour, int min, int sec);
+
+/* The same to the hundredth of a second (CORRECT): ms since midnight. */
+void rtc_set_ms_of_day(uint32_t ms);
+
+/* Moves the clock forward or back (T+X), into another day if it comes to that;
+ * not drift, so the calibration's reference moves with it. False (and changes
+ * nothing) if that's before 1970. */
+bool rtc_add_ms(int64_t ms);
 
 /* Sets the date, keeping the time of day. Returns false (and changes
  * nothing) if it isn't a real calendar date, e.g. Feb 29 in a non-leap
@@ -56,6 +67,10 @@ typedef enum { RTC_YMD, RTC_DMY, RTC_MDY, RTC_WMD } rtc_date_format_t;
 void rtc_format_date(char *buf, size_t size, const rtc_datetime_t *dt);
 void rtc_format_day_month(char *buf, size_t size, const rtc_datetime_t *dt);
 void rtc_format_time(char *buf, size_t size, const rtc_datetime_t *dt, bool compact);
+
+/* What CLOCK shows: "3:15:07 PM" or "15:15:07"; with the date, no seconds:
+ * "3:15 PM 01/21" or "15:15 01/21". */
+void rtc_format_clock(char *buf, size_t size, const rtc_datetime_t *dt, bool with_date);
 
 /* "20261009-154312": names made from the time (states, screenshots) sort
  * oldest first. */
@@ -81,6 +96,12 @@ bool rtc_set_measured(void);
 
 /* Applies px_settings.time_trim to the running clock (after changing it). */
 void rtc_apply_trim(void);
+
+/* Sets it, at most 999.9 s/day either way, and applies it. */
+void rtc_set_trim(int tenths);
+
+/* Measures the drift from now on: the rate has just changed (SETAF). */
+void rtc_measure_from_now(void);
 
 /* The low-power oscillator's rate at core voltage mv, with the trim
  * applied: the rate to give the clock for a power-off (at POWER_OFF_MV).

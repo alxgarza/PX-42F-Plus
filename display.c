@@ -166,7 +166,7 @@ void display_attach(void) {
  * update the splash's clock redraws only that, over the image still here.
  * The drawing into it is display_draw.c's. */
 uint8_t (*const display_fb)[DISPLAY_STRIDE] = (uint8_t (*)[DISPLAY_STRIDE]) RETAINED_DISPLAY_FB;
-_Static_assert(RETAINED_DISPLAY_FB + FB_SIZE <= RETAINED_RAMSTATE, "framebuffer overlaps the RAM state");
+_Static_assert(RETAINED_DISPLAY_FB + FB_SIZE <= RETAINED_NEXT_ALARM, "framebuffer overlaps the next alarm");
 
 /* The ST7305's "3 writes / 24 bit" GRAM format (see the Data Format Select
  * command in the init sequence) packs pixels into 2-column x 12-row tiles,

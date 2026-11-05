@@ -126,7 +126,7 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
   <p>The screen, its fonts, the settings menu, charging and firmware updates</p>
 </header>
 
-<p>The PX-42F-Plus runs Plus42, an enhanced HP-42S, on the PX-42F calculator. This manual covers what the calculator adds around Plus42: how the screen is laid out, which font is used when, and every option in the settings menu. For the calculator's functions themselves (the stack, programming, the solver, matrices, units, equations), see the Plus42 and HP-42S documentation.</p>
+<p>The PX-42F-Plus runs Plus42, an enhanced HP-42S, on the PX-42F calculator. This manual covers what the calculator adds around Plus42: how the screen is laid out, which font is used when, every option in the settings menu, and the <a href="#commands">commands it adds</a>. For the calculator's functions themselves (the stack, programming, the solver, matrices, units, equations), see the Plus42 and HP-42S documentation.</p>
 
 <nav class="toc">
   <h2>Contents</h2>
@@ -141,6 +141,7 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
     <li><a href="#back">The back of the calculator</a></li>
     <li><a href="#charging">Charging</a></li>
     <li><a href="#updating">Updating the firmware</a></li>
+    <li><a href="#commands">Added commands</a></li>
   </ol>
 </nav>
 
@@ -162,12 +163,12 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 <p>The calculator also turns itself off after the <a href="#set-sleep">Sleep Timer</a>, and when the battery runs empty (about 3.45 V).</p>
 
 <h3 id="alpha">Typing in ALPHA</h3>
-<p>While you type text in ALPHA, the keyboard has three modes, as on the DM42. The status bar shows which one is on: <strong>[ ]</strong>, <strong>[a]</strong> or <strong>[A]</strong>. Press <kbd>SHIFT</kbd> then <kbd>R/S</kbd> for the next mode. The calculator remembers the last mode, also after it is turned off, and the next ALPHA starts in it. The first time, ALPHA starts in [ ].</p>
+<p>While you type text in ALPHA, the keyboard has three modes, as on the DM42. The status bar shows which one is on: <strong>[ ]</strong>, <strong>[a]</strong> or <strong>[A]</strong>. Press <kbd>ALPHA</kbd> (<kbd>SHIFT</kbd> then <kbd>ENTER</kbd>) while in ALPHA for the next mode. To leave ALPHA, press <kbd>EXIT</kbd>. The calculator remembers the last mode, also after it is turned off, and the next ALPHA starts in it. The first time, ALPHA starts in [ ].</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Mode</th><th>What the keys do</th></tr></thead>
 <tbody>
 <tr><td><strong>[ ]</strong> HP-42S</td><td>Every key works as on the HP-42S. Letters come from the ALPHA menu on the top row. <kbd>STO</kbd> and <kbd>RCL</kbd> are ASTO and ARCL, and <kbd>R/S</kbd> runs. Use this mode for numeric local labels such as <code>LBL 01</code>.</td></tr>
-<tr><td><strong>[a]</strong> and <strong>[A]</strong> letters</td><td>Each key types the letter printed on it: lowercase in [a], capitals in [A]. <kbd>SHIFT</kbd> and <kbd>STO</kbd> or <kbd>RCL</kbd> is ASTO or ARCL: for a register number, type its first digit with <kbd>SHIFT</kbd> and the rest without (<code>ASTO 01</code> is <kbd>SHIFT</kbd> <kbd>0</kbd> <kbd>1</kbd>); for a name, type the letters. <kbd>SHIFT</kbd> and I J K L M N O types &pi; ( ) " &lt; &gt; ^. <kbd>SHIFT</kbd> and any other letter key types the same letter. <kbd>SHIFT</kbd> and a digit key types the digit. <kbd>SHIFT</kbd> and <kbd>&divide;</kbd> <kbd>&times;</kbd> <kbd>&minus;</kbd> <kbd>+</kbd> types &divide; &times; &minus; +. <kbd>R/S</kbd> types ? (to run a program, leave ALPHA first). The dot key types a comma, as on the HP-41C, and <kbd>SHIFT</kbd> and the dot key types the period. <kbd>&uarr;</kbd> types = and <kbd>&darr;</kbd> types $. The menu on the bottom line is hidden while you type. Press <kbd>SHIFT</kbd> to show it, then a top-row key opens a group of letters, punctuation or symbols. Once a menu is on the screen, the top-row keys work it without <kbd>SHIFT</kbd> (in [a] they type lowercase, in [A] capitals), and <kbd>&uarr;</kbd> <kbd>&darr;</kbd> change its page, also straight after <kbd>SHIFT</kbd>. After you pick an item the menu goes away.</td></tr>
+<tr><td><strong>[a]</strong> and <strong>[A]</strong> letters</td><td>Each key types the letter printed on it: lowercase in [a], capitals in [A]. <kbd>SHIFT</kbd> and <kbd>STO</kbd> or <kbd>RCL</kbd> is ASTO or ARCL: for a register number, type its first digit with <kbd>SHIFT</kbd> and the rest without (<code>ASTO 01</code> is <kbd>SHIFT</kbd> <kbd>0</kbd> <kbd>1</kbd>); for a name, type the letters. <kbd>SHIFT</kbd> and I J K L M N O types &pi; ( ) " &lt; &gt; ^. <kbd>SHIFT</kbd> and any other letter key types the same letter. <kbd>SHIFT</kbd> and a digit key types the digit. <kbd>SHIFT</kbd> and <kbd>&divide;</kbd> <kbd>&times;</kbd> <kbd>&minus;</kbd> <kbd>+</kbd> types &divide; &times; &minus; +. <kbd>R/S</kbd> types ?, also with <kbd>SHIFT</kbd> (to run a program, leave ALPHA first). The dot key types a comma, as on the HP-41C, and <kbd>SHIFT</kbd> and the dot key types the period. The menu on the bottom line is hidden while you type. Press <kbd>SHIFT</kbd> to show it, then a top-row key opens a group of letters, punctuation or symbols. <kbd>&uarr;</kbd> <kbd>&darr;</kbd> change the menu's page, with or without <kbd>SHIFT</kbd>; its second page stays on the screen. Once a menu is on the screen, the top-row keys work it without <kbd>SHIFT</kbd> (in [a] they type lowercase, in [A] capitals). After you pick an item the menu goes away.</td></tr>
 </tbody>
 </table></div>
 <p>In program mode, hold <kbd>SHIFT</kbd> down and press <kbd>&uarr;</kbd> or <kbd>&darr;</kbd> for BST or SST while typing text. Hold <kbd>&uarr;</kbd> down to keep stepping back.</p>
@@ -238,6 +239,8 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 <tr><td><img class="icon" src="{{ICON:shift}}" alt="Bent arrow pointing right"></td><td><strong>Shift</strong>: <kbd>SHIFT</kbd> is active; the next key does its shifted function.</td></tr>
 <tr><td><img class="icon" src="{{ICON:updn}}" alt="Up and down arrows"></td><td><strong>More menu rows</strong>: the open menu has more rows; <kbd>&uarr;</kbd> and <kbd>&darr;</kbd> page through them.</td></tr>
 <tr><td><img class="icon" src="{{ICON:run}}" alt="Right-pointing triangle"></td><td><strong>Running</strong>: a program is running.</td></tr>
+<tr><td><img class="icon" src="{{ICON:bell}}" alt="A bell"></td><td><strong>Alarms</strong>: at least one alarm is set. See <a href="#set-alarms">Alarms</a>.</td></tr>
+<tr><td><img class="icon" src="{{ICON:printer}}" alt="A printer"></td><td><strong>Printing</strong>: the calculator is sending to the printer. It's the print annunciator of Plus42 and the HP-42S. With the HP 82240B, it goes off when the last line has been sent, so the printer may still be finishing that line. See <a href="#set-printer">Printer</a>.</td></tr>
 <tr><td><img class="icon" src="{{ICON:alpha_hp42s}}" alt="[ ]"> <img class="icon" src="{{ICON:alpha_lower}}" alt="[a]"> <img class="icon" src="{{ICON:alpha_upper}}" alt="[A]"></td><td><strong>ALPHA keyboard</strong>: shown while you type text in ALPHA. [ ] is the HP-42S's keys, [a] types lowercase letters, [A] capitals. See <a href="#alpha">Typing in ALPHA</a>.</td></tr>
 </tbody>
 </table></div>
@@ -329,7 +332,7 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 <p>Press <kbd>SHIFT</kbd> then <kbd>EXIT</kbd> to open it. Every screen has the same frame: a black title bar with the screen's name and the current time, and a line at the bottom saying what the keys do there.</p>
 
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:settings}}" alt="The Settings list: Off, Games &amp; Apps, Date &amp; Time, Sounds, Fonts, Sleep Timer, Splash Image"><figcaption>The top list. The &darr; at the bottom right means more items below: Printer, States, USB Drive, Info.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:settings}}" alt="The Settings list: Off, Games &amp; Apps, Date &amp; Time, Alarms, Sounds, Fonts, Sleep Timer"><figcaption>The top list. The &darr; at the bottom right means more items below: Splash Image, Printer, States, Programs, USB Drive, Info.</figcaption></figure>
 </div>
 
 <h3>Moving around</h3>
@@ -351,7 +354,7 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 <figure><img class="shot" src="{{SHOT:games_apps}}" alt="Games &amp; Apps: Games, Apps"><figcaption>Games or Apps.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:games}}" alt="The Games list: SNAKE"><figcaption>The games on the drive. <kbd>ENTER</kbd> starts one.</figcaption></figure>
 </div>
-<p>Runs programs written for the PX-42F itself: games, and apps such as the IR Remote. Each is a <code>.bin</code> file on the drive, in <code>/BIN/GAMES</code> or <code>/BIN/APPS</code>. To add one, copy its <code>.bin</code> into the folder with <a href="#set-usb">USB Drive</a>. To remove one, delete the file. None come with the calculator.</p>
+<p>Runs programs written for the PX-42F itself: games and apps. Each is a <code>.bin</code> file on the drive, in <code>/BIN/GAMES</code> or <code>/BIN/APPS</code>. To add one, copy its <code>.bin</code> into the folder with <a href="#set-usb">USB Drive</a>. To remove one, delete the file. None come with the calculator.</p>
 <p class="note"><strong>Only install apps you trust.</strong> A game or app is a program that runs on the calculator with full access: it can read, change and delete any file on the drive, including your saved states and programs. The calculator checks that the file isn't damaged, not that it is safe. Keep a copy of your states (<a href="#set-usb">USB Drive</a>) before trying an app from somewhere you don't know.</p>
 <ul>
   <li><strong>Leaving.</strong> <kbd>ON</kbd> always leaves a game or app, back to this list. Held for 2 seconds, it turns the calculator off. The Sleep Timer turns it off too.</li>
@@ -369,40 +372,7 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 <tr><td>Can't save the memory</td><td>The drive is full or can't be written, so the calculator won't risk your memory.</td></tr>
 </tbody>
 </table></div>
-<p><strong>Making your own.</strong> Games and apps are written in C with the <strong>PX-42F App Template</strong>, a separate project. It covers the screen and fonts, the keys, the clock, sounds, files on the drive, the USB console, the infrared LED and the battery, and it includes a simulator that runs a game on a computer. Its README explains how to start. The Snake game and the IR Remote are built on it.</p>
-
-<h4 id="set-ir">The IR Remote app</h4>
-<p>Turns the calculator into an infrared remote control. Copy <code>IR.bin</code> into <code>/BIN/APPS</code> and your remotes into <code>/BIN/APPS/IR</code>, then choose Apps &rarr; IR. Choose a remote, and the screen shows a map of the keyboard with each key's label. Pressing a key sends its code, repeated for as long as it's held. <kbd>ON</kbd> (shown as <em>Menu</em>) goes back to the list of apps. With no remotes on the drive, the screen says to copy <code>.ir</code> files into the <code>BIN/APPS/IR</code> folder.</p>
-<p>A remote is a <code>.ir</code> file in the Flipper Zero format, with two extra lines for each key:</p>
-<ul>
-  <li><code>button: RxCy</code>: the key the code goes on, by row R (0&ndash;6, from the top) and column C (0&ndash;5, from the left). The top two rows have 6 keys, the others 5. R0C5 is XEQ, R2C0 is ENTER. R6C0 is the ON key, which leaves the remote, so it can't be used.</li>
-  <li><code>label:</code> the text shown on that key: 5 characters fit on the top two rows' keys, 6 on the others; a longer one is cut short.</li>
-</ul>
-<p>Every other line is Flipper's own: <code>name:</code> (what the code does, shown at the top when it's sent), <code>protocol:</code>, <code>address:</code> and <code>command:</code>. Lines starting with <code>#</code> are notes. A small example, a Samsung TV's power, OK and volume-up keys:</p>
-<pre><code># Samsung TV, three keys
-name: Power
-label: Power
-button: R0C0
-protocol: Samsung32
-address: 07 00 00 00
-command: 02 00 00 00
-#
-name: OK
-label: OK
-button: R2C0
-protocol: Samsung32
-address: 07 00 00 00
-command: 68 00 00 00
-#
-name: Volume Up
-label: Vol+
-button: R6C4
-protocol: Samsung32
-address: 07 00 00 00
-command: 07 00 00 00</code></pre>
-<p>Power goes on the top-left key, OK on <kbd>ENTER</kbd>, and Vol+ on <kbd>+</kbd>. A key with no entry stays blank and does nothing.</p>
-<p><strong>Where to get codes.</strong> The <a href="https://github.com/Lucaslhm/Flipper-IRDB">Flipper-IRDB</a> collection has <code>.ir</code> files for most TVs, players, amplifiers and air conditioners. Download the file for your device, add a <code>button:</code> line (and a <code>label:</code>) to each code you want on a key, and copy it into <code>/BIN/APPS/IR</code>. Entries without a <code>button:</code> are skipped, so the file can stay otherwise as it is. Flipper's own description of the format is in its <a href="https://developer.flipper.net/flipperzero/doxygen/infrared_file_format.html">developer documentation</a>.</p>
-<p>Supported protocols: NEC, NECext, NEC42, NEC42ext, Samsung32, RC5, RC5X, RC6, SIRC, SIRC15, SIRC20, Kaseikyo, RCA and Pioneer. Raw recordings (<code>type: raw</code>) can't be sent, and the calculator can't learn codes: it has no infrared receiver.</p>
+<p><strong>Making your own.</strong> Games and apps are written in C with the <strong>PX-42F App Template</strong>, a separate project. It covers the screen and fonts, the keys, the clock, sounds, files on the drive, the USB console, the infrared LED and the battery, and it includes a simulator that runs a game on a computer. Its README explains how to start. The Snake game is built on it.</p>
 
 <h3 id="set-datetime">Date &amp; Time</h3>
 <div class="shots">
@@ -438,9 +408,17 @@ command: 07 00 00 00</code></pre>
 </ul>
 <p class="note">The clock keeps running while the calculator is off, but a full reset (the RESET button, or a flat battery) loses the time.</p>
 
+<h3 id="set-alarms">Alarms</h3>
+<p>The alarms set with <code>XYZALM</code>, earliest first, with a date, a time and the text. A <code>!</code> in front means the alarm is past due. <kbd>ENTER</kbd> opens an alarm to show all of it, with two choices below: <strong>Sound</strong> and <strong>Delete</strong>. See <a href="#alarm-commands">Alarm commands</a> for how to set them.</p>
+<p><strong>Sound</strong> sets what this alarm plays: <strong>Plus42 tones</strong> (the default), a WAV file from <code>/SOUNDS</code> or a song from <code>/MIDI</code>. <kbd>ENTER</kbd> chooses a sound and plays it, and <kbd>EXIT</kbd> stops it and goes back. The file names are listed with their <code>.wav</code> or <code>.mid</code> ending, up to 64 of them, and only files directly in those folders. An alarm that repeats keeps its sound.</p>
+<p>A short sound plays again once a second after the first few seconds, as the tones do. A sound longer than the alarm's 20 seconds plays to its end. Any key stops it, along with the alarm. If the file has gone from the drive when the alarm comes due, you hear the Plus42 tones instead. Clearing flag 26 silences all of them. A control alarm only runs its program, so it has no <strong>Sound</strong>. The two tones that remind you of past-due alarms at power on, or that warn of an alarm set for a time already past, don't change.</p>
+<figure><img class="shot" src="{{SHOT:alarms}}" alt="The Alarms list, with two alarms"><figcaption>Two alarms. The second runs the program BACKUP.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:alarm_detail}}" alt="One alarm: its date and time, Once, its message, then Sound and Delete"><figcaption>One alarm, opened.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:alarm_sound}}" alt="The Alarm Sound list: Plus42 tones, then WAV files and a MIDI song"><figcaption>Choosing the alarm's sound. The <code>&lt;</code> marks the one chosen.</figcaption></figure>
+
 <h3 id="set-sounds">Sounds</h3>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:sounds}}" alt="Sounds: Key Sound Typewriter, On Sound On, Off Sound On"><figcaption>The sound settings.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:sounds}}" alt="Sounds: Key Sound Typewriter, On Sound On, Off Sound On, Calc Error Sound On, Silence Plus42 Off"><figcaption>The sound settings.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:key_sound}}" alt="Key Sound list: Off, Typewriter (marked), Tick, Tock, Glass, Pop, Beep"><figcaption>Key Sound. The <code>&lt;</code> marks the one in use.</figcaption></figure>
 </div>
 <div class="table-wrap"><table>
@@ -449,6 +427,8 @@ command: 07 00 00 00</code></pre>
 <tr><td>Key Sound</td><td>The sound each key press makes, or Off. See below.</td></tr>
 <tr><td>On Sound</td><td>On or Off: a sound when you turn the calculator on.</td></tr>
 <tr><td>Off Sound</td><td>On or Off: a sound when it turns off.</td></tr>
+<tr><td>Calc Error Sound</td><td>On or Off: <code>ERROR.wav</code> when Plus42 shows an error message, such as Divide by 0 or Out of Range, from a key or a program. Errors that flag 25 or a trap catch stay silent, and so does Interrupted.</td></tr>
+<tr><td>Silence Plus42</td><td>On silences every sound Plus42 itself makes: errors, BEEP and TONE. It is Plus42's flag 26, the one QUIET toggles, so programs and saved states can change it too, and Memory Clear turns sound back on. Key, On and Off sounds keep playing.</td></tr>
 </tbody>
 </table></div>
 <p>The boot sound has no setting. It always plays when the calculator starts: after the RESET button, a firmware update or a restart, but not when you turn it on with ON. To change it, replace <code>BOOT.wav</code> (see <a href="#other-sounds">Other sounds</a>).</p>
@@ -488,6 +468,58 @@ command: 07 00 00 00</code></pre>
 </table></div>
 <p>Any WAV that Audacity exports works: PCM (8, 16, 24 or 32-bit) or 32-bit float, mono or stereo, any sample rate. Every sound is played at full volume, whatever its level in the file. A deleted file comes back as the built-in one at the next start. A built-in sound you haven't replaced is updated by itself when a new firmware changes it. Sounds you've replaced are never touched.</p>
 
+<h3 id="clock-commands">Clock commands from the HP-41 Time Module</h3>
+<p>These work as on an HP-41CX, with the same XROM codes. Pick them from the <a href="#commands">Catalog's PX42 page</a>, under <strong>CLOCK</strong>, <strong>ALARM</strong> and <strong>SW</strong>, or type them with <kbd>XEQ</kbd> <kbd>ALPHA</kbd>, from the keyboard or in a program.</p>
+<ul>
+  <li><code>CLOCK</code> shows the running clock on the top line. The next key clears it and does its usual job. In a program, <code>CLOCK</code> also stops the program, and <kbd>R/S</kbd> goes on. The clock stays up until the Sleep Timer turns the calculator off.</li>
+  <li><code>CLKT</code> makes <code>CLOCK</code> show the time, updated every second: <code>3:15:07 PM</code>. <code>CLKTD</code> makes it show the time and date, updated every minute, which saves power: <code>3:15 PM 01/21</code>. <code>CLK12</code>, <code>CLK24</code> and the date format commands set the rest of the format.</li>
+  <li><code>T+X</code> moves the clock by X, in the form HHHH.MMSSss, forward or back with its sign, into another day if needed. Use it for time zones and daylight saving. It doesn't affect the clock's correction.</li>
+  <li><code>CORRECT</code> sets the time from X, as HH.MMSSss, and corrects the clock's rate from how far it had drifted since it was last set exactly. It only corrects the rate if that was at least 6 hours ago and the error is under 30 minutes. Otherwise it only sets the time. A longer gap gives a better result, because a key press is only good to about 0.1 s. The HP-41CX manual advises at least 30 hours. This is the same correction as Settings &rarr; Date &amp; Time &rarr; Time Calibration.</li>
+  <li><code>SETAF</code> sets the accuracy factor from X, and <code>RCLAF</code> recalls it. This is the HP-41's own measure of the correction, and it isn't in seconds per day: one pulse of 1/10240 s is added every X seconds, or taken away if X is negative. <code>0.1</code> gains 84.4 s/day, and <code>99.9</code> gains 0.08 s/day. <code>0</code> clears it, as does anything from 99.95 up. The calculator keeps the correction in tenths of a second per day, so <code>RCLAF</code> can give a different number from the one you set, mostly for large factors: <code>50</code> comes back as <code>42.2</code>.</li>
+</ul>
+
+<h3 id="alarm-commands">Alarm commands from the HP-41 Time Module</h3>
+<p>These use the HP-41CX's XROM codes too. To set an alarm, put the repeat in Z, the date in Y, the time in X and the text in ALPHA, then run <code>XYZALM</code>:</p>
+<ul>
+  <li><strong>X, the time</strong>: HH.MMSSs, 24-hour. &minus;1 to &minus;11 also mean 1 to 11 p.m.</li>
+  <li><strong>Y, the date</strong>: in the current date format, up to the year 2199, or 0 for today.</li>
+  <li><strong>Z, the repeat</strong>: HHHH.MMSSs, from 1 second up to 10,000 hours, or 0 for no repeat.</li>
+  <li><strong>ALPHA, what it does</strong>: see the table. <code>&uarr;</code> is on the ALPHA menu's second page, under the arrows (ARROW). In the [a] and [A] keyboards, <kbd>SHIFT</kbd> and the key for <code>^</code> also types it.</li>
+</ul>
+<div class="table-wrap"><table class="ref">
+<thead><tr><th>ALPHA</th><th>Kind</th><th>When it comes due</th></tr></thead>
+<tbody>
+<tr><td>A message, or empty</td><td>Message</td><td>Two tones and the message (or the time and date if empty). It flashes after a second, and more tones follow. Any key acknowledges it, which clears it or moves it to its next repeat. <kbd>STO</kbd> keeps it as past due. If no key is pressed for about 20 seconds, it becomes past due.</td></tr>
+<tr><td><code>&uarr;&uarr;LABEL</code></td><td>Control</td><td>Runs the program at that global label, as a subroutine if a program is running. <code>&uarr;&uarr;</code> alone runs from the current line.</td></tr>
+<tr><td><code>&uarr;LABEL</code></td><td>Conditional</td><td>Runs the program if the calculator is off or showing the clock. If you're using it, this acts as a message alarm. If a program is running, it sounds two tones and becomes past due.</td></tr>
+</tbody>
+</table></div>
+<p>A label can be up to 7 characters, in plain letters, digits and symbols. Alarms wake the calculator from off, and it turns itself off again afterwards unless you press a key. They wait while you're in the settings menu or an app. A control alarm also waits while you're typing or in program mode. Clearing flag 26 silences their tones. Up to 32 alarms can be set, and a <a href="#keys">RESET or a firmware update</a> clears them with the rest of the memory.</p>
+<ul>
+  <li><code>RCLALM</code> recalls the alarm numbered by X: time to X, date to Y, repeat to Z, text to ALPHA.</li>
+  <li><code>CLALMX</code> deletes the alarm numbered by X. <code>CLALMA</code> deletes the first whose text matches ALPHA. <code>CLRALMS</code> deletes them all.</li>
+  <li><code>ALMNOW</code> runs the oldest past-due alarm that has a program.</li>
+  <li><code>ALMCAT</code> lists the alarms on the calculator screen: <kbd>&uarr;</kbd> and <kbd>&darr;</kbd> move, <kbd>&larr;</kbd> deletes one, and <kbd>EXIT</kbd> leaves. In a program it also stops the program, and <kbd>R/S</kbd> goes on.</li>
+</ul>
+<p>An alarm set for a time already past becomes past due at once, with two tones. Past-due alarms stay on the list until you delete them or run them with <code>ALMNOW</code>, and two tones remind you when you turn the calculator on.</p>
+
+<h3 id="sound-commands">Playing sounds from a program</h3>
+<p>Four commands the PX-42F adds to Plus42. Type them with <kbd>XEQ</kbd> <kbd>ALPHA</kbd>, from the keyboard or in a program. They aren't in the catalog. For the two that play, the name of the file goes in ALPHA first:</p>
+<ul>
+  <li><code>PLAYWAV</code> starts <code>/SOUNDS/<i>name</i>.wav</code> from the drive. A <code>/</code> in the name is a folder: <code>"TONES/TONE3"</code>.</li>
+  <li><code>PLAYMID</code> starts the song <code>/MIDI/<i>name</i>.mid</code>.</li>
+  <li><code>SNDWAIT</code> waits until the sound playing has ended. With nothing playing it does nothing.</li>
+  <li><code>STOPSND</code> stops the sound playing.</li>
+</ul>
+<p>Both go on at once, and the sound keeps playing while the calculator or the program carries on, even after the program ends. The speaker plays one sound at a time, so a new sound replaces the one playing. To hear one sound after another, put <code>SNDWAIT</code> between them:</p>
+<pre><code>"BOOT"
+PLAYWAV
+SNDWAIT
+"Canon"
+PLAYMID</code></pre>
+<p><kbd>R/S</kbd> stops the sound. If a program is running, it stops too; if not, the press does nothing else. While you're typing in ALPHA, typing a command or in program mode, <kbd>R/S</kbd> does its usual job, and so it does for a program waiting in <code>GETKEY</code>. <kbd>EXIT</kbd> stops the sound only during <code>SNDWAIT</code>, and turning the calculator off always stops it. Key presses don't interrupt the sound, and they make no key sound while it plays. Clearing flag 26 silences <code>PLAYWAV</code> and <code>PLAYMID</code>, as it does <code>TONE</code> and <code>BEEP</code>.</p>
+<p><code>Nonexistent</code> means the file isn't there, or a WAV that can't be played. <code>Alpha Data Is Invalid</code> means ALPHA is empty or holds something that can't be a file name. <code>Invalid Data</code> means a song the synthesizer can't play, and <code>Insufficient Memory</code> a song over 128 KB or too big for the memory left.</p>
+
 <h3 id="set-fonts">Fonts</h3>
 <div class="shots">
 <figure><img class="shot" src="{{SHOT:fonts}}" alt="Fonts: Large Font (10x16), Small Font (8x12), Mini Font (6x8), all Built-In"><figcaption>The three fonts and the one each uses.</figcaption></figure>
@@ -520,18 +552,19 @@ command: 07 00 00 00</code></pre>
 <h3 id="set-printer">Printer</h3>
 <div class="shots">
 <figure><img class="shot" src="{{SHOT:printer}}" alt="Printer: Off, USB Serial, HP 82240B (IR)"><figcaption>Printer.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:screen_print}}" alt="Screen Print: Upright, As It Is"><figcaption>Screen Print, after HP 82240B (IR).</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:screen_print}}" alt="Screen Print: Portrait, Landscape"><figcaption>Screen Print, after HP 82240B (IR).</figcaption></figure>
 </div>
 <ul>
   <li><strong>Off:</strong> printing commands do nothing (Plus42's PROFF).</li>
   <li><strong>USB Serial:</strong> printing goes to a second USB serial port named <strong>PX-42F Printer</strong>. Open it in a terminal program on the computer to see the output. Choosing it also turns Plus42's printer on (PRON).</li>
   <li><strong>HP 82240B (IR):</strong> printing goes by infrared to an HP 82240B printer, as on the HP-42S. Aim the calculator at the printer's window. Text prints in the printer's own characters. The characters it lacks (&radic;, &Sigma;, &pi;, the arrows and others) print as graphics in Plus42's shapes. Choosing it asks how PRLCD prints the screen:
     <ul>
-      <li><strong>Upright</strong> (the first time): the screen redrawn to fit the paper, in Plus42's own small characters: the status bar's text, the lines with the dotted lines between them, and the menu. It takes about 20 seconds. The layouts of 6 rows and more are too wide for the paper; they print as it is.</li>
-      <li><strong>As It Is</strong>: the screen dot for dot, with the PX's fonts. The screen is wider than the paper, so it prints turned a quarter: turn the paper a quarter clockwise to read it. It takes about 2 minutes.</li>
+      <li><strong>Portrait</strong> (the first time): the screen redrawn to fit the paper, in Plus42's own small characters: the status bar's text, the lines with the dotted lines between them, and the menu. It takes about 20 seconds. The layouts of 6 rows and more are too wide for the paper; they print in landscape.</li>
+      <li><strong>Landscape</strong>: the screen dot for dot, with the PX's fonts. The screen is wider than the paper, so it prints turned a quarter: turn the paper a quarter clockwise to read it. It takes about 2 minutes.</li>
     </ul>
-    <kbd>EXIT</kbd> there keeps the one chosen before. The printer can't tell the calculator when it is ready. So the calculator waits as long as the slowest printer on nearly flat batteries needs, 1.8 seconds a line, and is busy while it prints. <kbd>EXIT</kbd> stops a long listing (PRP, PRV, PRUSR) between lines. Choosing it also turns Plus42's printer on (PRON).</li>
+    <kbd>EXIT</kbd> there keeps the one chosen before. The printer can't tell the calculator when it is ready. So the calculator waits as long as the slowest printer on nearly flat batteries needs, 1.8 seconds a line. A long listing (PRP, PRV, PRUSR) takes that long, with &#9654; and the printer icon in the status bar. <kbd>EXIT</kbd> or <kbd>R/S</kbd> stops it, and other keys wait until it ends. They stop PRLCD too, and a program printing with it, but it takes up to 2 seconds, because a line that has begun is always sent whole, or the printer would misread what follows. The printer also finishes what it already has, so the paper can go on for a little. Choosing it also turns Plus42's printer on (PRON).</li>
 </ul>
+<p>With a printer chosen, programs print too, and VIEW and AVIEW in a program print as well as show, as on an HP-42S with its printer on. The setting sets flags 21 and 55 at every start, so a PROFF or CF 21 lasts until the calculator is next turned on.</p>
 
 <h3 id="set-states">States</h3>
 <p>A state is a complete copy of the calculator's memory (stack, variables, programs, settings) in a file. States are kept on the drive in <code>/STATE</code> as <code>&lt;name&gt;.p42</code> files, the same format the desktop Plus42 uses.</p>
@@ -585,7 +618,7 @@ command: 07 00 00 00</code></pre>
 
 <h3 id="set-info">Info</h3>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:info}}" alt="Info: Plus42 1.4a, Thomas Okken; Port Alex Garza; Decimal Intel 2.0 Update 1; Firmware; Battery; Stack"><figcaption>Info.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:info}}" alt="Info: Plus42 1.5.2, Thomas Okken; Port Alex Garza; Decimal Intel 2.0 Update 1; Firmware; Battery; Stack"><figcaption>Info.</figcaption></figure>
 </div>
 <div class="table-wrap"><table>
 <thead><tr><th>Line</th><th>Shows</th></tr></thead>
@@ -612,9 +645,10 @@ command: 07 00 00 00</code></pre>
 <tr><td><code>/FONTS/LARGE</code>, <code>/FONTS/SMALL</code>, <code>/FONTS/MINI</code></td><td>Font sheets, PNG. See <a href="#font-sheets">Making your own font</a>.</td></tr>
 <tr><td><code>/FONTS/BUILTIN</code></td><td>The built-in fonts as font sheets (<code>LARGE.png</code>, <code>SMALL.png</code>, <code>MINI.png</code>), read-only: copy them to start a font from.</td></tr>
 <tr><td><code>/SOUNDS</code></td><td>Every sound, WAV. Key sounds are in <code>/SOUNDS/KEY</code>. <code>BUILTIN.TXT</code> is the calculator's own record of the built-in sounds it wrote; leave it alone. See <a href="#set-sounds">Sounds</a>.</td></tr>
+<tr><td><code>/MIDI</code></td><td>MIDI songs, <code>.mid</code>, for <code>PLAYMID</code>, alarm sounds and apps. See <a href="#sound-commands">Playing sounds from a program</a>.</td></tr>
 <tr><td><code>/BIN/GAMES</code>, <code>/BIN/APPS</code></td><td>Games and apps, <code>.bin</code>, each with its own folder next to it. See <a href="#set-apps">Games &amp; Apps</a>.</td></tr>
-<tr><td><code>/BIN/APPS/IR</code></td><td>Remotes for the IR Remote app, <code>.ir</code>. See <a href="#set-ir">The IR Remote app</a>.</td></tr>
 <tr><td><code>/PROGRAMS</code></td><td>Programs, <code>.raw</code>. See <a href="#set-programs">Programs</a>.</td></tr>
+<tr><td>Top of the drive</td><td>The calculator&rsquo;s own files, so leave them alone: <code>ALARMS.DAT</code> (the alarms), <code>STOPWATCH.DAT</code> (the stopwatch), <code>BOOTLOG.TXT</code> (a log of the last starts) and sometimes <code>OFFSTATE.p42</code> (the memory, when it is too big for its copy in RAM).</td></tr>
 </tbody>
 </table></div>
 
@@ -643,7 +677,7 @@ command: 07 00 00 00</code></pre>
   <line class="lead" x1="420" y1="59" x2="420" y2="104"/>
   <line class="lead" x1="540" y1="59" x2="540" y2="104"/>
   <text x="80" y="124" text-anchor="middle">IR LED</text>
-  <text x="80" y="142" text-anchor="middle" class="small">IR Remote</text>
+  <text x="80" y="142" text-anchor="middle" class="small">apps, printer</text>
   <text x="200" y="124" text-anchor="middle">RESET</text>
   <text x="200" y="142" text-anchor="middle" class="small">restart</text>
   <text x="310" y="124" text-anchor="middle">USB-C</text>
@@ -657,7 +691,7 @@ command: 07 00 00 00</code></pre>
 <div class="table-wrap"><table>
 <thead><tr><th>Opening</th><th>What it's for</th></tr></thead>
 <tbody>
-<tr><td>IR LED</td><td>The infrared light that sends a remote's codes. Point it at the device. See <a href="#set-ir">IR Remote</a>.</td></tr>
+<tr><td>IR LED</td><td>The infrared light. Apps can use it, and so does the <a href="#set-printer">HP 82240B printer</a>.</td></tr>
 <tr><td>RESET button</td><td>Restarts the calculator with its memory cleared. The Hello screen stays up until you press a key (or the Sleep Timer turns the calculator off), then Plus42 starts from Memory Clear. Use it when the calculator stops responding to its keys, or when its memory makes it crash at every start. Settings and everything on the drive stay, so a saved state can be loaded afterwards. The clock's time is lost too; set it again in <a href="#set-datetime">Date &amp; Time</a>. It's also used to <a href="#updating">update the firmware</a>.<br>The calculator restarts by itself after a crash, and then its memory comes back: only RESET clears it. To keep your work safe from it, save a <a href="#set-states">state</a> now and then.</td></tr>
 <tr><td>USB-C</td><td>Charges the battery, and connects to a computer: the <a href="#set-usb">USB Drive</a>, the <a href="#set-printer">printer</a> port, and firmware updates.</td></tr>
 <tr><td>BOOT button</td><td>Held down while pressing RESET, it starts the firmware update mode. See <a href="#updating">Updating the firmware</a>.</td></tr>
@@ -712,6 +746,111 @@ command: 07 00 00 00</code></pre>
 </ol>
 
 <p>To check the update, <a href="#set-info">Settings &rarr; Info</a> shows the firmware version and the date it was built. To leave update mode without installing anything, press <strong>RESET</strong>. Like any RESET, it clears the calculator's memory.</p>
+
+<h2 id="commands">11. Added commands</h2>
+
+<p>The PX-42F adds these 31 commands to Plus42. They are all on the Catalog&rsquo;s <strong>PX42 page</strong>: press <kbd>SHIFT</kbd> <kbd>+</kbd> (CATALOG), then <kbd>&uarr;</kbd> once. Its tabs are <strong>CLOCK</strong>, <strong>ALARM</strong>, <strong>SW</strong>, <strong>SOUND</strong> and <strong>DRAW</strong>. Names too long for a soft key show shortened, as Plus42&rsquo;s own do: <code>CORRECT</code> is <code>CORCT</code>. The table gives each short form. Program lines always show the full name. Pick a command to run it, or to enter it in a program in program mode, or to assign it to a CUSTOM key after <code>ASSIGN</code>. You can also type them with <kbd>XEQ</kbd> <kbd>ALPHA</kbd>. Plus42&rsquo;s own <code>DATE</code>, <code>TIME</code> and the like stay under the Catalog&rsquo;s <strong>TIME</strong> tab.</p>
+<p>The clock, alarm and stopwatch commands work like those of the Time Module for the HP-41C, which is built into the HP-41CX. They have the same names and the same XROM codes. The sound and graphics commands are the PX-42F&rsquo;s own, because the Time Module has none, and they use XROM 0, which no HP-41 module uses.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Command</th><th>XROM code</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><th colspan="3"><a href="#clock-commands">Clock</a></th></tr>
+<tr><td><code>CLKT</code></td><td>XROM&nbsp;26,08</td><td>Makes <code>CLOCK</code> show the time, updated every second.</td></tr>
+<tr><td><code>CLKTD</code></td><td>XROM&nbsp;26,09</td><td>Makes <code>CLOCK</code> show the time and date, updated every minute.</td></tr>
+<tr><td><code>CLOCK</code></td><td>XROM&nbsp;26,10</td><td>Shows the running clock on the top line.</td></tr>
+<tr><td><code>CORRECT</code> <small>(key: <code>CORCT</code>)</small></td><td>XROM&nbsp;26,11</td><td>Sets the time from X (HH.MMSSss) and corrects the clock&rsquo;s rate from its drift.</td></tr>
+<tr><td><code>RCLAF</code></td><td>XROM&nbsp;26,18</td><td>Recalls the accuracy factor to X.</td></tr>
+<tr><td><code>SETAF</code></td><td>XROM&nbsp;26,21</td><td>Sets the accuracy factor from X.</td></tr>
+<tr><td><code>SETDATE</code> <small>(key: <code>SDATE</code>)</small></td><td>XROM&nbsp;26,22</td><td>Sets the date from X, in the current date format.</td></tr>
+<tr><td><code>SETIME</code> <small>(key: <code>STIME</code>)</small></td><td>XROM&nbsp;26,23</td><td>Sets the time from X (HH.MMSS, 24-hour).</td></tr>
+<tr><td><code>T+X</code></td><td>XROM&nbsp;26,27</td><td>Moves the clock forward or back by X (HHHH.MMSSss).</td></tr>
+<tr><th colspan="3"><a href="#alarm-commands">Alarms</a></th></tr>
+<tr><td><code>ALMCAT</code> <small>(key: <code>ALCAT</code>)</small></td><td>XROM&nbsp;26,02</td><td>Lists the alarms on the screen.</td></tr>
+<tr><td><code>ALMNOW</code> <small>(key: <code>ALNOW</code>)</small></td><td>XROM&nbsp;26,03</td><td>Runs the oldest past-due alarm that has a program.</td></tr>
+<tr><td><code>XYZALM</code> <small>(key: <code>XYZAL</code>)</small></td><td>XROM&nbsp;26,29</td><td>Sets an alarm: time in X, date in Y, repeat in Z, text in ALPHA.</td></tr>
+<tr><td><code>CLALMA</code> <small>(key: <code>CLMA</code>)</small></td><td>XROM&nbsp;26,31</td><td>Deletes the first alarm whose text matches ALPHA.</td></tr>
+<tr><td><code>CLALMX</code> <small>(key: <code>CLMX</code>)</small></td><td>XROM&nbsp;26,32</td><td>Deletes the alarm numbered by X.</td></tr>
+<tr><td><code>CLRALMS</code> <small>(key: <code>CLRMS</code>)</small></td><td>XROM&nbsp;26,33</td><td>Deletes all the alarms.</td></tr>
+<tr><td><code>RCLALM</code> <small>(key: <code>RCALM</code>)</small></td><td>XROM&nbsp;26,34</td><td>Recalls the alarm numbered by X: time to X, date to Y, repeat to Z, text to ALPHA.</td></tr>
+<tr><th colspan="3"><a href="#stopwatch-commands">Stopwatch</a></th></tr>
+<tr><td><code>RCLSW</code></td><td>XROM&nbsp;26,19</td><td>Recalls the stopwatch time to X (HH.MMSSss).</td></tr>
+<tr><td><code>RUNSW</code></td><td>XROM&nbsp;26,20</td><td>Starts the stopwatch.</td></tr>
+<tr><td><code>SETSW</code></td><td>XROM&nbsp;26,24</td><td>Sets the stopwatch time from X (&plusmn;HH.MMSSss). A negative time counts down as a timer.</td></tr>
+<tr><td><code>STOPSW</code> <small>(key: <code>STPSW</code>)</small></td><td>XROM&nbsp;26,25</td><td>Stops the stopwatch.</td></tr>
+<tr><td><code>SW</code></td><td>XROM&nbsp;26,26</td><td>Shows the stopwatch and gives the keyboard to it, with both register pointers at 00.</td></tr>
+<tr><td><code>SWPT</code></td><td>XROM&nbsp;26,35</td><td>Does the same as <code>SW</code>, with the pointers from X (sss.rrr).</td></tr>
+<tr><th colspan="3"><a href="#sound-commands">Sounds</a></th></tr>
+<tr><td><code>PLAYWAV</code> <small>(key: <code>PLWAV</code>)</small></td><td>XROM&nbsp;0,01</td><td>Starts the WAV file named in ALPHA, from <code>/SOUNDS</code>.</td></tr>
+<tr><td><code>PLAYMID</code> <small>(key: <code>PLMID</code>)</small></td><td>XROM&nbsp;0,02</td><td>Starts the MIDI song named in ALPHA, from <code>/MIDI</code>.</td></tr>
+<tr><td><code>STOPSND</code> <small>(key: <code>STSND</code>)</small></td><td>XROM&nbsp;0,03</td><td>Stops the sound playing.</td></tr>
+<tr><td><code>SNDWAIT</code> <small>(key: <code>SNDWT</code>)</small></td><td>XROM&nbsp;0,04</td><td>Waits until the sound playing has ended.</td></tr>
+<tr><th colspan="3"><a href="#graphics-commands">Graphics</a></th></tr>
+<tr><td><code>PEN</code></td><td>XROM&nbsp;0,05</td><td>Sets the pen: color in X (1 black, 0 white), width in Y.</td></tr>
+<tr><td><code>BOX</code></td><td>XROM&nbsp;0,06</td><td>Draws a rectangle: x in T, y in Z, width in Y, height in X.</td></tr>
+<tr><td><code>DLINE</code></td><td>XROM&nbsp;0,07</td><td>Draws a line: from x in T, y in Z, to x in Y, y in X.</td></tr>
+<tr><td><code>ELLIPSE</code> <small>(key: <code>ELIPS</code>)</small></td><td>XROM&nbsp;0,08</td><td>Draws an ellipse: center x in T, y in Z, radii in Y and X.</td></tr>
+<tr><td><code>POLYGON</code> <small>(key: <code>PGON</code>)</small></td><td>XROM&nbsp;0,09</td><td>Draws a closed shape from a two-column matrix in X, one corner a row.</td></tr>
+</tbody>
+</table></div>
+
+<p>Each heading in the table links to the full description of its commands. Plus42 already has the Time Module&rsquo;s date and time functions, such as <code>DATE</code>, <code>TIME</code>, <code>ADATE</code>, <code>ATIME</code>, <code>DOW</code> and <code>DDAYS</code>, so they aren&rsquo;t listed here.</p>
+<p>Some of the Time Module isn&rsquo;t here. <code>ALMCAT</code> has no <kbd>T</kbd>, <kbd>D</kbd> or <kbd>R</kbd> keys. Past-due alarms don&rsquo;t activate when you turn the calculator off.</p>
+<p class="note">Only the PX-42F runs these commands. A program that uses them can be exported to a <code>.raw</code> file, but Plus42 on a computer or phone shows them as <code>XROM 26,nn</code> or <code>XROM 00,nn</code>, and running one gives <code>Nonexistent</code>.</p>
+
+<h3 id="stopwatch-commands">Stopwatch</h3>
+<p>The stopwatch works like the one in the HP-41CX. It runs until you stop it, whatever else the calculator is doing, also while it is off. Setting the clock doesn&rsquo;t change it. Memory Clear resets it, and so does a crash that restarts the calculator, to the time it had at the last OFF.</p>
+<p><code>SW</code> shows the time on the top line and gives the keyboard to the stopwatch until you press <kbd>EXIT</kbd>. Leaving doesn&rsquo;t stop it. In a program, <code>SW</code> waits there, and the program goes on after <kbd>EXIT</kbd>.</p>
+<pre>00:00:12.3 &gt;R00</pre>
+<p>The end of the line is the register that the next split goes to. <code>&gt;</code> means splits are being stored, <code>=</code> means one is being recalled, <code>R</code> shows plain splits and <code>D</code> the differences between them. While it runs, the time shows to a tenth of a second. When it stands still, it shows to a hundredth.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Key</th><th>On the HP-41CX</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><kbd>R/S</kbd></td><td><code>R/S</code></td><td>Starts and stops it, and leaves Recall.</td></tr>
+<tr><td><kbd>ENTER</kbd></td><td><code>SPLIT</code></td><td>Stores the time in the register and leaves Recall. While the key is down, the screen holds the split and the stopwatch goes on. The pointer moves on when you release the key.</td></tr>
+<tr><td><kbd>+/&minus;</kbd></td><td><code>&Delta;SPLIT</code></td><td>Switches between plain splits and differences. Splits are always stored plain.</td></tr>
+<tr><td><kbd>RCL</kbd></td><td><code>RCL</code></td><td>Switches between storing and Recall, which shows the register&rsquo;s split. Each has its own pointer.</td></tr>
+<tr><td><kbd>&darr;</kbd> / <kbd>&uarr;</kbd></td><td><code>SST</code> / <code>BST</code></td><td>Moves the pointer to the next or the previous register.</td></tr>
+<tr><td><kbd>0</kbd> to <kbd>9</kbd></td><td>Digits</td><td>Types a register number: two digits, or three with the three-digit pointer.</td></tr>
+<tr><td><kbd>E</kbd></td><td><code>REG#</code></td><td>Hides or shows the pointer.</td></tr>
+<tr><td><kbd>SHIFT</kbd> <kbd>E</kbd></td><td><code>Rnnn</code></td><td>Switches between a two-digit and a three-digit pointer. It changes to three digits by itself at register 100.</td></tr>
+<tr><td><kbd>&larr;</kbd></td><td><code>CLEAR</code></td><td>Sets a stopped stopwatch to zero. In Recall, it only leaves Recall.</td></tr>
+<tr><td><kbd>EXIT</kbd> or <kbd>SHIFT</kbd> <kbd>&larr;</kbd></td><td><code>EXIT</code></td><td>Gives the keyboard back. Holding <kbd>EXIT</kbd> for 2 seconds still turns the calculator off.</td></tr>
+<tr><td>Any other key</td><td></td><td>Holds the time on the screen while the key is down. The stopwatch goes on.</td></tr>
+</tbody>
+</table></div>
+<p>Splits are stored in the data registers as HH.MMSSss, replacing what is there. It beeps when the pointer reaches the last register. A split with no register to go to, or a recall of one, ends the stopwatch&rsquo;s keyboard with <code>Nonexistent</code>. <code>ERROR =R05</code> means that register doesn&rsquo;t hold a time, and <code>ERROR =D05</code> that it isn&rsquo;t later than the register before it. Move the pointer to clear it.</p>
+<p><code>SWPT</code> takes the storing pointer and the recalling pointer from X as sss.rrr, so <code>12.003</code> stores from register 12 and recalls from register 3. A negative number starts with differences showing. After <kbd>EXIT</kbd>, X holds the pointers in the same form, and <code>LAST X</code> holds the number you gave it.</p>
+<p><strong>As a timer:</strong> set a negative time with <code>SETSW</code> and start it. When it reaches zero it keeps counting up. If the stopwatch&rsquo;s keyboard is on, you hear two tones. Otherwise <code>TIMER ALARM</code> sounds and flashes like a message alarm, and turns the calculator on if it is off. Any key ends it, and it doesn&rsquo;t become past due.</p>
+<p>Alarms wait until you leave the stopwatch&rsquo;s keyboard. The Sleep Timer doesn&rsquo;t turn the calculator off while the keyboard is on, and the screen updating 10 times a second uses about as much power as a running program. <code>RUNSW</code>, <code>STOPSW</code>, <code>SETSW</code> and <code>RCLSW</code> don&rsquo;t show anything, so a program can time something without changing the screen.</p>
+
+<h3 id="graphics-commands">Graphics</h3>
+<p>The graphics commands draw on the whole screen, 250 dots across and 122 down, whatever the number of rows. <code>1,1</code> is the top left corner, as with <code>PIXEL</code> and <code>AGRAPH</code>, and <code>250,122</code> the bottom right. The status bar's rows are 1 to 12. The numbers stay on the stack.</p>
+<p><code>PEN</code> sets what the next shapes use, and stays until you change it or turn the calculator off:</p>
+<ul>
+  <li><strong>X, the color:</strong> <code>1</code> black or <code>0</code> white. White erases what's under it, including text.</li>
+  <li><strong>Y, the width:</strong> <code>0</code> filled, <code>1</code> one dot, up to <code>64</code>. A line can't be filled, so <code>0</code> draws it one dot wide. A box's or an ellipse's outline grows inward, keeping its outer size. A line's width is centered on it, with round ends.</li>
+</ul>
+<p>The pen starts black, one dot wide. A filled black circle in the middle of the screen, with a white box inside:</p>
+<pre><code>CLLCD
+0
+1
+PEN
+126
+62
+40
+40
+ELLIPSE
+0
+0
+PEN
+106
+52
+40
+20
+BOX</code></pre>
+<p>Plus42's <code>PIXEL</code> and <code>AGRAPH</code> draw on the same 250 by 122, so all of these line up, whatever the number of rows. <code>PIXEL</code> is always black, one dot, and <code>AGRAPH</code> keeps its modes (flags 34 and 35). <code>WIDTH</code> and <code>HEIGHT</code> give 250 and 122. A program written for the HP-42S's 131 by 16 draws at its true size, in the top left corner.</p>
+<p>Drawings stay until the next key, or until <code>CLLCD</code>, and also after a program ends, as on the HP-42S. To end a program with the stack back on the screen, make <code>CLD</code> its last step before <code>STOP</code>. The status bar and the dotted lines between rows are hidden while they show. To keep the stack from showing under them, start with <code>CLLCD</code>. Printing with PRLCD to the HP 82240B prints them, always in Landscape; printing to USB doesn't include them. <code>POLYGON</code> takes up to 64 corners; where its edges cross, a filled one has holes.</p>
 
 <footer>
   <p>PX-42F-Plus. Plus42 by Thomas Okken; port to the PX-42F by Alex Garza. Decimal arithmetic by the Intel Decimal Floating-Point Math Library.</p>

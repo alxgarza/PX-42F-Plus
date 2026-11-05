@@ -143,18 +143,22 @@ void shell_print(const char *text, int length,
                  int x, int y, int width, int height) {
     (void) x;
     (void) y;
+    if (printer_will_print())
+        free42_printing_show();
     if (px_settings.printer == PRINTER_HP82240B) {
         if (text != NULL) {
             printer_hp82240b_text(text, length, (const uint8_t *) bits, bytesperline, flags.f.double_wide_print);
         } else {
+            free42_print_stop_begin();
             int height = px_settings.screen_print == SCREEN_PRINT_UPRIGHT ? free42_draw_paper(HP82240_COLUMNS) : 0;
             if (height > 0) {
-                printer_hp82240b_paper(height);
+                printer_hp82240b_paper(height, free42_print_stop);
             } else {
-                free42_draw_screen();
-                printer_hp82240b_screen();
+                free42_draw_screen(false); /* no printer icon on the paper */
+                printer_hp82240b_screen(free42_print_stop);
             }
-            free42_draw_screen(); /* the screen back, in place of the paper */
+            free42_draw_screen(true); /* the screen back, in place of the paper */
+            free42_print_stop_end();
         }
         return;
     }

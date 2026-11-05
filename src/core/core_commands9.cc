@@ -19,6 +19,9 @@
 
 #include "core_commands1.h"
 #include "core_commands2.h"
+#ifdef PX42
+#include "px_commands.h"
+#endif
 #include "core_commands9.h"
 #include "core_display.h"
 #include "core_equations.h"
@@ -859,14 +862,22 @@ static int prall_worker(bool interrupted) {
 }
 
 int docmd_width(arg_struct *arg) {
+#ifdef PX42
+    vartype *v = new_real(PX_GRAPHICS_W);
+#else
     vartype *v = new_real(disp_w);
+#endif
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
     return recall_result(v);
 }
 
 int docmd_height(arg_struct *arg) {
+#ifdef PX42
+    vartype *v = new_real(PX_GRAPHICS_H);
+#else
     vartype *v = new_real(disp_h);
+#endif
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
     return recall_result(v);
@@ -972,12 +983,24 @@ int docmd_nline(arg_struct *arg) {
 }
 
 int docmd_ltop(arg_struct *arg) {
-    mode_lastx_top = !mode_lastx_top;
+    switch (mode_ltop_atop) {
+        case TOP_NONE: mode_ltop_atop = TOP_L; break;
+        case TOP_L: mode_ltop_atop = TOP_NONE; break;
+        case TOP_A: mode_ltop_atop = TOP_LA; break;
+        case TOP_LA: mode_ltop_atop = TOP_A; break;
+        case TOP_AL: mode_ltop_atop = TOP_A; break;
+    }
     return ERR_NONE;
 }
 
 int docmd_atop(arg_struct *arg) {
-    mode_alpha_top = !mode_alpha_top;
+    switch (mode_ltop_atop) {
+        case TOP_NONE: mode_ltop_atop = TOP_A; break;
+        case TOP_L: mode_ltop_atop = TOP_AL; break;
+        case TOP_A: mode_ltop_atop = TOP_NONE; break;
+        case TOP_LA: mode_ltop_atop = TOP_L; break;
+        case TOP_AL: mode_ltop_atop = TOP_L; break;
+    }
     return ERR_NONE;
 }
 

@@ -112,6 +112,7 @@ static void handle_pending_equations() {
         pgm_index saved_prgm = current_prgm;
         current_prgm = peq->idx;
         arg_struct arg;
+        int4 old_peq_pc = peq->pc;
         if (eqd != NULL) {
             arg.type = peq->eval ? ARGTYPE_IND_NUM : ARGTYPE_NUM;
             arg.val.num = eqd->eqn_index;
@@ -123,6 +124,12 @@ static void handle_pending_equations() {
             store_command_after(&peq->pc, CMD_XSTR, &arg, NULL);
         }
         current_prgm = saved_prgm;
+        if (current_prgm == peq->idx && pc >= old_peq_pc) {
+            if (pc == -1)
+                pc = 0;
+            else
+                pc += get_command_length(current_prgm, pc);
+        }
 
         eq_queue = peq->next;
         free(peq->text);
@@ -4524,9 +4531,10 @@ static void paste_programs(const char *buf) {
                             ind = true;
                             if (!nexttoken(hpbuf, tok_end, hpend, &tok_start, &tok_end))
                                 goto line_done;
+                            if (cmd == CMD_LBL)
+                                goto line_done;
+                            goto num_or_string;
                         }
-                        if (cmd == CMD_LBL && ind)
-                            goto line_done;
                         if (tok_end - tok_start == 1) {
                             char c = hpbuf[tok_start];
                             if (c >= 'A' && c <= 'J' || c >= 'a' && c <= 'e') {

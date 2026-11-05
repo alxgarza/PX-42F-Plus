@@ -28,7 +28,10 @@ extern "C" {
  * Call from core 1; never returns. Core 0 is parked first (see
  * power_core0_poll()). If the power manager refuses the request, the chip
  * reboots rather than hang. */
-void power_deep_off(uint8_t on_row, uint8_t on_col, uint64_t splash_until_ms);
+void power_deep_off(uint8_t on_row, uint8_t on_col, uint64_t splash_until_ms, uint64_t next_alarm_ms);
+
+/* The boot from off was for an alarm coming due (next_alarm_ms; 0 = none). */
+bool power_woke_for_alarm(void);
 
 /* Call first thing at boot, from main() (core 0, core 1 not started). If
  * this is one of the timer wakes while off, measures the clock's oscillator

@@ -116,6 +116,10 @@ add_executable(PX-42F-Plus
         bootlog.c
         appdec.c
         appfile.c
+        soundname.c
+        timemodule.c
+        alarms.c
+        stopwatch.c
         alphakeys.c
         icons.c
         ${FREE42_CORE_SOURCES}
@@ -204,6 +208,9 @@ target_compile_definitions(PX-42F-Plus PRIVATE
 # The restart-into-the-bootloader request goes through main.c first (see
 # __wrap_rom_reset_usb_boot_extra there).
 target_link_options(PX-42F-Plus PRIVATE -Wl,--wrap=rom_reset_usb_boot_extra)
+# Plus42's display_error(), C++ name: the error sound, without touching the
+# core (__wrap__Z13display_errori in free42_app.cc).
+target_link_options(PX-42F-Plus PRIVATE -Wl,--wrap=_Z13display_errori)
 
 pico_generate_pio_header(PX-42F-Plus ${CMAKE_CURRENT_LIST_DIR}/irtx.pio)
 

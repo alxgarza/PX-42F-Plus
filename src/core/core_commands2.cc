@@ -28,6 +28,9 @@
 #include "core_math2.h"
 #include "core_parser.h"
 #include "core_sto_rcl.h"
+#ifdef PX42
+#include "px_commands.h"
+#endif
 #include "core_variables.h"
 #include "shell.h"
 
@@ -852,6 +855,10 @@ int docmd_xtoa(arg_struct *arg) {
 }
 
 int docmd_agraph(arg_struct *arg) {
+#ifdef PX42
+    if (!px_graphics_memory())
+        return ERR_INSUFFICIENT_MEMORY;
+#endif
     switch (stack[sp]->type) {
         case TYPE_REAL: {
             if (stack[sp - 1]->type == TYPE_REAL) {
@@ -893,6 +900,10 @@ int docmd_agraph(arg_struct *arg) {
 }
 
 static void pixel_helper(phloat dx, phloat dy) {
+#ifdef PX42
+    px_pixel(dx, dy);
+    return;
+#endif
     dx = dx < 0 ? -floor(-dx + 0.5) : floor(dx + 0.5);
     dy = dy < 0 ? -floor(-dy + 0.5) : floor(dy + 0.5);
     int w1 = disp_w + 1;
@@ -920,6 +931,10 @@ static void pixel_helper(phloat dx, phloat dy) {
 }
 
 int docmd_pixel(arg_struct *arg) {
+#ifdef PX42
+    if (!px_graphics_memory())
+        return ERR_INSUFFICIENT_MEMORY;
+#endif
     if (stack[sp]->type == TYPE_REAL) {
         if (stack[sp - 1]->type == TYPE_REAL) {
             pixel_helper(((vartype_real *) stack[sp])->x,
@@ -1574,6 +1589,9 @@ int docmd_prstk(arg_struct *arg) {
                         print_wide(nbuf, nlen, sbuf, s->length + 2);
                         free(sbuf);
                     }
+                } else if (stack[i]->type == TYPE_LIST) {
+                    len = full_list_to_string(stack[i], buf, 100);
+                    print_wide(nbuf, nlen, buf, len);
                 } else {
                     len = vartype2string(stack[i], buf, 100);
                     print_wide(nbuf, nlen, buf, len);
@@ -1596,6 +1614,9 @@ int docmd_prstk(arg_struct *arg) {
                     print_wide(title[i], 2, sbuf, s->length + 2);
                     free(sbuf);
                 }
+            } else if (stack[index[i]]->type == TYPE_LIST) {
+                len = full_list_to_string(stack[index[i]], buf, 100);
+                print_wide(title[i], 2, buf, len);
             } else {
                 len = vartype2string(stack[index[i]], buf, 100);
                 print_wide(title[i], 2, buf, len);
@@ -1666,6 +1687,12 @@ int docmd_prx(arg_struct *arg) {
             bool left = len > (flags.f.double_wide_print ? 12 : 24);
             print_lines(text, len + 1 + u->length, left);
             free(text);
+        } else if (stack[sp]->type == TYPE_LIST && arg == NULL) {
+            char buf[100];
+            int len;
+            len = full_list_to_string(stack[sp], buf, 100);
+            bool left = len > (flags.f.double_wide_print ? 12 : 24);
+            print_lines(buf, len, left);
         } else {
             char buf[100];
             int len;

@@ -33,6 +33,7 @@
 #include "app.h"
 #include "rtc.h"
 #include "settings.h"
+#include "alarms.h"
 #include "settings_menu.h"
 #include "sounds.h"
 #include "statefs.h"
@@ -150,6 +151,7 @@ bool rtc_set_measured(void) {
     return false;
 }
 
+void rtc_set_trim(int tenths) { px_settings.time_trim = (int16_t) tenths; }
 void rtc_apply_trim(void) {
 }
 
@@ -221,6 +223,13 @@ void free42_set_formats(uint8_t date_format, bool clock_24h) {
 void free42_set_printer(bool on) {
 }
 
+void free42_set_quiet(bool quiet) {
+}
+
+bool free42_quiet(void) {
+    return false;
+}
+
 void free42_save_state(const char *path) {
 }
 
@@ -271,6 +280,12 @@ int statefs_list_files(const char *dir, const char *ext, char *names, size_t nam
     static const char *const raw[] = {"ALL", "Calendar", "QUAD", "Rocket-Science"};
     if (strcmp(dir, PROGRAMS_DIR) == 0)
         return list(raw, 4, names, name_size, max);
+    static const char *const wavs[] = {"BOOT", "ERROR", "OFF", "ON", "Rooster"};
+    static const char *const songs[] = {"Canon"};
+    if (strcmp(dir, SOUNDS_DIR) == 0)
+        return list(wavs, 5, names, name_size, max);
+    if (strcmp(dir, MIDI_DIR) == 0)
+        return list(songs, 1, names, name_size, max);
     return 0;
 }
 
@@ -374,6 +389,14 @@ void sounds_play_tone(int tone, bool wait) {
 void sounds_stop(void) {
 }
 
+bool sounds_play_file(const char *path, bool wait) {
+    return true;
+}
+
+int sounds_midi_play(const char *path) {
+    return 0;
+}
+
 void sounds_wait(void) {
 }
 
@@ -389,6 +412,10 @@ const char *app_run(const char *dir, const char *name, bool *power_off) {
 }
 
 int main(int argc, char **argv) {
+    /* Something to show in Settings -> Alarms. */
+    alarms_add(1893456000000ULL + 8 * 3600000, 0, "Call the vet", 12, 0);
+    alarms_add(1893542400000ULL + 7 * 3600000, 24 * 3600000, "\136\136BACKUP", 8, 0);
+
     if (argc < 2) {
         fprintf(stderr, "usage: %s <out_dir> <script words...>\n", argv[0]);
         return 2;
@@ -403,6 +430,7 @@ int main(int argc, char **argv) {
             .key_sound = "Typewriter",
             .on_sound = true,
             .off_sound = true,
+            .error_sound = true,
             .date_format = RTC_WMD,
             .clock_24h = false,
     };

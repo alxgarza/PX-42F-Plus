@@ -16,17 +16,18 @@ extern "C" {
  * a computer; free42_app.cc describes the core's state and does what it
  * says.
  *
- * In every mode, SHIFT then R/S: the next mode.
+ * In every mode, ALPHA (SHIFT then ENTER): the next mode -- not out of
+ * ALPHA, as on the HP-42S; EXIT leaves it.
  *
  * In [a] and [A]:
  *   - the ALPHA menu's first page (the groups of letters) is hidden
- *     (alpha_menu_hidden()); the arrows type '=' and '$' there. SHIFT shows
- *     it, and the arrows page it then. The second page and a group's menu
- *     are drawn: the arrows page them, the top row picks without SHIFT,
- *     and a pick from a group goes back to the hidden first page;
+ *     (alpha_menu_hidden()); SHIFT shows it. The arrows page the menu,
+ *     SHIFT or not. The second page and a group's menu are drawn: the top
+ *     row picks without SHIFT, and a pick from a group goes back to the
+ *     hidden first page;
  *   - a picked letter is lowercase in [a] (SHIFT set for the core), a
  *     capital in [A] -- lowercase with SHIFT;
- *   - R/S alone types '?' (to run a program, leave ALPHA);
+ *   - R/S types '?', with SHIFT too (to run a program, leave ALPHA);
  *   - SHIFT then a digit key: the digit; the four arithmetic keys: their
  *     symbols; the dot key: '.' (alone it types ',', as on the HP-41C);
  *     I J K L M N O: pi ( ) " < > ^; STO and RCL: ASTO and ARCL (the core's

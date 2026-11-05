@@ -1,4 +1,5 @@
 #include "power.h"
+#include "retained.h"
 
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
@@ -197,8 +198,12 @@ static void __attribute__((noreturn)) power_down(uint wake_pin, uint64_t alarm_m
 
 /* The next wake: RECAL_MS from now -- or while the splash shows, the start
  * of the next minute or the end of the splash, if sooner. */
+#define NEXT_ALARM (*(volatile uint64_t *) RETAINED_NEXT_ALARM)
+
 static uint64_t next_wake(uint64_t now_ms, uint64_t until_ms) {
     uint64_t wake = now_ms + RECAL_MS;
+    if (NEXT_ALARM != 0 && NEXT_ALARM < wake)
+        wake = NEXT_ALARM > now_ms + 100 ? NEXT_ALARM : now_ms + 100; /* one already due: a moment from now */
     if (until_ms != 0) {
         uint64_t next_minute = (now_ms / 60000 + 1) * 60000;
         uint64_t splash = until_ms < next_minute ? until_ms : next_minute;
@@ -213,7 +218,8 @@ static void set_until(uint64_t until_ms) {
     powman_hw->scratch[SCRATCH_UNTIL_H] = (uint32_t) (until_ms >> 32);
 }
 
-void power_deep_off(uint8_t on_row, uint8_t on_col, uint64_t splash_until_ms) {
+void power_deep_off(uint8_t on_row, uint8_t on_col, uint64_t splash_until_ms, uint64_t next_alarm_ms) {
+    NEXT_ALARM = next_alarm_ms;
     speaker_stop(); /* core 0 plays sounds, and is about to be parked for good */
     watchdog_enable(OFF_SAFETY_WATCHDOG_MS, true);
     if (splash_until_ms == 0)
@@ -256,6 +262,7 @@ void power_deep_off(uint8_t on_row, uint8_t on_col, uint64_t splash_until_ms) {
 
 /* This boot is from a power-down (power_woke_from_off()). */
 static bool from_off;
+static bool for_alarm;
 
 bool power_off_wake(void) {
     /* CHIP_RESET records POWMAN's last reset, and a flash or a crash's
@@ -282,6 +289,10 @@ bool power_off_wake(void) {
     uint wake_pin = keyboard_arm_wake_key(on_row, on_col);
     if (!gpio_get(wake_pin))
         return false; /* ON is down already: turn on, an ordinary boot */
+    if (NEXT_ALARM != 0 && powman_timer_get_ms() >= NEXT_ALARM) {
+        for_alarm = true;
+        return false; /* an alarm: the whole calculator is needed */
+    }
 
     watchdog_enable(OFF_SAFETY_WATCHDOG_MS, true);
     settings_load(); /* the clock trim, and the date and time formats for the clock bar */
@@ -316,4 +327,8 @@ void power_update_mode(void) {
 
 bool power_woke_from_off(void) {
     return from_off;
+}
+
+bool power_woke_for_alarm(void) {
+    return for_alarm;
 }

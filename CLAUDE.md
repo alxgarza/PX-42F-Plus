@@ -7,16 +7,20 @@ everything else at the top level is the board: display, keyboard, power, USB, st
 The sister repo PX-42F (remote `px42f`) runs Free42 on the same board: board-code fixes
 can be cherry-picked between them.
 
+- The Catalog's PX42 page (up from FCN...): its tabs and commands are `PX_CATALOG` in `tools/px_core_tables.py` (the script refuses a command missing from it), what a soft key shows of a long name is `SOFT_KEYS` (Plus42's way: the other letters marked with bit 7 in the table, `draw_key()` leaves them out, program lines and XEQ don't), the sections `CATSECT_PX` from 100, generated into `core_tables.*`; the rest is `PX42` patches in `core_display.cc` and `core_keydown.cc` wherever Plus42 names its catalog sections. A section it doesn't know is read as a variable and crashes: `tests/test_catalog.cc` presses the keys on the real core (binary math, the commands stood in for).
 - PX changes to the core, kept small so a new Plus42 can be dropped in: `my_fopen` etc.
   (`core_main.cc`) and 5 rows (`core_main.cc`) and ATOP (`core_globals.cc`) at Memory Clear under `PX42`, the screen hooks under `PX42`
-  in `core_display.cc`, SETDATE/SETIME (`core_commands7.cc`, `core_tables.*`,
-  `shell.h`). `free42_app.cc` and `shell.cc` are the PX's own (names kept from the Free42
+  in `core_display.cc`, SETDATE/SETIME (`core_commands7.cc`, `shell.h`), and the commands
+  in `core_tables.*`. Those two files are generated: `tools/px_core_tables.py` (its `COMMANDS` list)
+  appends the PX's commands to Plus42's, so never edit them or merge them; `tests/run.sh` checks
+  them. New commands' handlers go in `px_commands.cc` (the shapes: PEN, BOX, DLINE, ELLIPSE, POLYGON, on the panel's 250 x 122, from 1,1 as Plus42 counts (apps: 0,0), in two layers over everything (`px_layer.c`, `free42_shape_canvases()`), as long as `mode_message_lines` lasts, the status bar hidden meanwhile; PIXEL, AGRAPH use it too, and WIDTH, HEIGHT say 250, 122: PX42 patches in `pixel_helper()`, `docmd_pixel`, `docmd_agraph` (`core_commands2.cc`), `draw_pattern()` (`core_display.cc`), `docmd_width/height` (`core_commands9.cc`); USB PRLCD still prints Plus42's own bitmap, so not these; the Time Module's clock: CLKT, CLKTD, CLOCK, CORRECT, RCLAF, SETAF, T+X; the alarms: XYZALM, ALMCAT, ALMNOW, CLALMA, CLALMX, CLRALMS, RCLALM; the stopwatch: SW, SWPT, RUNSW, STOPSW, SETSW, RCLSW; PLAYWAV and PLAYMID start and go on; SNDWAIT waits, interruptibly; STOPSND; R/S stops them, key sounds don't: `sounds_file_playing()`, `free42_key_down()`). Names at most 7
+  letters (XEQ types no more; the script refuses longer), no parameter (XROM-coded; a name comes from
+  ALPHA), the HP-41 Time Module's own XROM codes (`a680` + n for 26,n), or for the PX's own commands XROM 0 (`a000` + n, from 0,1; no HP-41 module uses it, and Thomas Okken has left it to the PX). If Plus42 ever takes a code of ours the script stops and ours moves. `free42_app.cc` and `shell.cc` are the PX's own (names kept from the Free42
   port). Plus42 needs C++ exceptions (`std::bad_alloc`) and `PICO_MALLOC_PANIC=0`.
 - Plus42 can't read Free42 `.f42` states (different magic); state files are `.p42`.
-- Now Plus42 1.5.1 (`PLUS42_VERSION` in `settings_menu.c`, the Info screen). Updating: in
+- Now Plus42 1.5.2 (`PLUS42_VERSION` in `settings_menu.c`, the Info screen). Updating: in
   `plus42-upstream/` fetch the tag, `git merge-file` each changed `common/` file into `src/core/`
-  (old tag = base), fast-forward its master. Expect `core_tables.*` to conflict whenever new
-  commands come: take Plus42's block and add SETDATE/SETIME back at the end of the table.
+  (old tag = base), but not `core_tables.*`: fast-forward its master, then run `tools/px_core_tables.py`.
 
 ## Build
 
@@ -34,8 +38,10 @@ can be cherry-picked between them.
   touching any of them — they read files users drop on the drive, and a parser bug there
   freezes or resets the calculator. It also builds `tests/test_alphakeys.c`: the ALPHA keyboard's
   rules (`alphakeys.c`) key by key in [ ] / [a] / [A] -- run it after touching them. And
-  `tests/test_hp82240.c`: the HP 82240B printer's bytes and IR frames (`hp82240.c`).
-- User manual: `manual.html` (the screen, fonts, settings; not a Plus42/HP-42S manual), built by
+  `tests/test_hp82240.c`: the HP 82240B printer's bytes and IR frames (`hp82240.c`). And `tests/test_time.c`:
+  the Time Module's numbers (`timemodule.c`), the accuracy factor's above all, and the clock's display.
+- Graphics demo: `demos/PXGRAPH.raw`, written by `tools/make_graph_demo.py` from Plus42's command table; `--preview DIR` decodes the bytes and draws each page to a PNG with the real `px_draw.c`, `px_layer.c`.
+- User manual: `manual.html` (the screen, fonts, settings, the added commands: a new command gets a row in section 11; not a Plus42/HP-42S manual), built by
   `python3 tools/manual/make_manual.py` from `tools/manual/manual.template.html`. Rebuild it after
   changing a settings screen. Its settings screenshots come from `tools/menu_shots/run.sh`: the
   real `settings_menu.c`, `display_draw.c`, `rtc_format.c`, `splash.c` compiled on the Mac with
@@ -94,13 +100,13 @@ can be cherry-picked between them.
   RAM: a set `KEY/<name>/ENTRY.wav, OP.wav, ENTER.wav` (≤100 ms each; `free42_key_sound()`
   picks typing / operation / ENTER from the calculator's state; built-in set "Typewriter": a letter key, a heavier key, a brighter key) or one
   `KEY/<name>.wav` for every key (≤250 ms), `BOOT.wav` (every start but ON from OFF; no setting, only the file), `ON.wav`, `OFF.wav`, `TONES/TONE0-9.wav`,
-  `ERROR.wav` (Free42's squeak) — those streamed, any length. Any PCM/float WAV, normalized
+  `ERROR.wav` (Free42's squeak, and any error Plus42 shows: `display_error()` wrapped at link time, `refresh()` plays it, Settings → Sounds → Calc Error Sound; flag 26 silences both, Silence Plus42) — those streamed, any length. Any PCM/float WAV, normalized
   and converted on the calculator. Built-ins are the same WAVs embedded in `sounds_data.c`,
   generated by `tools/make_sounds.py` (rerun after changing a sound; `--wav DIR` writes
   them out to listen to; `tools/px_sound/run.sh [DIR] [-ms N] [FILE.wav...]` writes what the speaker
   gets instead: sounds.c's own duty stream as 32 kHz WAVs, default `~/Documents/PX-42F Media/PX Sounds`); any missing from the drive is written at boot, and one still as written
   is updated when its built-in changes (checksums in `/SOUNDS/BUILTIN.TXT`); a built-in plays
-  when its file is missing. Settings → Sounds: Key Sound, On / Off Sound.
+  when its file is missing. Settings → Sounds: Key Sound, On / Off Sound, Calc Error Sound, Silence Plus42.
 - MIDI (`midiplay.c`, no hardware calls, so the host tests build it; glue in `sounds.c`): a Standard MIDI File
   (format 0/1, ≤128 KB, `/MIDI/*.mid`) drives a 24-voice synth, 16 channels, mono. `sounds_midi_play()` (core 1)
   reads the file into a malloc'd buffer, `midi_open()` finds the tracks and plays the events once without sound for
@@ -131,7 +137,7 @@ can be cherry-picked between them.
   `font_10x16.png` and regenerates `font_10x16_data.c` (edit them there, not in the sheet).
   Plus42's header line (`{ HOME }` path, flags, BASE/TVM) is shown in the 12 px status bar
   instead (`display_header_text()`), or with HEADER off the date and time; right to left:
-  battery, angle (° π G: ∡ is HPOLAR's), shift, ↑↓, ▶ running. The core's `HEADER_SHOWN` /
+  battery, angle (° π G: ∡ is HPOLAR's), shift, ↑↓, ▶ running, bell, printer (Plus42's annunciator 3, `print_icon`: while sending, off about 250 ms after the last line; the header gives way only then). The core's `HEADER_SHOWN` /
   `HEADER_ROWS` (PX42, `core_display.h`): the header takes no display row. Skin flags 3: CATALOG's first row is
   FCN … MEM, as on the HP-42S. Every font code is the HP-42S character (0-31: ÷ × √ ∫ ▒ Σ ▶
   π ¿ ≤ LF ≥ ≠ ↵ ↓ → ← µ £ ° Å Ñ Ä ∡ ᴇ Æ … Esc Ö Ü ^ •; 94 ↑, 126 ~).
@@ -151,14 +157,24 @@ can be cherry-picked between them.
 - ALPHA keyboard, as the DM42's: the rules in `alphakeys.c` (no core calls; `free42_app.cc`'s `alpha_state()`
   describes the core, `free42_key_down()` does what `alpha_key()` returns), the tables in `keymap.h`
   (also the menu_shots tool's). `px_settings.alpha_mode` [ ] HP-42S keys /
-  [a] / [A] the printed letters (`alpha_key_matrix`); SHIFT then R/S switches, remembered
-  (`settings_save_later()`), badge in the status bar. In [a]/[A]: the dot key types ',' (SHIFT+dot '.'),
-  the arrows '=' (up) and '$' (down) while the ALPHA menu's first page is hidden (`alpha_menu_hidden()`:
-  not drawn in [a]/[A] unless SHIFT is down; page 2 and the group menus are drawn, the arrows page them and the top row works them without SHIFT; a pick from a group goes back to the first page, hidden),
+  [a] / [A] the printed letters (`alpha_key_matrix`); ALPHA (SHIFT then ENTER) in ALPHA switches -- it doesn't
+  leave ALPHA there, EXIT does; remembered (`settings_save_later()`), badge in the status bar. In [a]/[A]: the dot key types ',' (SHIFT+dot '.'),
+  the ALPHA menu's first page is hidden (`alpha_menu_hidden()`: not drawn in [a]/[A] unless SHIFT is down;
+  the arrows page the menu, SHIFT or not; page 2 and the group menus are drawn and the top row works them
+  without SHIFT; a pick from a group goes back to the first page, hidden; the panel has no = $ on the arrows),
   SHIFT+STO/RCL = ASTO/ARCL, SHIFT+I..O = π ( ) " < > ^, SHIFT+other letter = same letter,
-  SHIFT+digit = digit, SHIFT+÷×−+ = symbol, R/S types '?' (it doesn't run there), SHIFT+top row = soft key, SHIFT+arrow = the menu's page.
+  SHIFT+digit = digit, SHIFT+÷×−+ = symbol, R/S and SHIFT+R/S type '?' (they don't run there), SHIFT+top row = soft key.
   First ALPHA ever starts in [ ], and RESET (Memory Clear) puts it back there; numeric local labels (LBL 01) need [ ].
-- Settings menu (`settings_menu.c`, SHIFT+EXIT): Off, Games & Apps, Date & Time, Sounds, Fonts, Sleep Timer,
+- Alarms (HP-41 Time Module; manual: HP-41CX vol. 2, section 16, appendix B): the table and its rules in `alarms.c` (no
+  hardware, `tests/test_time.c`), what each kind does in `alarm_service()` (`free42_app.cc`, from `free42_service()`, so between a
+  program's slices and never in settings or apps). No core patch: a control alarm in a running program is `docmd_xeq()` (a real
+  subroutine), at the keyboard `core_keydown_command(name, 1)`, so labels must be ASCII. In RAM, `/ALARMS.DAT` written at OFF
+  (`alarms_save()`), read at boot, deleted by Memory Clear. While off: `RETAINED_NEXT_ALARM` (`retained.h`) is in `next_wake()`; when due,
+  `power_off_wake()` boots fully, `power_woke_for_alarm()`, and it turns itself off afterwards unless a key was pressed. Bell in the status bar
+  (`icon_bell()`) when any is set, Settings -> Alarms lists, deletes and picks each alarm's sound (`alarm_t.sound`: Plus42's tones, `/SOUNDS/*.wav` or `/MIDI/*.mid`; `alarm_sound()` falls back to the tones if the file is gone, and a song outlasts the 20 s). Not done from the HP-41: past-due alarms activating at OFF, the
+  bypassed-alarm order, the catalog's T/D/R keys, catalog-2 function names. Unverified on the hardware.
+- Stopwatch (HP-41 Time Module; manual: HP-41CX vol. 2, section 17): the rules in `stopwatch.c` (no hardware; the clock passed in, the registers as functions; `tests/test_time.c`), the keys and the top line in `free42_app.cc`, REGS and the commands in `px_commands.cc`. SW/SWPT return ERR_INTERRUPTIBLE, and `free42_service()` doesn't call the core while `sw_showing`, so the keys are all the stopwatch's and a program goes on after EXIT. Counts from the always-on clock, so it runs through OFF; `rtc.c` tells it when the clock is set (`stopwatch_clock_moved()`). `/STOPWATCH.DAT` written at OFF if changed, deleted by Memory Clear. A negative time's zero is in `next_alarm_ms()`: it wakes the calculator from OFF, and shows as `ALARM_TIMER`, not in the alarm table. Unverified on the hardware.
+- Settings menu (`settings_menu.c`, SHIFT+EXIT): Off, Games & Apps, Date & Time, Alarms, Sounds, Fonts, Sleep Timer,
   Splash (Timer, Image), Printer, States (save/load/rename/delete), Programs (Plus42 `.raw`
   files in `/PROGRAMS`: import, export one or all, delete; `free42_*_programs()` around the core's
   own import/export, the current directory's programs; `shell_message()` flags a file error),
@@ -182,26 +198,29 @@ can be cherry-picked between them.
   `pxbin.py`; `sim/` = the app on the Mac against a stand-in table, PNG shots; VS Code tasks),
   `../PX-42F-Snake`, `../PX-42F-Gold-Runner` (a Lode Runner clone: levels in `levels/builtin.txt`, `LEVELS.TXT` on the drive replaces them), `../PX-42F-IR-Remote` (all public on GitHub, alxgarza/PX-42F-*; the framework's `tools/sync_framework.sh` keeps their `px42f/` and `sim/` the same as the template's and `px_app.h` as this repo's) (the IR remote, moved out of the firmware: `.ir` files
   in `/BIN/APPS/IR`, Flipper's 14 protocols, `make test` against Flipper's encoders). After
-  changing `px_app.h`, copy it into each project's `px42f/`. API version 3 added `on_key()`
+  changing `px_app.h`, copy it into each project's `px42f/`. API version 5 added the shapes (`box`, `ellipse`, `thick_line`, `polygon`): `px_draw.c` draws into any `px_canvas_t`, so Plus42 can use it for its own display later; `tests/test_draw.c` has them as pictures; the template's `sim/` has a copy (`sync_framework.sh`). API version 3 added `on_key()`
   (a short ON press as `PX_KEY_ON` for an app with its own exit; held 2 s still off), version 2
   decimal numbers (`appdec.c`): `px_dec_t` is a `BID_UINT128`, each `PX_DEC_*` op one call into the
   libbid Plus42 already links (by reference, global rounding/flags -- Plus42 never reads the
   flags nor changes the rounding, and apps can't), so they cost almost no flash. The
   simulator's stand-in is doubles (`sim/sim_dec.c`). Also `../PX-42F-MIDI-Player` (the MIDI player, local git only so far), `../PX-42F-Tiny-BASIC`, PX-BASIC (Palo
-  Alto Tiny BASIC on those decimals; `make test` runs programs on the Mac).
+  Alto Tiny BASIC on those decimals; `make test` runs programs on the Mac), `../PX-42F-Spreadsheet`
+  (SPREADSHEET: A1-Z999, Excel's formulas on those decimals, CSV sheets in its folder; local git only;
+  `make test` runs the engine on the Mac).
 - IR LED (GP14, high = on, through a transistor): driven by PIO0 (`irtx.c`/`irtx.pio`), not
   PWM: GP14 shares PWM slice 7 with the speaker. PIO0's clock is on only while sending. Apps
   send (`px->ir_send()`), and so does the HP 82240B printer (Settings → Printer): `hp82240.c`
   makes its bytes (text in ISO 8859-1, characters it lacks as graphics cut from Plus42's print
-  bitmap; PRLCD per `screen_print` (Settings → Printer → HP 82240B → Screen Print): Upright = `free42_draw_paper()`
+  bitmap; PRLCD per `screen_print` (Settings → Printer → HP 82240B → Screen Print): Portrait (`SCREEN_PRINT_UPRIGHT`) = `free42_draw_paper()`
   redraws the screen into the framebuffer's top left in font_mini (header bar, lines, dotted lines,
-  Plus42's own menu row; only ≤27 columns, not plots), sent as rows across (~9 lines); As It Is (and
+  Plus42's own menu row; only ≤27 columns, not plots), sent as rows across (~9 lines); Landscape (`SCREEN_PRINT_AS_IS`, and
   whatever doesn't fit) = the panel's framebuffer, redrawn by `free42_draw_screen()`, turned a quarter
   as Plus42 turns a too-wide display, 32 lines of 8 dot columns; the screen is redrawn after either) and frames (HP's "Technical Interfacing Guide", in
   `tests/test_hp82240.c`); `irtx_send_redeye()` sends them with irtx.pio's `redeye` program,
   every half-bit exactly 448 cycles (the printer allows 1%); `printer.c` paces them to the
-  printer's 200-byte buffer at 1.8 s a line (it can't answer), blocking core 1. Unverified on
-  a printer. No IR receiver on the board (learning codes would need one).
+  printer's 200-byte buffer at 1.8 s a line (it can't answer): a listing waits in `free42_service()`
+  (`printer_ready()`), the keys still read, EXIT stops it; PRLCD blocks core 1 until it's sent or EXIT/R/S stops it between lines (`free42_print_stop()`, a key already held when it began doesn't count). The user has
+  printed on the real printer: PRP, PRLCD and stopping it work. No IR receiver on the board (learning codes would need one).
 - Battery: GP28/ADC2, 1M/1M divider. Free: GP23-25, 29.
 
 ## Architecture
@@ -315,7 +334,9 @@ can be cherry-picked between them.
   formats it on request). The calculator powers off by itself below
   ~3.45 V (`battery_empty()`; the ADC can't read lower: it measures against the 3.3 V rail).
 - Console writes time out after 50 ms (`PICO_STDIO_USB_STDOUT_TIMEOUT_US`): the SDK's
-  500 ms default outlasts the 100 ms watchdog.
+  500 ms default outlasted the watchdog's 100 ms then.
+- The watchdog's window is 5 s (`WATCHDOG_MS`), not the 100 ms it was: one Plus42 command runs to its end
+  without coming back (2000 N! reset the calculator, COMB has a longer loop). Apps' contract (`px_app.h`) stays 100 ms.
 - picotool's reboot-to-BOOTSEL is the boot ROM arming the watchdog for 10 ms; core 1 feeding
   the watchdog postponed it forever (flashing needed retries or the BOOT button). main.c wraps
   `rom_reset_usb_boot_extra` (`--wrap`) to stop core 1 first.

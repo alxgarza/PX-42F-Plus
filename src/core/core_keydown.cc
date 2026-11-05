@@ -449,7 +449,11 @@ static void keydown2(int shift, int key) {
         int sect = get_cat_section();
         switch (sect) {
             case CATSECT_TOP:
+#ifdef PX42
+                sect = key == KEY_UP ? CATSECT_PX : CATSECT_MORE;
+#else
                 sect = key == KEY_UP ? CATSECT_EXT_2 : CATSECT_MORE;
+#endif
                 break;
             case CATSECT_MORE:
                 sect = key == KEY_UP ? CATSECT_TOP : CATSECT_EXT_1;
@@ -458,8 +462,16 @@ static void keydown2(int shift, int key) {
                 sect = key == KEY_UP ? CATSECT_MORE : CATSECT_EXT_2;
                 break;
             case CATSECT_EXT_2:
+#ifdef PX42
+                sect = key == KEY_UP ? CATSECT_EXT_1 : CATSECT_PX;
+                break;
+            case CATSECT_PX:
+                sect = key == KEY_UP ? CATSECT_EXT_2 : CATSECT_TOP;
+                break;
+#else
                 sect = key == KEY_UP ? CATSECT_EXT_1 : CATSECT_TOP;
                 break;
+#endif
             case CATSECT_UNITS_1:
                 sect = key == KEY_UP ? CATSECT_UNITS_3 : CATSECT_UNITS_2;
                 break;
@@ -1229,6 +1241,17 @@ void keydown_command_entry(int shift, int key) {
                 move_cat_row(0);
                 redisplay();
                 return;
+#ifdef PX42
+            } else if (catsect == CATSECT_PX) {
+                if (menukey >= PX_CAT_TABS) {
+                    squeak();
+                    return;
+                }
+                set_cat_section(CATSECT_PX_TAB + menukey);
+                move_cat_row(0);
+                redisplay();
+                return;
+#endif
             } else if (catsect == CATSECT_EXT_1) {
                 switch (menukey) {
                     case 0: set_cat_section(CATSECT_EXT_TIME); break;
@@ -1388,6 +1411,9 @@ void keydown_command_entry(int shift, int key) {
                 pending_command_arg.type =
                             incomplete_ind ? ARGTYPE_IND_STR : ARGTYPE_STR;
                 if (catsect == CATSECT_FCN
+#ifdef PX42
+                        || PX_CAT_TAB(catsect)
+#endif
                         || catsect >= CATSECT_EXT_TIME && catsect <= CATSECT_EXT_MISC) {
                     const command_spec *cs = &cmd_array[itemindex];
                     string_copy(pending_command_arg.val.text, &pending_command_arg.length, cs->name, cs->name_length);
@@ -1478,6 +1504,11 @@ void keydown_command_entry(int shift, int key) {
                     && catsect <= CATSECT_UNITS_VISC) {
                 set_cat_section(CATSECT_UNITS_3);
                 redisplay();
+#ifdef PX42
+            } else if (PX_CAT_TAB(catsect)) {
+                set_cat_section(CATSECT_PX);
+                redisplay();
+#endif
             } else if (catsect == CATSECT_EXT_TIME
                     || catsect == CATSECT_EXT_XFCN
                     || catsect == CATSECT_EXT_BASE
@@ -2200,6 +2231,11 @@ void keydown_command_entry(int shift, int key) {
                         && catsect == CATSECT_FCN) {
                     set_catalog_menu((skin_flags & 1) == 0 ? CATSECT_MORE : CATSECT_TOP);
                     redisplay();
+#ifdef PX42
+                } else if (mode_commandmenu == MENU_CATALOG && PX_CAT_TAB(catsect)) {
+                    set_catalog_menu(CATSECT_PX);
+                    redisplay();
+#endif
                 } else if (mode_commandmenu == MENU_CATALOG
                         && (catsect == CATSECT_EXT_TIME
                                 || catsect == CATSECT_EXT_XFCN
@@ -2325,6 +2361,9 @@ void keydown_command_entry(int shift, int key) {
                             || catsect == CATSECT_MORE
                             || catsect == CATSECT_EXT_1
                             || catsect == CATSECT_EXT_2
+#ifdef PX42
+                            || catsect == CATSECT_PX
+#endif
                             || catsect == CATSECT_PGM_ONLY
                             || catsect == CATSECT_REAL_ONLY
                             || catsect == CATSECT_MAT_ONLY
@@ -3253,6 +3292,18 @@ void keydown_normal_mode(int shift, int key) {
                     move_cat_row(0);
                     redisplay();
                     return;
+#ifdef PX42
+                } else if (catsect == CATSECT_PX) {
+                    if (menukey >= PX_CAT_TABS) {
+                        pending_command = CMD_NULL;
+                        return;
+                    }
+                    print_menu_trace(px_cat_tabs[menukey].title, px_cat_tabs[menukey].title_length);
+                    set_cat_section(CATSECT_PX_TAB + menukey);
+                    move_cat_row(0);
+                    redisplay();
+                    return;
+#endif
                 } else if (catsect == CATSECT_EXT_1) {
                     switch (menukey) {
                         case 0:
@@ -3380,6 +3431,9 @@ void keydown_normal_mode(int shift, int key) {
                         pending_command_arg.val.text[i] =
                                                 dir->labels[labelindex].name[i];
                 } else if (catsect == CATSECT_FCN
+#ifdef PX42
+                        || PX_CAT_TAB(catsect)
+#endif
                         || catsect >= CATSECT_EXT_TIME && catsect <= CATSECT_EXT_X_CMP) {
                     int cmd;
                     if (!get_cat_item(menukey, NULL, &cmd) || cmd == CMD_NULL) {
@@ -3940,6 +3994,10 @@ void keydown_normal_mode(int shift, int key) {
                     set_cat_section(CATSECT_MORE);
                 else if (catsect == CATSECT_FCN)
                     set_cat_section((skin_flags & 1) == 0 ? CATSECT_MORE : CATSECT_TOP);
+#ifdef PX42
+                else if (PX_CAT_TAB(catsect))
+                    set_cat_section(CATSECT_PX);
+#endif
                 else if (catsect >= CATSECT_EXT_TIME
                         && catsect <= CATSECT_EXT_STK)
                     set_cat_section(CATSECT_EXT_1);

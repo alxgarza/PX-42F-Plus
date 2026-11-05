@@ -81,6 +81,9 @@ bool sounds_play_file(const char *path, bool wait);
 #define SOUNDS_MIDI_NO_MEMORY (-4)
 int sounds_midi_play(const char *path);
 
+/* A song, or a file from sounds_play_file(), is playing: no key sound cuts it. */
+bool sounds_file_playing(void);
+
 /* While a song plays: its length, how far it has got (ms), the channels
  * sounding (bit n = channel n+1), the notes sounding. False if none does. */
 bool sounds_midi_status(uint32_t *length_ms, uint32_t *elapsed_ms, uint32_t *channels, uint32_t *voices);

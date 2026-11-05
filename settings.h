@@ -29,8 +29,8 @@ typedef struct {
     uint8_t printer;         /* printer_target_t (printer.h): where Free42 prints */
     char key_sound[KEY_SOUND_NAME_MAX + 1]; /* sound on every keypress: /SOUNDS/KEY/<name>.wav
                                              * or the built-in of that name; "" = off */
-    bool unused;             /* was Boot Sound: BOOT.wav plays at every start now. Kept so
-                              * the older versions' records still line up. */
+    bool clock_with_date;    /* CLOCK shows the date too (CLKTD); was Boot Sound, so an older
+                              * version's record can start with it on. */
     bool on_sound;           /* /SOUNDS/ON.wav when turning on with ON */
     bool off_sound;          /* /SOUNDS/OFF.wav when turning off */
     /* Date & Time (rtc.h). The formats are Free42's own too (DMY/MDY/YMD,
@@ -47,6 +47,7 @@ typedef struct {
     char mini_font[FONT_SETTING_MAX + 1];  /* /FONTS/MINI/<name>.png */
     uint8_t alpha_mode;      /* alpha_mode_t: the last one used, the next ALPHA starts in it */
     uint8_t screen_print;    /* screen_print_t (printer.h): PRLCD on the HP 82240B */
+    bool error_sound;        /* /SOUNDS/ERROR.wav when Plus42 shows an error message (free42_app.cc) */
 } px_settings_t;
 
 extern px_settings_t px_settings;

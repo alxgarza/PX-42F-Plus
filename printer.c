@@ -117,6 +117,7 @@ void printer_usb_pump(void) {
 #define IR_BUFFER_BYTES 190
 #define IR_LINE_MS 1800
 #define IR_LINES 64u
+#define IR_TEXT_LINE_BYTES 29 /* 2 escapes, 24 characters, the linefeed; more only with graphics characters */
 static struct {
     uint16_t bytes;
     absolute_time_t printed;
@@ -125,14 +126,47 @@ static uint32_t ir_first, ir_end; /* free-running, like the ring's */
 static int ir_buffered;
 static uint32_t ir_lines_sent, ir_bytes_sent;
 
-static void ir_send_line(const uint8_t *bytes, int n) {
+/* Takes out of the reckoning the lines printed by now. */
+static void ir_forget_printed(void) {
+    while (ir_first != ir_end && time_reached(ir_line[ir_first % IR_LINES].printed)) {
+        ir_buffered -= ir_line[ir_first % IR_LINES].bytes;
+        ir_first++;
+    }
+}
+
+bool printer_ready(void) {
+    ir_forget_printed();
+    return ir_buffered + IR_TEXT_LINE_BYTES <= IR_BUFFER_BYTES;
+}
+
+#define USB_SHOWN_MS 500
+#define IR_SHOWN_MS  250
+static absolute_time_t print_shown_until;
+
+bool printer_will_print(void) {
+    if (px_settings.printer == PRINTER_HP82240B)
+        return true;
+    if (px_settings.printer != PRINTER_USB_SERIAL || !tud_cdc_n_connected(PRINTER_CDC))
+        return false;
+    print_shown_until = make_timeout_time_ms(USB_SHOWN_MS);
+    return true;
+}
+
+bool printer_busy(void) {
+    return !time_reached(print_shown_until);
+}
+
+/* False if stop (it may be NULL) said so while waiting for room, nothing sent.
+ * A line that has begun always goes out whole: cut short, the printer would take
+ * whatever came next for the rest of its graphics (HP's guide). stop is still
+ * asked during it, so a tap in those 2 s isn't missed. */
+static bool ir_send_line(const uint8_t *bytes, int n, bool (*stop)(void)) {
     for (;;) {
-        while (ir_first != ir_end && time_reached(ir_line[ir_first % IR_LINES].printed)) {
-            ir_buffered -= ir_line[ir_first % IR_LINES].bytes;
-            ir_first++;
-        }
+        ir_forget_printed();
         if (ir_buffered + n <= IR_BUFFER_BYTES && ir_end - ir_first < IR_LINES)
             break;
+        if (stop != NULL && stop())
+            return false;
         watchdog_update();
         tight_loop_contents();
     }
@@ -140,7 +174,7 @@ static void ir_send_line(const uint8_t *bytes, int n) {
      * (the speaker's ~200 mA peaks), lost its graphics count, and its dots
      * printed as characters. */
     sounds_wait();
-    irtx_send_redeye(bytes, n);
+    irtx_send_redeye(bytes, n, stop);
 
     /* It prints after the lines before it. */
     absolute_time_t start = get_absolute_time();
@@ -155,24 +189,31 @@ static void ir_send_line(const uint8_t *bytes, int n) {
     ir_buffered += n;
     ir_lines_sent++;
     ir_bytes_sent += (uint32_t) n;
+    print_shown_until = make_timeout_time_ms(IR_SHOWN_MS);
+    return true;
 }
 
 void printer_hp82240b_text(const char *text, int length, const uint8_t *bits, int bytesperline, bool double_wide) {
     uint8_t line[HP82240_LINE_MAX];
-    ir_send_line(line, hp82240_text_line(line, text, length, bits, bytesperline, double_wide));
+    ir_send_line(line, hp82240_text_line(line, text, length, bits, bytesperline, double_wide), NULL);
 }
 
-void printer_hp82240b_screen(void) {
+void printer_hp82240b_screen(bool (*stop)(void)) {
     uint8_t line[HP82240_LINE_MAX];
-    for (int band = 0; band < (DISPLAY_WIDTH + 7) / 8; band++)
-        ir_send_line(line, hp82240_screen_line(line, &display_fb[0][0], DISPLAY_STRIDE, DISPLAY_WIDTH,
-                                               DISPLAY_HEIGHT, band));
+    for (int band = 0; band < (DISPLAY_WIDTH + 7) / 8; band++) {
+        int n = hp82240_screen_line(line, &display_fb[0][0], DISPLAY_STRIDE, DISPLAY_WIDTH, DISPLAY_HEIGHT, band);
+        if (!ir_send_line(line, n, stop) || stop())
+            return;
+    }
 }
 
-void printer_hp82240b_paper(int height) {
+void printer_hp82240b_paper(int height, bool (*stop)(void)) {
     uint8_t line[HP82240_LINE_MAX];
-    for (int band = 0; band < (height + 7) / 8; band++)
-        ir_send_line(line, hp82240_upright_line(line, &display_fb[0][0], DISPLAY_STRIDE, DISPLAY_WIDTH, height, band));
+    for (int band = 0; band < (height + 7) / 8; band++) {
+        int n = hp82240_upright_line(line, &display_fb[0][0], DISPLAY_STRIDE, DISPLAY_WIDTH, height, band);
+        if (!ir_send_line(line, n, stop) || stop())
+            return;
+    }
 }
 
 void printer_report(void) {

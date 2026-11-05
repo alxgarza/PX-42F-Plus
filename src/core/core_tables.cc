@@ -29,6 +29,7 @@
 #include "core_commands9.h"
 #include "core_commandsa.h"
 #include "core_helpers.h"
+#include "px_commands.h"
 
 
 /* rttypes special cases */
@@ -54,7 +55,7 @@
  */
 #define UNIM 0x00
 
-// Available XROMs: a6a5-a6bf
+// Available XROMs: a6ac-a6bf
 // When these run out, look for other ones in
 // https://www.hpmuseum.org/software/xroms.htm
 // Make sure to check any new ranges against the codes already in use
@@ -479,12 +480,18 @@ const command_spec cmd_array[] =
     { /* N_TO_DS */     docmd_n_to_ds,     "N\17DS",              0x00, 0x00, 0xa7, 0x69,  4, ARG_NONE,   1, 1, 0x01 },
     { /* N_TO_DD */     docmd_n_to_dd,     "N\17DD",              0x00, 0x00, 0xa7, 0x6a,  4, ARG_NONE,   1, 1, 0x01 },
     { /* N_TO_DQ */     docmd_n_to_dq,     "N\17DQ",              0x00, 0x00, 0xa7, 0x6b,  4, ARG_NONE,   1, 1, 0x01 },
+    { /* N_TO_PS */     docmd_n_to_ps,     "N\17PS",              0x00, 0x00, 0xa6, 0xa6,  4, ARG_NONE,   1, 1, 0x01 },
+    { /* N_TO_PD */     docmd_n_to_pd,     "N\17PD",              0x00, 0x00, 0xa6, 0xa7,  4, ARG_NONE,   1, 1, 0x01 },
+    { /* N_TO_PQ */     docmd_n_to_pq,     "N\17PQ",              0x00, 0x00, 0xa6, 0xa8,  4, ARG_NONE,   1, 1, 0x01 },
     { /* BS_TO_N */     docmd_bs_to_n,     "BS\17N",              0x00, 0x00, 0xa7, 0x6c,  4, ARG_NONE,   1, 1, 0x11 },
     { /* BD_TO_N */     docmd_bd_to_n,     "BD\17N",              0x00, 0x00, 0xa7, 0x6d,  4, ARG_NONE,   1, 1, 0x11 },
     { /* BQ_TO_N */     docmd_bq_to_n,     "BQ\17N",              0x00, 0x00, 0xa7, 0x6e,  4, ARG_NONE,   1, 1, 0x11 },
     { /* DS_TO_N */     docmd_ds_to_n,     "DS\17N",              0x00, 0x00, 0xa7, 0x6f,  4, ARG_NONE,   1, 1, 0x11 },
     { /* DD_TO_N */     docmd_dd_to_n,     "DD\17N",              0x00, 0x00, 0xa7, 0x70,  4, ARG_NONE,   1, 1, 0x11 },
     { /* DQ_TO_N */     docmd_dq_to_n,     "DQ\17N",              0x00, 0x00, 0xa7, 0x71,  4, ARG_NONE,   1, 1, 0x11 },
+    { /* PS_TO_N */     docmd_ps_to_n,     "PS\17N",              0x00, 0x00, 0xa6, 0xa9,  4, ARG_NONE,   1, 1, 0x11 },
+    { /* PD_TO_N */     docmd_pd_to_n,     "PD\17N",              0x00, 0x00, 0xa6, 0xaa,  4, ARG_NONE,   1, 1, 0x11 },
+    { /* PQ_TO_N */     docmd_pq_to_n,     "PQ\17N",              0x00, 0x00, 0xa6, 0xab,  4, ARG_NONE,   1, 1, 0x11 },
     { /* WSIZE */       docmd_wsize,       "WSIZE",               0x00, 0x00, 0xa7, 0xd3,  5, ARG_NONE,   1, 0, 0x01 },
     { /* WSIZE_T */     docmd_wsize_t,     "WS\311Z\305?",        0x00, 0x00, 0xa7, 0xd4,  6, ARG_NONE,   0, 0, NA_T },
     { /* BSIGNED */     docmd_bsigned,     "BS\311GN\305\304",    0x00, 0x00, 0xa7, 0xd6,  7, ARG_NONE,   0, 0, NA_T },
@@ -500,7 +507,7 @@ const command_spec cmd_array[] =
     { /* ANUM */        docmd_anum,        "ANUM",                0x00, 0x00, 0xa6, 0x42,  4, ARG_NONE,   0, 0, NA_T },
     { /* X_SWAP_F */    docmd_x_swap_f,    "X<>F",                0x00, 0x00, 0xa6, 0x6e,  4, ARG_NONE,   1, 0, 0x01 },
     { /* RCLFLAG */     docmd_rclflag,     "RCLFLAG",             0x00, 0x00, 0xa6, 0x60,  7, ARG_NONE,   0, 0, NA_T },
-    { /* STOFLAG */     docmd_stoflag,     "STOFLAG",             0x00, 0x00, 0xa6, 0x6d,  7, ARG_NONE,  -1, 0, 0x00 },
+    { /* STOFLAG */     docmd_stoflag,     "STOFLAG",             0x00, 0x00, 0xa6, 0x6d,  7, ARG_NONE,   0, 0, FUNC },
 
     /* User-defined functions */
     { /* FUNC */        docmd_func,        "FUNC",                0x01, 0x00, 0xf2, 0xe0,  4, ARG_FUNC,   0, 0, NA_T },
@@ -543,6 +550,7 @@ const command_spec cmd_array[] =
     { /* RE */          docmd_re,          "RE",                  0x00, 0x00, 0xa7, 0x7e,  2, ARG_NONE,   1, 1, 0x0f },
     { /* IM */          docmd_im,          "IM",                  0x00, 0x00, 0xa7, 0x7f,  2, ARG_NONE,   1, 1, 0x0f },
     { /* CONJ */        docmd_conj,        "CONJ",                0x00, 0x00, 0xa6, 0xa4,  4, ARG_NONE,   1, 1, 0x0f },
+    { /* ARG */         docmd_arg,         "ARG",                 0x00, 0x00, 0xa6, 0xa5,  3, ARG_NONE,   1, 1, 0x0f },
     { /* CAPS */        docmd_caps,        "CAPS",                0x42, 0x00, 0x00, 0x00,  4, ARG_NONE,   0, 0, NA_T },
     { /* MIXED */       docmd_mixed,       "Mixed",               0x42, 0x00, 0x00, 0x00,  5, ARG_NONE,   0, 0, NA_T },
     { /* STATIC */      docmd_static,      "STAT\311\303",        0x42, 0x00, 0x00, 0x00,  6, ARG_NONE,   0, 0, NA_T },
@@ -762,8 +770,75 @@ const command_spec cmd_array[] =
     { /* LIFE */        docmd_life,        "LIFE",                0x00, 0x00, 0xa7, 0x24,  4, ARG_NONE,   0, 0, NA_T },
 
     /* HP-41 Time Module, PX-42 addition (XROM 26,22 and 26,23) */
-    { /* SETDATE */     docmd_setdate,     "SETDATE",             0x00, 0x00, 0xa6, 0x96,  7, ARG_NONE,   1, 0, 0x01 },
-    { /* SETIME */      docmd_setime,      "SETIME",              0x00, 0x00, 0xa6, 0x97,  6, ARG_NONE,   1, 0, 0x01 },
+    { /* SETDATE */     docmd_setdate,     "S\305\324DATE",       0x00, 0x00, 0xa6, 0x96,  7, ARG_NONE,   1, 0, 0x01 },
+    { /* SETIME */      docmd_setime,      "S\305TIME",           0x00, 0x00, 0xa6, 0x97,  6, ARG_NONE,   1, 0, 0x01 },
+
+    /* HP-41 Time Module, XROM 26 (px_commands.cc) */
+    { /* CLKT */        docmd_clkt,        "CLKT",                0x00, 0x00, 0xa6, 0x88,  4, ARG_NONE,   0, 0, NA_T },
+    { /* CLKTD */       docmd_clktd,       "CLKTD",               0x00, 0x00, 0xa6, 0x89,  5, ARG_NONE,   0, 0, NA_T },
+    { /* CLOCK */       docmd_clock,       "CLOCK",               0x00, 0x00, 0xa6, 0x8a,  5, ARG_NONE,   0, 0, NA_T },
+    { /* CORRECT */     docmd_correct,     "COR\322\305CT",       0x00, 0x00, 0xa6, 0x8b,  7, ARG_NONE,   1, 0, 0x01 },
+    { /* RCLAF */       docmd_rclaf,       "RCLAF",               0x00, 0x00, 0xa6, 0x92,  5, ARG_NONE,   0, 0, NA_T },
+    { /* SETAF */       docmd_setaf,       "SETAF",               0x00, 0x00, 0xa6, 0x95,  5, ARG_NONE,   1, 0, 0x01 },
+    { /* T_PLUS_X */    docmd_t_plus_x,    "T+X",                 0x00, 0x00, 0xa6, 0x9b,  3, ARG_NONE,   1, 0, 0x01 },
+    { /* ALMCAT */      docmd_almcat,      "AL\315CAT",           0x00, 0x00, 0xa6, 0x82,  6, ARG_NONE,   0, 0, NA_T },
+    { /* ALMNOW */      docmd_almnow,      "AL\315NOW",           0x00, 0x00, 0xa6, 0x83,  6, ARG_NONE,   0, 0, NA_T },
+    { /* XYZALM */      docmd_xyzalm,      "XYZAL\315",           0x00, 0x00, 0xa6, 0x9d,  6, ARG_NONE,   3, 0, 0x01 },
+    { /* CLALMA */      docmd_clalma,      "CL\301\314MA",        0x00, 0x00, 0xa6, 0x9f,  6, ARG_NONE,   0, 0, NA_T },
+    { /* CLALMX */      docmd_clalmx,      "CL\301\314MX",        0x00, 0x00, 0xa6, 0xa0,  6, ARG_NONE,   1, 0, 0x01 },
+    { /* CLRALMS */     docmd_clralms,     "CLR\301\314MS",       0x00, 0x00, 0xa6, 0xa1,  7, ARG_NONE,   0, 0, NA_T },
+    { /* RCLALM */      docmd_rclalm,      "RC\314ALM",           0x00, 0x00, 0xa6, 0xa2,  6, ARG_NONE,   1, 0, 0x01 },
+
+    /* HP-41 Time Module, the stopwatch (px_commands.cc) */
+    { /* RCLSW */       docmd_rclsw,       "RCLSW",               0x00, 0x00, 0xa6, 0x93,  5, ARG_NONE,   0, 0, NA_T },
+    { /* RUNSW */       docmd_runsw,       "RUNSW",               0x00, 0x00, 0xa6, 0x94,  5, ARG_NONE,   0, 0, NA_T },
+    { /* SETSW */       docmd_setsw,       "SETSW",               0x00, 0x00, 0xa6, 0x98,  5, ARG_NONE,   1, 0, 0x01 },
+    { /* STOPSW */      docmd_stopsw,      "ST\317PSW",           0x00, 0x00, 0xa6, 0x99,  6, ARG_NONE,   0, 0, NA_T },
+    { /* SW */          docmd_sw,          "SW",                  0x00, 0x00, 0xa6, 0x9a,  2, ARG_NONE,   0, 0, NA_T },
+    { /* SWPT */        docmd_swpt,        "SWPT",                0x00, 0x00, 0xa6, 0xa3,  4, ARG_NONE,   1, 0, 0x01 },
+
+    /* The PX-42's speaker (px_commands.cc) */
+    { /* PLAYWAV */     docmd_playwav,     "PL\301\331WAV",       0x00, 0x00, 0xa0, 0x01,  7, ARG_NONE,   0, 0, NA_T },
+    { /* PLAYMID */     docmd_playmid,     "PL\301\331MID",       0x00, 0x00, 0xa0, 0x02,  7, ARG_NONE,   0, 0, NA_T },
+    { /* STOPSND */     docmd_stopsnd,     "ST\317\320SND",       0x00, 0x00, 0xa0, 0x03,  7, ARG_NONE,   0, 0, NA_T },
+    { /* SNDWAIT */     docmd_sndwait,     "SNDW\301\311T",       0x00, 0x00, 0xa0, 0x04,  7, ARG_NONE,   0, 0, NA_T },
+
+    /* The PX-42's shapes (px_commands.cc) */
+    { /* PEN */         docmd_pen,         "PEN",                 0x00, 0x00, 0xa0, 0x05,  3, ARG_NONE,   2, 0, 0x01 },
+    { /* BOX */         docmd_box,         "BOX",                 0x00, 0x00, 0xa0, 0x06,  3, ARG_NONE,   4, 0, 0x01 },
+    { /* DLINE */       docmd_dline,       "DLINE",               0x00, 0x00, 0xa0, 0x07,  5, ARG_NONE,   4, 0, 0x01 },
+    { /* ELLIPSE */     docmd_ellipse,     "EL\314IPS\305",       0x00, 0x00, 0xa0, 0x08,  7, ARG_NONE,   4, 0, 0x01 },
+    { /* POLYGON */     docmd_polygon,     "P\317\314\331GON",    0x00, 0x00, 0xa0, 0x09,  7, ARG_NONE,   1, 0, 0x04 },
+};
+
+static const int px_cat_clock[] = {
+    CMD_CLOCK, CMD_CLKT, CMD_CLKTD, CMD_SETDATE, CMD_SETIME, CMD_T_PLUS_X,
+    CMD_CORRECT, CMD_RCLAF, CMD_SETAF, CMD_NULL, CMD_NULL, CMD_NULL,
+};
+
+static const int px_cat_alarm[] = {
+    CMD_XYZALM, CMD_ALMCAT, CMD_ALMNOW, CMD_RCLALM, CMD_CLALMA, CMD_CLALMX,
+    CMD_CLRALMS, CMD_NULL, CMD_NULL, CMD_NULL, CMD_NULL, CMD_NULL,
+};
+
+static const int px_cat_sw[] = {
+    CMD_SW, CMD_SWPT, CMD_RUNSW, CMD_STOPSW, CMD_SETSW, CMD_RCLSW,
+};
+
+static const int px_cat_sound[] = {
+    CMD_PLAYWAV, CMD_PLAYMID, CMD_STOPSND, CMD_SNDWAIT, CMD_NULL, CMD_NULL,
+};
+
+static const int px_cat_draw[] = {
+    CMD_PEN, CMD_BOX, CMD_DLINE, CMD_ELLIPSE, CMD_POLYGON, CMD_NULL,
+};
+
+const px_cat_tab px_cat_tabs[PX_CAT_TABS] = {
+    { "CLOCK", 5, px_cat_clock, 2 },
+    { "ALARM", 5, px_cat_alarm, 2 },
+    { "SW", 2, px_cat_sw, 1 },
+    { "SOUND", 5, px_cat_sound, 1 },
+    { "DRAW", 4, px_cat_draw, 1 },
 };
 
 /*
