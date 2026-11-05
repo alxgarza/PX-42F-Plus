@@ -168,7 +168,7 @@ can be cherry-picked between them.
 - Alarms (HP-41 Time Module; manual: HP-41CX vol. 2, section 16, appendix B): the table and its rules in `alarms.c` (no
   hardware, `tests/test_time.c`), what each kind does in `alarm_service()` (`free42_app.cc`, from `free42_service()`, so between a
   program's slices and never in settings or apps). No core patch: a control alarm in a running program is `docmd_xeq()` (a real
-  subroutine), at the keyboard `core_keydown_command(name, 1)`, so labels must be ASCII. In RAM, `/ALARMS.DAT` written at OFF
+  subroutine), at the keyboard `core_keydown_command(name, 1)`, so labels must be ASCII. In RAM, `/ALARMS.DAT` written at OFF through `safefile.c` (as `/STOPWATCH.DAT`: a new file beside the old, which only then goes; `tests/test_safefile.c`; a label read from the file is held to what XYZALM allows)
   (`alarms_save()`), read at boot, deleted by Memory Clear. While off: `RETAINED_NEXT_ALARM` (`retained.h`) is in `next_wake()`; when due,
   `power_off_wake()` boots fully, `power_woke_for_alarm()`, and it turns itself off afterwards unless a key was pressed. Bell in the status bar
   (`icon_bell()`) when any is set, Settings -> Alarms lists, deletes and picks each alarm's sound (`alarm_t.sound`: Plus42's tones, `/SOUNDS/*.wav` or `/MIDI/*.mid`; `alarm_sound()` falls back to the tones if the file is gone, and a song outlasts the 20 s). Not done from the HP-41: past-due alarms activating at OFF, the
