@@ -9,7 +9,6 @@
 #include "hardware/watchdog.h"
 #include "appdec.h"
 #include "appfile.h"
-#include "bootlog.h"
 #include "ramstate.h"
 #include "battery.h"
 #include "cpuclock.h"
@@ -635,7 +634,6 @@ const char *app_run(const char *dir, const char *name, bool *power_off) {
         run.random = 1;
 
     back_to_app();
-    bootlog_add("app %s start", name);
     int result = ((int (*)(const px_api_t *)) h.entry)(&api);
     debug_checkpoint(CKPT_MENU, 0);
 
@@ -645,8 +643,5 @@ const char *app_run(const char *dir, const char *name, bool *power_off) {
             api_close(i);
     free42_memory_to_ram();
     *power_off = run.power_off || result == PX_EXIT_OFF;
-    bootlog_add("app %s end: %s, RAM copy %s", name,
-                run.power_off ? "to turn off (ON held, Sleep Timer or battery)" : run.quit ? "ON pressed" : "returned",
-                ramstate_status());
     return NULL;
 }

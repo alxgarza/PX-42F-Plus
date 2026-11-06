@@ -5,9 +5,9 @@
 extern "C" {
 #endif
 
-/* /BOOTLOG.TXT on the drive: one line for each start (what restarted the
- * calculator, where its memory came from and why not from the other place)
- * and for each app start and end -- the last ~2KB. Written for the question
+/* /BOOTLOG.TXT on the drive: one line for each start that wasn't a plain ON
+ * with the memory from RAM (what restarted the calculator, where its memory
+ * came from and why not from the other place) -- the last ~2KB. Written for the question
  * "why did the memory clear?": after it happens, the file says which restart
  * it was and whether a saved copy was missing, empty or damaged. Also
  * `!BOOTLOG` on the console. */

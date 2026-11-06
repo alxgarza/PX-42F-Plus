@@ -322,9 +322,10 @@ can be cherry-picked between them.
   Hello wait never came). Memory Clear = `ramstate_discard()` and
   `/OFFSTATE.p42` deleted (the overflow for a memory bigger than the 128 KB RAM copy); every
   other restart brings the memory back. `!STATUS` prints the last reset's cause.
-  `/BOOTLOG.TXT` (`bootlog.c`, last ~2 KB, also `!BOOTLOG`): a line per start -- what restarted it, the RAM copy's
-  status (`ramstate_status()`: ok / empty / bad length / BAD CHECKSUM), whether a drive copy existed, where the
-  memory came from -- and per app start/end. For "why did the memory clear?".
+  `/BOOTLOG.TXT` (`bootlog.c`, last ~2 KB, also `!BOOTLOG`): a line per start that isn't a plain ON with the memory
+  from RAM (those were nearly every start, each rewriting the FAT and root folder: no wear levelling) -- what restarted
+  it, the RAM copy's status (`ramstate_status()`: ok / empty / bad length / BAD CHECKSUM), whether a drive copy existed,
+  where the memory came from. For "why did the memory clear?".
   After RESET the Hello screen waits for a key (only dismisses), a byte on the console (looked at with
   `tud_cdc_n_available()`, left for the main loop: a `!STATUS` still works) or the Sleep Timer (`hello_wait()`).
   Off from the settings menu (an app ended by an empty battery too) checks the battery at once, so an empty
