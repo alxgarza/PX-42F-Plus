@@ -63,6 +63,7 @@ PX_DRIVE="$TMP/drive" "$TMP/menu_shots" "$OUT" \
     EXIT \
     6 ENTER shot:sleep_timer EXIT \
     6 ENTER shot:menu_style EXIT \
+    6 ENTER shot:reset EXIT \
   EXIT \
   6 6 6 6 ENTER shot:help EXIT \
   6 ENTER shot:info EXIT \

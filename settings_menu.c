@@ -2168,17 +2168,15 @@ static edit_result_t do_menu_style(void) {
     return EDIT_OK;
 }
 
-/* Reset: Plus42's Memory Clear, asked twice as Format Drive, then a
- * restart. Only Plus42's memory (the user's choice): the RESET button also
- * clears the alarms and the stopwatch, this keeps them. */
+/* Reset: Plus42's Memory Clear, asked in an alert (the user's choice: OK
+ * and CANCEL, the stop icon: it can't be undone), then a restart. Only
+ * Plus42's memory (the user's choice): the RESET button also clears the
+ * alarms and the stopwatch, this keeps them. */
 static edit_result_t do_reset(void) {
-    static const char *const what[] = {"Clear Plus42's memory and", "restart?", "",
-                                       "Programs, variables, stack.", "Alarms, settings, files stay."};
-    edit_result_t r = show_message("Reset", what, 5, CONFIRM("RESET"));
-    if (r != EDIT_OK)
-        return r;
-    static const char *const sure[] = {"Are you sure?", "", "This cannot be undone."};
-    r = show_message("Reset", sure, 3, CONFIRM("RESET"));
+    edit_result_t r = edit_result(ui_dialog(&menu_ui, PX_UI_ICON_STOP,
+                                            "Clear Plus42's memory\nand restart? Alarms\nand settings stay.\n"
+                                            "It can't be undone.",
+                                            "OK", "CANCEL"));
     if (r != EDIT_OK)
         return r;
     show_busy("Reset", "Restarting...");

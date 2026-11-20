@@ -123,7 +123,7 @@ void ui_title(const ui_port_t *p, const char *title, const char *right) {
 static void check_tab(int i, const char *t) {
     static const char *const words[] = {
         "SAVE",  "LOAD",  "USE",   "NEW",   "EDIT", "DEL",
-        "RENAM", "IMPRT", "EXPRT", "FORMT", "START", "RESET", "MOVE",  "FAV",   "UNFAV", "DONE",
+        "RENAM", "IMPRT", "EXPRT", "FORMT", "START", "MOVE",  "FAV",   "UNFAV", "DONE",
         "ENTER", "REPLC", "APPLY", "BACK",  "CANCL", "\x10",  "\x0f",  "\x10MON", "MON\x0f", "\x10YR", "YR\x0f"};
     bool ok = false;
     for (size_t w = 0; w < sizeof(words) / sizeof(words[0]); w++)
