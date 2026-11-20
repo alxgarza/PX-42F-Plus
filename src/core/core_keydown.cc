@@ -2738,7 +2738,12 @@ void keydown_alpha_mode(int shift, int key) {
             case KEY_SUB: set_plainmenu(MENU_PRINT1, "PRINT", 5); break;
             case KEY_0:
                 if ((skin_flags & 4) == 0)
+#ifdef PX42
+                    /* The PX's row first: Plus42's features without a key. */
+                    set_plainmenu(MENU_PX_TOP_FCN2, "TOP.FCN", 7);
+#else
                     set_plainmenu(MENU_TOP_FCN, "TOP.FCN", 7);
+#endif
                 else
                     command = CMD_TVM;
                 break;
@@ -3922,6 +3927,10 @@ void keydown_normal_mode(int shift, int key) {
                             case 4: cmd_id = CMD_E_POW_X; break;
                             case 5: cmd_id = CMD_GTO; break;
                         }
+#ifdef PX42
+                    } else if (menu == MENU_PX_TOP_FCN2) {
+                        cmd_id = px_top_fcn2_shifted[menukey];
+#endif
                     } else if (menu == MENU_PGM_FCN1) {
                         if (menukey == 5)
                             cmd_id = CMD_GTO;
@@ -4198,7 +4207,11 @@ void keydown_normal_mode(int shift, int key) {
                 return;
             case KEY_0:
                 if ((skin_flags & 4) == 0) {
+#ifdef PX42
+                    set_plainmenu(MENU_PX_TOP_FCN2, "TOP.FCN", 7);
+#else
                     set_plainmenu(MENU_TOP_FCN, "TOP.FCN", 7);
+#endif
                     return;
                 } else {
                     command = CMD_TVM;

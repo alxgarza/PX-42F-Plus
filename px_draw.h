@@ -25,6 +25,10 @@ void px_draw_box(const px_canvas_t *c, int x, int y, int w, int h, int t, int bl
 void px_draw_ellipse(const px_canvas_t *c, int x, int y, int rx, int ry, int t, int black);
 void px_draw_line(const px_canvas_t *c, int x0, int y0, int x1, int y1, int t, int black);
 void px_draw_polygon(const px_canvas_t *c, const px_point_t *p, int n, int t, int black);
+/* A 1-bit picture (rows of stride bytes, top bit leftmost) at (x, y): mode
+ * and flags as the app table's sprite() (PX_SPRITE_*); mask NULL = all of it. */
+void px_draw_sprite(const px_canvas_t *c, int x, int y, int w, int h, const uint8_t *bits,
+                    const uint8_t *mask, int stride, int mode, int flags);
 
 #ifdef __cplusplus
 }

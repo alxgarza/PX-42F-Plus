@@ -246,6 +246,12 @@ extern const error_spec errors[];
 #define MENU_GRAPH         97
 #define MENU_GRAPH_AXES    98
 #define MENU_GRAPH_VIEW    99
+#ifdef PX42
+/* TOP.FCN's second row, after Plus42's last menu (core_globals.cc). */
+#define MENU_PX_TOP_FCN2  100
+/* Its keys with SHIFT, as TOP.FCN's are Σ- Y^X ... (core_globals.cc). */
+extern const int px_top_fcn2_shifted[6];
+#endif
 
 
 struct menu_item_spec {

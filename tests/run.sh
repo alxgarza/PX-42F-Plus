@@ -3,7 +3,8 @@
 # AddressSanitizer and UBSan, against the built-in sounds as WAV files,
 # the ALPHA keyboard's rules (tests/test_alphakeys.c), the HP 82240B
 # printer's bytes (tests/test_hp82240.c), the app table's shapes
-# (tests/test_draw.c) and the Catalog's PX42 page (tests/test_catalog.cc).
+# (tests/test_draw.c), the standard screens key by key (tests/test_ui.c) and the
+# Catalog's PX42 page (tests/test_catalog.cc).
 #   tests/run.sh
 set -e
 cd "$(dirname "$0")/.."
@@ -20,11 +21,19 @@ cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-reco
 # The ALPHA keyboard's rules (keyboard.h needs the Pico SDK's types: menu_shots' stand-ins).
 cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
    -Wno-comment -I. -Itools/menu_shots/stub tests/test_alphakeys.c alphakeys.c -o "$TMP/test_alphakeys"
+cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
+   -Wno-comment -DUI_CHECK_TABS -I. -Itools/menu_shots/stub tests/test_ui.c ui.c -o "$TMP/test_ui"
+"$TMP/test_ui"
 "$TMP/test_alphakeys"
 # The HP 82240B printer's bytes and infrared frames.
 cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
    -I. tests/test_hp82240.c hp82240.c -o "$TMP/test_hp82240"
 "$TMP/test_hp82240"
+# A USB thermal printer's ESC/POS bytes. With a file name the test also
+# writes a sample job: tools/usb_printer_test/yc_print.py --file sends it.
+cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
+   -I. -Ifonts tests/test_escpos.c escpos.c fonts/font_6x8_data.c -o "$TMP/test_escpos"
+"$TMP/test_escpos"
 cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
    -I. tests/test_time.c timemodule.c alarms.c stopwatch.c rtc_format.c -o "$TMP/test_time"
 "$TMP/test_time"

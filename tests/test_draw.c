@@ -245,6 +245,113 @@ static void layer(void) {
     memset(bits, 0, sizeof(bits));
 }
 
+/* Version 8's sprites: rows of # and . packed as the app table takes them. */
+static void pack(const char *const *rows, int h, uint8_t *out, int stride) {
+    memset(out, 0, (size_t) (h * stride));
+    for (int y = 0; y < h; y++)
+        for (int x = 0; rows[y][x] != 0; x++)
+            if (rows[y][x] == '#')
+                out[y * stride + x / 8] |= (uint8_t) (0x80 >> (x % 8));
+}
+
+/* What a sprite's pixel should do, one at a time: px_draw_sprite() works a
+ * byte at a time, this the plain way. */
+static void reference(uint8_t *dst, int x, int y, int w, int h, const uint8_t *bits, const uint8_t *mask, int stride,
+                      int mode, int flags) {
+    for (int j = 0; j < h; j++)
+        for (int i = 0; i < w; i++) {
+            int dx = x + i, dy = y + j;
+            if (dx < 0 || dx >= canvas.w || dy < 0 || dy >= canvas.h)
+                continue;
+            int si = flags & PX_SPRITE_FLIP_X ? w - 1 - i : i, sj = flags & PX_SPRITE_FLIP_Y ? h - 1 - j : j;
+            int bit = bits[sj * stride + si / 8] >> (7 - si % 8) & 1;
+            int m = mask ? mask[sj * stride + si / 8] >> (7 - si % 8) & 1 : 1;
+            if (!m)
+                continue;
+            uint8_t *b = &dst[dy * canvas.stride + dx / 8], one = (uint8_t) (0x80 >> (dx % 8));
+            int now = *b & one ? 1 : 0;
+            int after = mode == PX_SPRITE_XOR ? now ^ bit : mode == PX_SPRITE_MASKED ? bit : now | bit;
+            *b = (uint8_t) (after ? *b | one : *b & ~one);
+        }
+}
+
+static void sprites(void) {
+    static const char *const arrow[] = {"..#.......", "..##......", "##########", "..##......", "..#......."};
+    uint8_t a[5 * 2];
+    pack(arrow, 5, a, 2);
+
+    px_draw_sprite(&canvas, 3, 1, 10, 5, a, NULL, 2, PX_SPRITE_OR, 0);
+    EXPECT("sprite across bytes", "", ".....#", ".....##", "...##########", ".....##", ".....#");
+    px_draw_sprite(&canvas, 3, 1, 10, 5, a, NULL, 2, PX_SPRITE_OR, PX_SPRITE_FLIP_X);
+    EXPECT("mirrored", "", "..........#", ".........##", "...##########", ".........##", "..........#");
+    static const char *const step[] = {"#...", "##..", "###."};
+    uint8_t st[3];
+    pack(step, 3, st, 1);
+    px_draw_sprite(&canvas, 0, 0, 4, 3, st, NULL, 1, PX_SPRITE_OR, PX_SPRITE_FLIP_Y);
+    EXPECT("upside down", "###", "##", "#");
+    px_draw_sprite(&canvas, 0, 0, 4, 3, st, NULL, 1, PX_SPRITE_OR, PX_SPRITE_FLIP_X | PX_SPRITE_FLIP_Y);
+    EXPECT("turned half round", ".###", "..##", "...#");
+
+    px_draw_box(&canvas, 0, 0, 6, 3, 0, 1);
+    px_draw_sprite(&canvas, 1, 0, 4, 3, st, NULL, 1, PX_SPRITE_XOR, 0);
+    EXPECT("XOR turns over", "#.####", "#..###", "#...##");
+    px_draw_sprite(&canvas, 7, 2, 10, 5, a, NULL, 2, PX_SPRITE_XOR, 0);
+    px_draw_sprite(&canvas, 7, 2, 10, 5, a, NULL, 2, PX_SPRITE_XOR, 0);
+    EXPECT("XOR twice: gone");
+
+    /* A ball with a white rim over black: the mask is the disc, the rim is
+     * the sprite's own white. */
+    static const char *const ball[] = {".##.", "#..#", "#..#", ".##."}, *const disc[] = {".##.", "####", "####", ".##."};
+    uint8_t bl[4], dc[4];
+    pack(ball, 4, bl, 1);
+    pack(disc, 4, dc, 1);
+    px_draw_box(&canvas, 0, 0, 6, 4, 0, 1);
+    px_draw_sprite(&canvas, 1, 0, 4, 4, bl, dc, 1, PX_SPRITE_MASKED, 0);
+    EXPECT("masked: its own white", "######", "##..##", "##..##", "######");
+    px_draw_box(&canvas, 0, 0, 6, 2, 0, 1);
+    px_draw_sprite(&canvas, 1, 0, 4, 2, bl, NULL, 1, PX_SPRITE_MASKED, 0);
+    EXPECT("masked, no mask: the whole rectangle", "#.##.#", "##..##");
+
+    px_draw_sprite(&canvas, -4, -1, 10, 5, a, NULL, 2, PX_SPRITE_OR, 0);
+    EXPECT("off the top left", "", "######", "", "");
+    px_draw_sprite(&canvas, 26, 20, 10, 5, a, NULL, 2, PX_SPRITE_OR, 0);
+    EXPECT("off the bottom right", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+           "............................#", "............................##", "..........................######",
+           "............................##");
+    px_draw_sprite(&canvas, 0, 0, 10, 5, NULL, NULL, 2, PX_SPRITE_OR, 0);
+    px_draw_sprite(&canvas, 0, 0, 10, 5, a, NULL, 1, PX_SPRITE_OR, 0);
+    px_draw_sprite(&canvas, -40, 0, 10, 5, a, NULL, 2, PX_SPRITE_OR, 0);
+    px_draw_sprite(&canvas, 1000000, -1000000, 10, 5, a, NULL, 2, PX_SPRITE_OR, 0);
+    EXPECT("nothing: no picture, a short stride, far off");
+
+    /* Every place across and down, every mode and flip, over a pattern,
+     * against the plain way: a 13-wide sprite with a mask, 2 bytes a row
+     * and a spare byte (stride 3). */
+    uint8_t spr[7 * 3], msk[7 * 3], want[sizeof(bits)];
+    uint32_t r = 12345;
+    for (size_t i = 0; i < sizeof(spr); i++) {
+        r = r * 1103515245u + 12345u;
+        spr[i] = (uint8_t) (r >> 16);
+        msk[i] = (uint8_t) (r >> 24);
+    }
+    int bad = 0;
+    for (int mode = 0; mode <= 2; mode++)
+        for (int flags = 0; flags <= 3; flags++)
+            for (int with_mask = 0; with_mask <= 1; with_mask++)
+                for (int y = -8; y <= canvas.h; y += 3)
+                    for (int x = -14; x <= canvas.w + 1; x++) {
+                        for (size_t i = 0; i < sizeof(bits); i++)
+                            bits[i] = want[i] = (uint8_t) (i * 37 + 11);
+                        const uint8_t *m = with_mask ? msk : NULL;
+                        px_draw_sprite(&canvas, x, y, 13, 7, spr, m, 3, mode, flags);
+                        reference(want, x, y, 13, 7, spr, m, 3, mode, flags);
+                        if (memcmp(bits, want, sizeof(bits)) != 0 && bad++ == 0)
+                            printf("FAIL sprite at %d,%d mode %d flags %d mask %d\n", x, y, mode, flags, with_mask);
+                    }
+    failures += bad != 0;
+    memset(bits, 0, sizeof(bits));
+}
+
 int main(void) {
     layer();
     boxes();
@@ -254,6 +361,7 @@ int main(void) {
     polygons();
     white_erases();
     far_off_the_canvas();
+    sprites();
     if (failures) {
         printf("test_draw: %d FAILED\n", failures);
         return 1;

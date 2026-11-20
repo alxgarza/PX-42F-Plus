@@ -87,6 +87,7 @@ img.icon { height: 36px; width: auto; image-rendering: pixelated; image-renderin
 table.icons td:first-child { white-space: nowrap; }
 .shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px 18px; margin: 8px 0 18px; }
 .shots figure { margin: 0; }
+img.skin { display: block; width: 100%; max-width: 260px; height: auto; border-radius: 6px; }
 img.shot {
   display: block; width: 100%; max-width: 500px; height: auto;
   image-rendering: pixelated; image-rendering: crisp-edges;
@@ -142,6 +143,7 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
     <li><a href="#charging">Charging</a></li>
     <li><a href="#updating">Updating the firmware</a></li>
     <li><a href="#commands">Added commands</a></li>
+    <li><a href="#skins">Plus42 on your computer</a></li>
   </ol>
 </nav>
 
@@ -204,6 +206,7 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
   <li>An item that is the current setting (for example RAD in the MODES menu while in RAD mode) is underlined.</li>
   <li>When a menu is open, the lines share the space above the tabs. When no menu is open, the bottom row is one more line of text and the lines share the whole area.</li>
 </ul>
+<p><strong>TOP.FCN</strong> (<kbd>SHIFT</kbd> <kbd>0</kbd>) opens with a row of Plus42 features that have no key of their own, <strong>DIRS UNITS R&uarr; X&lt;&gt; VIEW EQN</strong>; <kbd>&darr;</kbd> or <kbd>&uarr;</kbd> switch to the HP-42S's &Sigma;+ 1/X &radic;X LOG LN XEQ and back. DIRS opens the directories, UNITS the units catalog, EQN the equation list. X&lt;&gt; and VIEW ask for a register, as on the HP-42S. With <kbd>SHIFT</kbd> the row is <strong>DIR.FCN UNIT.FCN PLOT %CH SST&uarr; EQN.FCN</strong>: the directory, unit and equation function menus, PLOT, percent change, and SST&uarr; (step out of a subroutine). In the equation editor, TOP.FCN keeps its one row of functions.</p>
 
 <!-- ============================================================ -->
 <h2 id="status">3. The status bar</h2>
@@ -329,35 +332,94 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 <!-- ============================================================ -->
 <h2 id="settings">6. The settings menu</h2>
 
-<p>Press <kbd>SHIFT</kbd> then <kbd>EXIT</kbd> to open it. Every screen has the same frame: a black title bar with the screen's name and the current time, and a line at the bottom saying what the keys do there.</p>
+<p>Press <kbd>SHIFT</kbd> then <kbd>EXIT</kbd> to open it. It opens on the home screen: up to three rows of seven icons. The bar at the top names the picked icon and shows the date and time. The tabs at the bottom say what the top row of keys does. At first the top row is Off, USB Drive, Plus42, Alarms, Apps, Games and Settings; the second row is empty, for your favourite apps and games (see <a href="#set-apps">Apps and games</a>); Help and Info are at the right of the third row. Off is always first; the others can be moved (below).</p>
 
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:settings}}" alt="The Settings list: Off, Games &amp; Apps, Date &amp; Time, Alarms, Sounds, Fonts, Sleep Timer"><figcaption>The top list. The &darr; at the bottom right means more items below: Splash Image, Printer, States, Programs, USB Drive, Info.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:home}}" alt="The home screen: the bar reads Off and the date and time; top row Off (picked), USB Drive, Plus42, Alarms, Apps, Games, Settings; second row empty; Help and Info at the right of the third; tabs ENTER, left, up, down, right and EXIT"><figcaption>The home screen.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:home_favs}}" alt="The home screen with three favourites in the second row: BASIC (picked), IR and GOLDRUN"><figcaption>With three favourites.</figcaption></figure>
 </div>
 
 <h3>Moving around</h3>
 <ul>
-  <li><kbd>&uarr;</kbd> <kbd>&darr;</kbd> move through a list. A <code>&gt;</code> at the right of an item means it opens another list; other items show their current value there.</li>
-  <li><kbd>ENTER</kbd> chooses the highlighted item.</li>
-  <li><kbd>EXIT</kbd> or <kbd>&larr;</kbd> goes back one level. On the top list, <kbd>&larr;</kbd> returns to the calculator.</li>
+  <li>On the icons, the top row of keys (<kbd>&Sigma;+</kbd> to <kbd>XEQ</kbd>) works the tabs under them: <strong>ENTER</strong>, the arrows <strong>&larr;</strong> <strong>&#9650;</strong> <strong>&#9660;</strong> <strong>&rarr;</strong>, and <strong>EXIT</strong>. &larr; &rarr; go to the icon before and after, as <kbd>4</kbd> <kbd>6</kbd> do; &#9650; &#9660; a row up and down, as <kbd>8</kbd> <kbd>2</kbd> do. With <kbd>SHIFT</kbd> on, the tabs on the home screen and in Apps and Games are <strong>MOVE</strong> (below), <strong>FAV</strong> or <strong>UNFAV</strong> (only where it applies; see <a href="#set-apps">Apps and games</a>) and <strong>BACK</strong>, which only puts the plain tabs back; on an icon with neither, SHIFT changes nothing. In Apps and Games the last plain tab is <strong>BACK</strong>, to the home screen. The keypad's <kbd>&uarr;</kbd> <kbd>&darr;</kbd> step to the icon before and after. <kbd>5</kbd> opens, like <kbd>ENTER</kbd>. The pages inside (Settings, Plus42, USB Drive) have the same tabs, and nothing under SHIFT.</li>
+  <li>Past the end of a row, right goes on at the start of the next one, and left at the end of the one before. Past the bottom, down goes on at the top, and up past the top at the bottom.</li>
+  <li>The picked icon is drawn grey (its black is dithered) inside a thin frame with rounded corners. Its name is in the bar at the top. With more than three rows, the screen scrolls, and a bar at the right edge shows where you are.</li>
+  <li>In a list, <kbd>&uarr;</kbd> <kbd>&darr;</kbd> move (and <kbd>8</kbd> <kbd>2</kbd>). Items show their current value at the right.</li>
+  <li>The tabs along the bottom of every screen are for the top row of keys, as on the icons. A screen shows only the tabs that do something there: the first names what <kbd>ENTER</kbd> does (<strong>ENTER</strong>, <strong>SAVE</strong>, <strong>USE</strong>...), <strong>&uarr;</strong> <strong>&darr;</strong> on the fourth and fifth move, when there's more than one row, and <strong>EXIT</strong> on the sixth goes back or leaves without a change, as the <kbd>EXIT</kbd> key does. Each tab always has the same place.</li>
+  <li>Where you choose one of several (Time Format, Date Format, Menu Style...), each has a round button, and the one in use is filled. <kbd>ENTER</kbd> (or its tab) chooses. Settings that are on or off have a check box; <kbd>ENTER</kbd> ticks it.</li>
+  <li>In a form (a new alarm, say), <kbd>ENTER</kbd> changes the picked field. A choice opens a list under it: <kbd>&uarr;</kbd> <kbd>&darr;</kbd> pick, <kbd>ENTER</kbd> chooses, <kbd>EXIT</kbd> closes it.</li>
+  <li><kbd>ENTER</kbd> opens the picked icon or item.</li>
+  <li><kbd>EXIT</kbd> or <kbd>&larr;</kbd> goes back one level. On the home screen, <kbd>&larr;</kbd> returns to the calculator.</li>
   <li><kbd>EXIT</kbd> on <strong>Off</strong>, or <kbd>SHIFT</kbd> then <kbd>EXIT</kbd> anywhere, turns the calculator off.</li>
-  <li>Numbers are typed with the digit keys into the blanks (<code>__:__</code>); <kbd>&larr;</kbd> (Bsp) deletes the last digit, <kbd>ENTER</kbd> accepts, <kbd>EXIT</kbd> cancels.</li>
+  <li>A number: type it, or step it with <kbd>&uarr;</kbd> <kbd>&darr;</kbd>; <kbd>ENTER</kbd> accepts, <kbd>EXIT</kbd> cancels.</li>
+  <li>A time: the hours, minutes (and seconds) side by side, the picked one highlighted. Type two digits and it moves on to the next, or step it with <kbd>&uarr;</kbd> <kbd>&darr;</kbd>; the &larr; &rarr; tabs pick another. With the 12-hour clock, AM/PM is the last one: <kbd>&uarr;</kbd> <kbd>&darr;</kbd> switch it.</li>
+  <li>A date: a month's calendar. <kbd>4</kbd> <kbd>6</kbd> move a day, <kbd>&uarr;</kbd> <kbd>&darr;</kbd> a week, and the tabs a month or a year.</li>
+  <li>A name or text: typed with the letters on the keys, and <kbd>SHIFT</kbd> then a digit key for a digit. <kbd>&larr;</kbd> deletes the last character, <kbd>ENTER</kbd> accepts, <kbd>EXIT</kbd> cancels. This screen has no tabs, because the top row of keys types A to F.</li>
   <li>The menu turns the calculator off after the Sleep Timer, just as the calculator screen does.</li>
 </ul>
 <p>The settings are saved when you change them, and are kept when the calculator is turned off, reset or reflashed.</p>
 
-<h3 id="set-off">Off</h3>
-<p>Turns the calculator off. <kbd>ENTER</kbd> or <kbd>EXIT</kbd> on this item does it.</p>
-
-<h3 id="set-apps">Games &amp; Apps</h3>
+<h3 id="move-icons">Moving icons</h3>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:games_apps}}" alt="Games &amp; Apps: Games, Apps"><figcaption>Games or Apps.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:games}}" alt="The Games list: SNAKE"><figcaption>The games on the drive. <kbd>ENTER</kbd> starts one.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:moving}}" alt="The home screen while moving BASIC: the bar reads Move: BASIC; its icon is grey with a double frame, carried right past IR and GRAPH, which stay put; its old place is empty; tabs DONE, left, up, down, right and CANCL"><figcaption>Moving BASIC.</figcaption></figure>
 </div>
-<p>Runs programs written for the PX-42F itself: games and apps. Each is a <code>.bin</code> file on the drive, in <code>/BIN/GAMES</code> or <code>/BIN/APPS</code>. To add one, copy its <code>.bin</code> into the folder with <a href="#set-usb">USB Drive</a>. To remove one, delete the file. None come with the calculator.</p>
+<ol>
+  <li>Pick the icon and press <kbd>SHIFT</kbd> then <strong>MOVE</strong> (the first key of the top row). The bar says <code>Move:</code> and the icon gets a double frame.</li>
+  <li>Carry it with <kbd>&uarr;</kbd> <kbd>&darr;</kbd>, <kbd>4</kbd> <kbd>6</kbd> <kbd>8</kbd> <kbd>2</kbd> or the &#9650; &#9660; tabs. It passes over the other icons; they stay where they are.</li>
+  <li>Press <strong>DONE</strong>, <kbd>ENTER</kbd> or <kbd>5</kbd> to put it down. <strong>CANCL</strong>, <kbd>EXIT</kbd> or <kbd>&larr;</kbd> puts it back where it was.</li>
+</ol>
+<p>The place the icon came from is left empty. Put it down in an empty place and nothing else moves; put it down on another icon and the two change places. While an icon is carried, a row of empty places opens after the last icon, so you can leave gaps to group your icons. Picking an icon (not carrying one) skips the empty places.</p>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:moved_blank}}" alt="The home screen with blank places: Help moved to the third row, with gaps before it"><figcaption>Help carried down, leaving blanks.</figcaption></figure>
+</div>
+<p>Off can't be moved, and nothing goes before it. The icons in the Apps and Games folders move the same way; their places are kept in <code>ORDER.TXT</code> in the folder (<code>/BIN/APPS</code>, <code>/BIN/GAMES</code>), and an app added to the drive goes into the folder's first empty place. The home screen's places, blanks included, and the favourites are kept in <code>/HOME.TXT</code> on the drive, by name, so they stay when the calculator is reset or reflashed. A new favourite goes into the first empty place. Delete <code>/HOME.TXT</code> to go back to the first order with no favourites.</p>
+
+<h3 id="set-help">Help</h3>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:help}}" alt="Help, page 1 of 10: the tabs and keys of the icon screens; tabs up, down and BACK"><figcaption>Help, the first of its pages.</figcaption></figure>
+</div>
+<p>A short guide to the menu: the tabs and keys of the icons, what SHIFT shows, moving icons, favourites, lists and forms, and turning off. It's longer than the screen: &#9650; &#9660; (the arrow keys or the tabs) turn the pages, <kbd>SHIFT</kbd> then an arrow goes to the start or the end, and the page shows at the top right. Info works the same way.</p>
+
+<h3 id="set-off">Off</h3>
+<p>Turns the calculator off. <kbd>ENTER</kbd> or <kbd>EXIT</kbd> on this icon does it.</p>
+
+<h3 id="set-gear">Settings</h3>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:settings}}" alt="The Settings page: seven icons along the top row, Date &amp; Time (picked), Fonts, Sounds, Printer, Splash Image, Sleep Timer, Menu Style, and Reset below"><figcaption>The gear's page: the calculator's own settings.</figcaption></figure>
+</div>
+<p>The gear opens a page of eight icons: <a href="#set-datetime">Date &amp; Time</a>, <a href="#set-fonts">Fonts</a>, <a href="#set-sounds">Sounds</a>, <a href="#set-printer">Printer</a>, <a href="#set-splash">Splash Image</a>, <a href="#set-sleep">Sleep Timer</a>, <a href="#set-style">Menu Style</a> and <a href="#set-reset">Reset</a>, each described below. It works like the home screen; its icons don't move.</p>
+
+<h3 id="set-reset">Reset</h3>
+
+<p>Clears Plus42's memory and restarts the calculator, after asking twice: programs, variables, the stack and Plus42's own modes are gone, as after a Memory Clear. Alarms, the stopwatch, the settings and the files on the drive stay. The RESET button on the back does the same but also clears the alarms and the stopwatch. In the List style, Reset is the last line.</p>
+
+<h3 id="set-style">Menu Style</h3>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:menu_style}}" alt="Menu Style: Icons (its button filled) or List"><figcaption>Menu Style. The filled button is the one in use.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:list_menu}}" alt="The settings menu as a list: Off, Apps, Games, Date &amp; Time, Alarms, Sounds, Fonts"><figcaption>The List style.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:list_menu_end}}" alt="The end of the list: Sleep Timer 10 min, Splash Image, Printer Off, States, Programs, USB Drive, Menu Style List"><figcaption>Its end, with Menu Style.</figcaption></figure>
+</div>
+<p><strong>Icons</strong>, the pages of icons described here, or <strong>List</strong>: the whole menu as one list of text, as in earlier firmware. Off, Apps, Games, Date &amp; Time, Alarms, Sounds, Fonts, Sleep Timer, Splash Image, Printer, States, Programs, USB Drive, Menu Style, Info and Reset; Apps and Games each open a list of their programs. <kbd>&uarr;</kbd> <kbd>&darr;</kbd> move, <kbd>ENTER</kbd> opens, <kbd>EXIT</kbd> goes back. The menu changes at once, and the choice is kept with the other settings. In the List style, Menu Style is near the end of the list.</p>
+
+<h3 id="set-plus42">Plus42</h3>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:plus42}}" alt="The Plus42 page: two icons, States (picked) and Programs"><figcaption>The Plus42 page.</figcaption></figure>
+</div>
+<p>The calculator icon opens a page for Plus42's memory: <a href="#set-states">States</a> and <a href="#set-programs">Programs</a>.</p>
+
+<h3 id="set-apps">Apps and games</h3>
+<p>Programs written for the PX-42F itself: games and apps. Each is a <code>.bin</code> file on the drive, in <code>/BIN/APPS</code> or <code>/BIN/GAMES</code>, and has its icon in the <strong>Apps</strong> or the <strong>Games</strong> folder on the home screen, in name order at first; <strong>MOVE</strong> moves them as on the <a href="#move-icons">home screen</a>. <kbd>ENTER</kbd> on its icon starts it. To add one, copy its <code>.bin</code> into either folder with <a href="#set-usb">USB Drive</a>. To remove one, delete the file. None come with the calculator.</p>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:apps}}" alt="The Apps folder: ten app icons in name order, BASIC picked; tabs ENTER, left, up, down, right and BACK"><figcaption>The Apps folder.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:apps_fav}}" alt="The Apps folder after BASIC and IR were made favourites: their places are empty"><figcaption>BASIC and IR went to the home screen.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:apps_moving}}" alt="The Apps folder while moving GRAPH: carried down a row, its old place empty; tabs DONE, left, up, down, right and CANCL"><figcaption>Moving GRAPH.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:home_unfav}}" alt="The home screen with SHIFT on and IR picked: the tabs read MOVE, UNFAV and BACK"><figcaption>SHIFT on a favourite: UNFAV.</figcaption></figure>
+</div>
+<p><strong>Favourites.</strong> In a folder, <kbd>SHIFT</kbd> then <strong>FAV</strong> (the second key of the top row) moves the picked app or game to the home screen, into its first empty place, and out of its folder, leaving its place there empty. On the home screen, <kbd>SHIFT</kbd> on a favourite shows <strong>UNFAV</strong> on the second key, which sends it back to its folder, into the first empty place there. Its place on the home screen is left blank, so the other icons stay where they are. A favourite can be moved like the other icons.</p>
+<p>The icon comes inside the <code>.bin</code> file. A game or app without one gets a frame with the first letter of its name. Its name is in the bar at the top when it's picked.</p>
 <p class="note"><strong>Only install apps you trust.</strong> A game or app is a program that runs on the calculator with full access: it can read, change and delete any file on the drive, including your saved states and programs. The calculator checks that the file isn't damaged, not that it is safe. Keep a copy of your states (<a href="#set-usb">USB Drive</a>) before trying an app from somewhere you don't know.</p>
 <ul>
-  <li><strong>Leaving.</strong> <kbd>ON</kbd> always leaves a game or app, back to this list. Held for 2 seconds, it turns the calculator off. The Sleep Timer turns it off too.</li>
+  <li><strong>Leaving.</strong> <kbd>EXIT</kbd> leaves a game or app, back to the icons it was started from, after asking: a box says "Quit SNAKE?" with QUIT and STAY. <kbd>ENTER</kbd> quits; <kbd>EXIT</kbd> or <kbd>&larr;</kbd> stays, and a game carries on where it was. Some apps use <kbd>EXIT</kbd> to go back a screen, and ask when it would leave them. Held for 2 seconds, <kbd>EXIT</kbd> turns the calculator off without asking. The Sleep Timer turns it off too.</li>
   <li><strong>Your memory is safe.</strong> Before a game starts, the calculator saves its memory to the drive, and takes it back afterwards. If a game crashes or hangs, the calculator restarts with its memory as it was, and the start screen says where it stopped.</li>
   <li><strong>Their own files.</strong> A game keeps its files (a best score, settings) in a folder named after it, next to it: <code>/BIN/GAMES/SNAKE/</code> for <code>SNAKE.bin</code>.</li>
 </ul>
@@ -372,7 +434,7 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 <tr><td>Can't save the memory</td><td>The drive is full or can't be written, so the calculator won't risk your memory.</td></tr>
 </tbody>
 </table></div>
-<p><strong>Making your own.</strong> Games and apps are written in C with the <strong>PX-42F App Template</strong>, a separate project. It covers the screen and fonts, the keys, the clock, sounds, files on the drive, the USB console, the infrared LED and the battery, and it includes a simulator that runs a game on a computer. Its README explains how to start. The Snake game is built on it.</p>
+<p><strong>Making your own.</strong> Games and apps are written in C with the <strong>PX-42F App Template</strong>, a separate project. It covers the screen and fonts, the keys, the clock, sounds, files on the drive, the USB console, the infrared LED and the battery, and it includes a simulator that runs a game on a computer. Its README explains how to start. The Snake game is built on it. A game's icon is a file <code>icon.txt</code> in its project: 32 lines of 32 characters, <code>#</code> for black.</p>
 
 <h3 id="set-datetime">Date &amp; Time</h3>
 <div class="shots">
@@ -381,16 +443,16 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 <div class="table-wrap"><table>
 <thead><tr><th>Item</th><th>What it does</th></tr></thead>
 <tbody>
-<tr><td>Set Time</td><td>Type the hours and minutes, then press <kbd>ENTER</kbd> when the seconds reach :00 (the screen says &ldquo;Enter at :00&rdquo;). In 12-hour format, then choose AM or PM.</td></tr>
+<tr><td>Set Time</td><td>Starts at the time now. Change the hours and minutes, then press <kbd>ENTER</kbd> when the seconds reach :00: the seconds start from 0 then.</td></tr>
 <tr><td>Time Format</td><td>24-Hour or 12-Hour.</td></tr>
-<tr><td>Set Date</td><td>Type the date, in the blanks of the current date format.</td></tr>
+<tr><td>Set Date</td><td>A calendar, at today: move to the day and press <kbd>ENTER</kbd>.</td></tr>
 <tr><td>Date Format</td><td>YYYY-MM-DD, DD.MM.YYYY, MM/DD/YYYY, or DOW-MON-DAY (for example <code>WED-OCT-21</code>).</td></tr>
 <tr><td>Time Calibration</td><td>Corrects a clock that runs fast or slow. See below.</td></tr>
 </tbody>
 </table></div>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:set_time}}" alt="Set Time: Now 11:42 AM. Enter at :00, with blanks __:__"><figcaption>Set Time.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:set_date}}" alt="Set Date with blanks in the date format"><figcaption>Set Date.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:set_time}}" alt="Set Time: 11:42 AM, the hours highlighted, and the tabs ENTER, left, right, up, down and EXIT"><figcaption>Set Time.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:set_date}}" alt="Set Date: the calendar for October 2026, the 21st highlighted"><figcaption>Set Date.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:time_format}}" alt="Time Format: 24-Hour or 12-Hour"><figcaption>Time Format.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:date_format}}" alt="Date Format: four formats"><figcaption>Date Format.</figcaption></figure>
 </div>
@@ -403,38 +465,55 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 <figure><img class="shot" src="{{SHOT:exact_time}}" alt="Exact Time: Now 11:42:05 AM. Enter on it, with blanks __:__:__"><figcaption>Measured: entering the exact time.</figcaption></figure>
 </div>
 <ul>
-  <li><strong>Correction:</strong> choose Clock Runs Slow, Clock Runs Fast or No Correction, then type how many seconds a day it loses or gains, to a tenth of a second.</li>
-  <li><strong>Measured:</strong> lets the calculator measure its own drift. Type the exact time to the second (hours, minutes, seconds) and press <kbd>ENTER</kbd> exactly at that second. Do it again after a day or more, and at least 6 hours later: the calculator then shows how many seconds a day it gained or lost, and offers to apply that as the correction. Once something is measured, Measured offers <strong>Apply</strong> or <strong>Enter Exact Time</strong>. Setting the time exactly from a computer counts too.</li>
+  <li><strong>Correction:</strong> choose Clock Runs Slow, Clock Runs Fast or No Correction, then how many tenths of a second a day it loses or gains (15 is 1.5 seconds).</li>
+  <li><strong>Measured:</strong> lets the calculator measure its own drift. Set the exact time to the second (hours, minutes, seconds) and press <kbd>ENTER</kbd> exactly at that second. Do it again after a day or more, and at least 6 hours later: the calculator then shows how many seconds a day it gained or lost, and offers to apply that as the correction. Once something is measured, Measured offers <strong>Apply</strong> or <strong>Enter Exact Time</strong>. Setting the time exactly from a computer counts too.</li>
 </ul>
 <p class="note">The clock keeps running while the calculator is off, but a full reset (the RESET button, or a flat battery) loses the time.</p>
 
 <h3 id="set-alarms">Alarms</h3>
-<p>The alarms set with <code>XYZALM</code>, earliest first, with a date, a time and the text. A <code>!</code> in front means the alarm is past due. <kbd>ENTER</kbd> opens an alarm to show all of it, with two choices below: <strong>Sound</strong> and <strong>Delete</strong>. See <a href="#alarm-commands">Alarm commands</a> for how to set them.</p>
-<p><strong>Sound</strong> sets what this alarm plays: <strong>Plus42 tones</strong> (the default), a WAV file from <code>/SOUNDS</code> or a song from <code>/MIDI</code>. <kbd>ENTER</kbd> chooses a sound and plays it, and <kbd>EXIT</kbd> stops it and goes back. The file names are listed with their <code>.wav</code> or <code>.mid</code> ending, up to 64 of them, and only files directly in those folders. An alarm that repeats keeps its sound.</p>
-<p>A short sound plays again once a second after the first few seconds, as the tones do. A sound longer than the alarm's 20 seconds plays to its end. Any key stops it, along with the alarm. If the file has gone from the drive when the alarm comes due, you hear the Plus42 tones instead. Clearing flag 26 silences all of them. A control alarm only runs its program, so it has no <strong>Sound</strong>. The two tones that remind you of past-due alarms at power on, or that warn of an alarm set for a time already past, don't change.</p>
-<figure><img class="shot" src="{{SHOT:alarms}}" alt="The Alarms list, with two alarms"><figcaption>Two alarms. The second runs the program BACKUP.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:alarm_detail}}" alt="One alarm: its date and time, Once, its message, then Sound and Delete"><figcaption>One alarm, opened.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:alarm_sound}}" alt="The Alarm Sound list: Plus42 tones, then WAV files and a MIDI song"><figcaption>Choosing the alarm's sound. The <code>&lt;</code> marks the one chosen.</figcaption></figure>
+<p>Every alarm that is set, earliest first, with a date, a time and the text. A <code>!</code> in front means the alarm is past due. <kbd>&uarr;</kbd> and <kbd>&darr;</kbd> pick one. The tabs along the bottom are for the top row of keys, and only those that do something show: with no alarms there is only NEW.</p>
+<ul>
+  <li><strong>NEW</strong> sets a new alarm.</li>
+  <li><strong>EDIT</strong> (or <kbd>ENTER</kbd>) changes the picked alarm. An alarm an app set can only be deleted: the app manages its own.</li>
+  <li><strong>DEL</strong> deletes the picked alarm, after asking.</li>
+  <li><strong>&uarr;</strong> and <strong>&darr;</strong> pick, as the arrow keys do.</li>
+</ul>
+<p>Programs set alarms with <code>XYZALM</code>: see <a href="#alarm-commands">Alarm commands</a>.</p>
+<p>A new or edited alarm has the same fields as <code>XYZALM</code>, and a sound. <kbd>ENTER</kbd> changes the picked field. Time and Date open the time picker and the calendar; the others open a list under the field, where <kbd>&uarr;</kbd> <kbd>&darr;</kbd> pick, <kbd>ENTER</kbd> chooses and <kbd>EXIT</kbd> closes it. The tabs are <strong>SAVE</strong>, <strong>&uarr;</strong>, <strong>&darr;</strong> and <strong>EXIT</strong> (leaves without a change).</p>
+<ul>
+  <li><strong>Time</strong>: hours, minutes and seconds, then AM or PM with the 12-hour clock. A new alarm starts at the next whole hour.</li>
+  <li><strong>Date</strong>: in the Date Format's order. A new alarm starts today, or tomorrow if the next whole hour is after midnight.</li>
+  <li><strong>Repeat</strong>: None, every hour, day or week, or <strong>Other...</strong>: any time from one second to 9999 hours, in hours, minutes and seconds.</li>
+  <li><strong>Kind</strong>: <strong>Message</strong> shows the message and plays the sound. <strong>Run program</strong> runs the program, always (<code>&uarr;&uarr;LABEL</code> in <code>XYZALM</code>). <strong>Run when off</strong> runs it if the calculator is off or showing the clock, and otherwise acts as a message alarm (<code>&uarr;LABEL</code>).</li>
+  <li><strong>Message</strong> or <strong>Program</strong>: <strong>Type...</strong>, then the messages of the other alarms, or the calculator's programs, by their global labels. Typing uses the letters on the keys, and <kbd>SHIFT</kbd> then a digit key for a digit. A message can be up to 24 characters, with spaces and <code>: , ? _</code>. A program's label can be up to 7 letters and digits.</li>
+  <li><strong>Sound</strong>: <strong>Plus42 tones</strong> (the default), a WAV file from <code>/SOUNDS</code> or a song from <code>/MIDI</code>. The one you choose plays, and SAVE or EXIT stops it. The file names are listed with their <code>.wav</code> or <code>.mid</code> ending, up to 64 of them, and only files directly in those folders. A <strong>Run program</strong> alarm only runs its program, so it has no sound.</li>
+</ul>
+<p><strong>SAVE</strong> sets the alarm. A time that has already passed isn't taken: change the time or the date.</p>
+<p>When an alarm comes due, a short sound plays again once a second after the first few seconds, as the tones do. A sound longer than the alarm's 20 seconds plays to its end. Any key stops it, along with the alarm. An alarm that repeats keeps its sound. If the file has gone from the drive when the alarm comes due, you hear the Plus42 tones instead. Clearing flag 26 silences all of them. The two tones that remind you of past-due alarms at power on, or that warn of an alarm set for a time already past, don't change.</p>
+<figure><img class="shot" src="{{SHOT:alarms}}" alt="The Alarms list with two alarms, and the tabs NEW, EDIT, DEL, up, down and EXIT"><figcaption>Two alarms. The second runs the program BACKUP.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:alarm_edit}}" alt="Edit Alarm: Time, Date, Repeat, Kind, Message and Sound, with the tabs SAVE, up, down and EXIT"><figcaption>An alarm, opened with EDIT.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:alarm_repeat}}" alt="The Repeat list open under the field: None, Every hour, Every day, Every week, Other..."><figcaption>Choosing how often it repeats.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:alarm_sound}}" alt="The Sound list open over the form: Plus42 tones, then WAV files"><figcaption>Choosing the alarm's sound.</figcaption></figure>
 
 <h3 id="set-sounds">Sounds</h3>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:sounds}}" alt="Sounds: Key Sound Typewriter, On Sound On, Off Sound On, Calc Error Sound On, Silence Plus42 Off"><figcaption>The sound settings.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:key_sound}}" alt="Key Sound list: Off, Typewriter (marked), Tick, Tock, Glass, Pop, Beep"><figcaption>Key Sound. The <code>&lt;</code> marks the one in use.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:sounds}}" alt="Sounds: Key Sound Typewriter, then check boxes: On Sound, Off Sound, Calc Error Sound ticked, Silence Plus42 not"><figcaption>The sound settings.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:key_sound}}" alt="Sounds with the Key Sound list pulled down: Off, Typewriter (picked), Tick, Tock, Glass"><figcaption>Key Sound, pulled down.</figcaption></figure>
 </div>
 <div class="table-wrap"><table>
 <thead><tr><th>Item</th><th>What it does</th></tr></thead>
 <tbody>
 <tr><td>Key Sound</td><td>The sound each key press makes, or Off. See below.</td></tr>
-<tr><td>On Sound</td><td>On or Off: a sound when you turn the calculator on.</td></tr>
-<tr><td>Off Sound</td><td>On or Off: a sound when it turns off.</td></tr>
-<tr><td>Calc Error Sound</td><td>On or Off: <code>ERROR.wav</code> when Plus42 shows an error message, such as Divide by 0 or Out of Range, from a key or a program. Errors that flag 25 or a trap catch stay silent, and so does Interrupted.</td></tr>
-<tr><td>Silence Plus42</td><td>On silences every sound Plus42 itself makes: errors, BEEP and TONE. It is Plus42's flag 26, the one QUIET toggles, so programs and saved states can change it too, and Memory Clear turns sound back on. Key, On and Off sounds keep playing.</td></tr>
+<tr><td>On Sound</td><td>A check box (<kbd>ENTER</kbd> ticks it): a sound when you turn the calculator on.</td></tr>
+<tr><td>Off Sound</td><td>A check box: a sound when it turns off.</td></tr>
+<tr><td>Calc Error Sound</td><td>A check box: <code>ERROR.wav</code> when Plus42 shows an error message, such as Divide by 0 or Out of Range, from a key or a program. Errors that flag 25 or a trap catch stay silent, and so does Interrupted.</td></tr>
+<tr><td>Silence Plus42</td><td>A check box. Ticked, it silences every sound Plus42 itself makes: errors, BEEP and TONE. It is Plus42's flag 26, the one QUIET toggles, so programs and saved states can change it too, and Memory Clear turns sound back on. Key, On and Off sounds keep playing.</td></tr>
 </tbody>
 </table></div>
 <p>The boot sound has no setting. It always plays when the calculator starts: after the RESET button, a firmware update or a restart, but not when you turn it on with ON. To change it, replace <code>BOOT.wav</code> (see <a href="#other-sounds">Other sounds</a>).</p>
 
 <h4>Key Sound</h4>
-<p>The list shows Off, the built-in key sounds, then any of your own on the drive. <kbd>ENTER</kbd> chooses one and plays it. There are two kinds:</p>
+<p><kbd>ENTER</kbd> on Key Sound pulls down a list: Off, the built-in key sounds, then any of your own on the drive. <kbd>ENTER</kbd> chooses one and plays it; <kbd>EXIT</kbd> closes the list. There are two kinds:</p>
 <ul>
   <li><strong>A single sound</strong> (Tick, Tock, Glass, Pop, Beep, Free42): every key makes the same sound.</li>
   <li><strong>A set</strong> (built in: Typewriter): three sounds, chosen by what the key does. Choosing a set plays all three in order.</li>
@@ -479,7 +558,7 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 </ul>
 
 <h3 id="alarm-commands">Alarm commands from the HP-41 Time Module</h3>
-<p>These use the HP-41CX's XROM codes too. To set an alarm, put the repeat in Z, the date in Y, the time in X and the text in ALPHA, then run <code>XYZALM</code>:</p>
+<p>These use the HP-41CX's XROM codes too. You can also set an alarm without a program, in <a href="#set-alarms">Settings &rarr; Alarms &rarr; New Alarm</a>. To set an alarm, put the repeat in Z, the date in Y, the time in X and the text in ALPHA, then run <code>XYZALM</code>:</p>
 <ul>
   <li><strong>X, the time</strong>: HH.MMSSs, 24-hour. &minus;1 to &minus;11 also mean 1 to 11 p.m.</li>
   <li><strong>Y, the date</strong>: in the current date format, up to the year 2199, or 0 for today.</li>
@@ -523,11 +602,11 @@ PLAYMID</code></pre>
 <h3 id="set-fonts">Fonts</h3>
 <div class="shots">
 <figure><img class="shot" src="{{SHOT:fonts}}" alt="Fonts: Large Font (10x16), Small Font (8x12), Mini Font (6x8), all Built-In"><figcaption>The three fonts and the one each uses.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:font_large}}" alt="Large Font list: Built-In, Rounded"><figcaption>A font's list: Built-In, then the sheets in its folder.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:font_large}}" alt="Fonts with the Large Font list pulled down: Built-In (picked), Rounded"><figcaption>A font's list pulled down: Built-In, then the sheets in its folder.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:font_large_preview}}" alt="Preview of the large font: all its characters"><figcaption>The preview of the large font.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:font_mini_preview}}" alt="Preview of the mini font: all its characters"><figcaption>The preview of the mini font.</figcaption></figure>
 </div>
-<p>Choose a font to see its list. <kbd>ENTER</kbd> on a font shows all 128 of its characters. Press <kbd>ENTER</kbd> again to use it, or <kbd>EXIT</kbd> to keep the one you had. A sheet of the wrong size is refused, with the size it should be. See <a href="#fonts">The three fonts</a>.</p>
+<p><kbd>ENTER</kbd> on a font pulls down its list. Choosing another one shows all 128 of its characters: press <kbd>ENTER</kbd> (<strong>USE</strong>) to use it, or <kbd>EXIT</kbd> to keep the one you had. A sheet of the wrong size is refused, with the size it should be. See <a href="#fonts">The three fonts</a>.</p>
 
 <h3 id="set-sleep">Sleep Timer</h3>
 <div class="shots">
@@ -540,46 +619,50 @@ PLAYMID</code></pre>
 <div class="shots">
 <figure><img class="shot" src="{{SHOT:splash}}" alt="Splash Image: Timer 10 min, Image Built-In"><figcaption>The two splash settings.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:splash_timer}}" alt="Splash Timer: Shown for 10 min. 0 = Off"><figcaption>Timer.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:splash_image}}" alt="Splash Image list: Built-In, a screenshot, Mountains"><figcaption>Image: Built-In, then the PNGs in <code>/SPLASH</code>.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:splash_preview}}" alt="Preview of the built-in splash: a frame with a checkered band, under a bar with the date and time"><figcaption>A preview, as it looks while off.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:splash_image}}" alt="Splash Image with the Image list pulled down: Built-In (picked), a screenshot, Mountains"><figcaption>Image pulled down: Built-In, then the PNGs in <code>/SPLASH</code>.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:splash_preview}}" alt="Preview of a screenshot as the splash image, under a bar with the date and time; tabs USE and EXIT"><figcaption>A preview, as it looks while off.</figcaption></figure>
 </div>
 <ul>
   <li><strong>Timer:</strong> how many minutes the picture stays up after turning off, 0 to 999. After that the screen goes blank. With 0, it's blank straight away. The default is 10.</li>
-  <li><strong>Image:</strong> <strong>Built-In</strong>, or a PNG from <code>/SPLASH</code> on the drive. <kbd>ENTER</kbd> on an image shows it full screen, as it will look. Press <kbd>ENTER</kbd> again to use it, or <kbd>EXIT</kbd> to go back. The best size is 250 &times; 122 pixels, and the PNG must not be interlaced. A screenshot works as is.</li>
+  <li><strong>Image:</strong> <strong>Built-In</strong>, or a PNG from <code>/SPLASH</code> on the drive. <kbd>ENTER</kbd> pulls down the list; choosing another image shows it full screen, as it will look. Press <kbd>ENTER</kbd> (<strong>USE</strong>) to use it, or <kbd>EXIT</kbd> to keep the one you had. The best size is 250 &times; 122 pixels, and the PNG must not be interlaced. A screenshot works as is.</li>
 </ul>
 <p>Showing the picture costs a little battery while off: about 200 &micro;A against 135 &micro;A blank.</p>
 
 <h3 id="set-printer">Printer</h3>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:printer}}" alt="Printer: Off, USB Serial, HP 82240B (IR)"><figcaption>Printer.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:screen_print}}" alt="Screen Print: Portrait, Landscape"><figcaption>Screen Print, after HP 82240B (IR).</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:printer_pick}}" alt="Printer with its list pulled down: Off, USB Serial, HP 82240B, USB Thermal"><figcaption>Printer pulled down.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:screen_print}}" alt="Printer: HP 82240B; Screen Print pulled down: Portrait, Landscape"><figcaption>Screen Print, with HP 82240B.</figcaption></figure>
 </div>
 <ul>
   <li><strong>Off:</strong> printing commands do nothing (Plus42's PROFF).</li>
   <li><strong>USB Serial:</strong> printing goes to a second USB serial port named <strong>PX-42F Printer</strong>. Open it in a terminal program on the computer to see the output. Choosing it also turns Plus42's printer on (PRON).</li>
-  <li><strong>HP 82240B (IR):</strong> printing goes by infrared to an HP 82240B printer, as on the HP-42S. It works only with the HP 82240B, not with other infrared printers. Aim the calculator at the printer's window. Text prints in the printer's own characters. The characters it lacks (&radic;, &Sigma;, &pi;, the arrows and others) print as graphics in Plus42's shapes. Choosing it asks how PRLCD prints the screen:
+  <li><strong>HP 82240B:</strong> printing goes by infrared to an HP 82240B printer, as on the HP-42S. It works only with the HP 82240B, not with other infrared printers. Aim the calculator at the printer's window. Text prints in the printer's own characters. The characters it lacks (&radic;, &Sigma;, &pi;, the arrows and others) print as graphics in Plus42's shapes. With it, a second row, <strong>Screen Print</strong>, pulls down how PRLCD prints the screen:
     <ul>
       <li><strong>Portrait</strong> (the first time): the screen redrawn to fit the paper, in Plus42's own small characters: the status bar's text, the lines with the dotted lines between them, and the menu. It takes about 20 seconds. The layouts of 6 rows and more are too wide for the paper; they print in landscape.</li>
       <li><strong>Landscape</strong>: the screen dot for dot, with the PX's fonts. The screen is wider than the paper, so it prints turned a quarter: turn the paper a quarter clockwise to read it. It takes about 2 minutes.</li>
     </ul>
-    <kbd>EXIT</kbd> there keeps the one chosen before. The printer can't tell the calculator when it is ready. So the calculator waits as long as the slowest printer on nearly flat batteries needs, 1.8 seconds a line. A long listing (PRP, PRV, PRUSR) takes that long, with &#9654; and the printer icon in the status bar. <kbd>EXIT</kbd> or <kbd>R/S</kbd> stops it, and other keys wait until it ends. They stop PRLCD too, and a program printing with it, but it takes up to 2 seconds, because a line that has begun is always sent whole, or the printer would misread what follows. The printer also finishes what it already has, so the paper can go on for a little. Choosing it also turns Plus42's printer on (PRON).</li>
+    <kbd>EXIT</kbd> there keeps the one chosen before. The printer can't tell the calculator when it is ready. So the calculator waits as long as the slowest printer on nearly flat batteries needs, 1.8 seconds a line. DELAY (in PRINT, as on the HP-42S) changes that: 0 to 1.9 seconds a line from X, kept through OFF, back to 1.8 at Memory Clear. A printer on fresh batteries or its adapter keeps up with less; too little and it loses lines. A long listing (PRP, PRV, PRUSR) takes that long, with &#9654; and the printer icon in the status bar. <kbd>EXIT</kbd> or <kbd>R/S</kbd> stops it, and other keys wait until it ends. They stop PRLCD too, and a program printing with it, but it takes up to 2 seconds, because a line that has begun is always sent whole, or the printer would misread what follows. The printer also finishes what it already has, so the paper can go on for a little. Choosing it also turns Plus42's printer on (PRON).</li>
+  <li><strong>USB Thermal:</strong> printing goes to a small 58 mm thermal receipt printer (one that takes ESC/POS commands) on the calculator's USB-C port, by a USB-C to USB-C cable (or an OTG adapter and the printer's own cable). The printer runs on its own battery; the calculator gives it no power. Text prints in the printer's own font, 24 characters to a line as on the HP 82240B. A line with a character the printer lacks (&radic;, &Sigma;, &pi;, the arrows, &times;, &ne;, &#9656; and others) prints instead as a picture of the line in Plus42's own shapes, the same size as the printer's font. PRLCD prints the screen as it is, upright, dot for dot. When the printing stops, the paper is fed up past the tear bar.
+    <p>The USB port can be the computer's or the printer's, not both. So it's the computer's until something prints: then it becomes the printer's (about a second to find the printer the first time), and the computer's again 30 seconds after the last line. Meanwhile the computer doesn't see the calculator (no console, no drive). <strong>USB Drive &rarr; Connect to PC</strong> takes the port back at once. If no printer answers within 5 seconds, what was to print is dropped, and so is what prints in the next 10 seconds, so the calculator never waits for a printer that isn't there. A long listing waits for the printer with &#9654; in the status bar; <kbd>EXIT</kbd> or <kbd>R/S</kbd> stops it, as with the HP 82240B. Choosing it also turns Plus42's printer on (PRON).</p></li>
 </ul>
 <p>With a printer chosen, programs print too, and VIEW and AVIEW in a program print as well as show, as on an HP-42S with its printer on. The setting sets flags 21 and 55 at every start, so a PROFF or CF 21 lasts until the calculator is next turned on.</p>
+<p>Apps print to the same printer, the one chosen here. PX-BASIC, for example, has <code>LPRINT</code>, <code>LLIST</code> and <code>PRSCR</code>.</p>
 
 <h3 id="set-states">States</h3>
 <p>A state is a complete copy of the calculator's memory (stack, variables, programs, settings) in a file. States are kept on the drive in <code>/STATE</code> as <code>&lt;name&gt;.p42</code> files, the same format the desktop Plus42 uses.</p>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:states}}" alt="States: Save State, Load State, Rename State, Delete State"><figcaption>States.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:save_state}}" alt="Save State: a name prompt with the suggested name 20261021-114205"><figcaption>Save State, with the suggested name.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:load_state}}" alt="Load State: a list of saved states"><figcaption>Load State: the saved states.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:states}}" alt="States: the saved states 20261020-174205, Finance, Physics; tabs SAVE, LOAD, RENAM, DEL and EXIT"><figcaption>States: the saved ones.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:save_state}}" alt="Save State: a name prompt with the suggested name 20261021-114205"><figcaption>SAVE, with the suggested name.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:load_state}}" alt="Load State: Load 20261020-174205? This replaces everything in the calculator's memory. Tabs LOAD and EXIT"><figcaption>LOAD asks first.</figcaption></figure>
 </div>
+<p>States lists the saved states. The tabs act on the one picked; with none saved, only <strong>SAVE</strong> and <strong>EXIT</strong> show.</p>
 <div class="table-wrap"><table>
-<thead><tr><th>Item</th><th>What it does</th></tr></thead>
+<thead><tr><th>Tab</th><th>What it does</th></tr></thead>
 <tbody>
-<tr><td>Save State</td><td>Saves the memory under a name of up to 16 characters. The suggested name is the date and time (YYYYMMDD-HHMMSS). To type your own, delete it with <kbd>&larr;</kbd>, then type letters with the keys (the letter printed on each), and digits with <kbd>SHIFT</kbd> and the digit key. Saving over an existing name asks first.</td></tr>
-<tr><td>Load State</td><td>Replaces the calculator's memory with a saved state, after asking.</td></tr>
-<tr><td>Rename State</td><td>Gives a saved state a new name.</td></tr>
-<tr><td>Delete State</td><td>Deletes a saved state, after asking. It can't be undone.</td></tr>
+<tr><td>SAVE</td><td>Saves the memory under a name of up to 16 characters. The suggested name is the date and time (YYYYMMDD-HHMMSS). To type your own, delete it with <kbd>&larr;</kbd>, then type letters with the keys (the letter printed on each), and digits with <kbd>SHIFT</kbd> and the digit key. Saving over an existing name asks first.</td></tr>
+<tr><td>LOAD (or <kbd>ENTER</kbd>)</td><td>Replaces the calculator's memory with the picked state, after asking.</td></tr>
+<tr><td>RENAM</td><td>Gives the picked state a new name.</td></tr>
+<tr><td>DEL</td><td>Deletes the picked state, after asking. It can't be undone.</td></tr>
 </tbody>
 </table></div>
 <p class="note">Plus42 can't read Free42 states (<code>.f42</code>). Programs can move between the two as <code>.raw</code> files: see <a href="#set-programs">Programs</a>.</p>
@@ -587,30 +670,31 @@ PLAYMID</code></pre>
 <h3 id="set-programs">Programs</h3>
 <p>Programs can be kept on the drive as <code>.raw</code> files, in <code>/PROGRAMS</code>. This is the program file format of Plus42 and Free42 on computers and phones, and of the program libraries online. A <code>.raw</code> file holds one or more programs; it doesn't hold variables or the stack (use <a href="#set-states">States</a> for those).</p>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:programs}}" alt="Programs: Import Programs, Export Programs, Delete File"><figcaption>Programs.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:import_programs}}" alt="Import Programs: a list of .raw files"><figcaption>Import Programs: the <code>.raw</code> files.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:export_programs}}" alt="Export Programs: All Programs, then each program by its labels"><figcaption>Export Programs: the calculator's programs.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:programs}}" alt="Programs: the .raw files ALL, Calendar, QUAD, Rocket-Science; tabs IMPRT, EXPRT, RENAM, DEL and EXIT"><figcaption>Programs: the <code>.raw</code> files.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:export_programs}}" alt="Export Programs: All Programs, then each program by its labels"><figcaption>EXPRT: the calculator's programs.</figcaption></figure>
 </div>
+<p>Programs lists the <code>.raw</code> files. <strong>IMPRT</strong>, <strong>RENAM</strong> and <strong>DEL</strong> act on the one picked; with none, only <strong>EXPRT</strong> and <strong>EXIT</strong> show.</p>
 <div class="table-wrap"><table>
-<thead><tr><th>Item</th><th>What it does</th></tr></thead>
+<thead><tr><th>Tab</th><th>What it does</th></tr></thead>
 <tbody>
-<tr><td>Import Programs</td><td>Adds the programs in a <code>.raw</code> file to the calculator's, after the last one, and says how many it added. Nothing in the calculator is replaced.</td></tr>
-<tr><td>Export Programs</td><td>Saves one program, or <strong>All Programs</strong>, to a <code>.raw</code> file. Programs are listed by their global labels, as in the PGM catalog; one without a global label is <code>END</code>. The suggested file name is the program's first label (<code>ALL</code> for all of them); type another as in <a href="#set-states">Save State</a>. Saving over an existing file asks first.</td></tr>
-<tr><td>Delete File</td><td>Deletes a <code>.raw</code> file from the drive, after asking. The programs in the calculator stay.</td></tr>
+<tr><td>IMPRT (or <kbd>ENTER</kbd>)</td><td>Adds the programs in the picked file to the calculator's, after the last one, and says how many it added. Nothing in the calculator is replaced.</td></tr>
+<tr><td>EXPRT</td><td>Saves one program, or <strong>All Programs</strong>, to a <code>.raw</code> file. Programs are listed by their global labels, as in the PGM catalog; one without a global label is <code>END</code>. The suggested file name is the program's first label (<code>ALL</code> for all of them); type another as in <a href="#set-states">Save State</a>. Saving over an existing file asks first.</td></tr>
+<tr><td>RENAM</td><td>Gives the picked file a new name, typed as in Save State.</td></tr>
+<tr><td>DEL</td><td>Deletes the picked file from the drive, after asking. The programs in the calculator stay.</td></tr>
 </tbody>
 </table></div>
 <p>Both work on the programs of Plus42's current directory, as Plus42's own Import and Export do. To bring <code>.raw</code> files from a computer, copy them into <code>/PROGRAMS</code> with <a href="#set-usb">USB Drive</a>. Files whose names are longer than 28 characters aren't listed: rename them shorter.</p>
 
 <h3 id="set-usb">USB Drive</h3>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:usb_menu}}" alt="USB Drive: Connect to Computer, Format Drive"><figcaption>USB Drive.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:usb_drive}}" alt="Connect to Computer: Connected: drive PX-42F"><figcaption>Connect to Computer, with a computer connected.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:usb_menu}}" alt="USB Drive: three icons, Connect to PC (picked), Format Drive, Update Firmware; tabs ENTER, left, up, down, right and EXIT"><figcaption>USB Drive.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:usb_drive}}" alt="Connect to PC: Connected: drive PX-42F"><figcaption>Connect to PC, with a computer connected.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:format_drive}}" alt="Format Drive: Erase every file on the drive?"><figcaption>Format Drive asks first, then once more.</figcaption></figure>
 </div>
 <div class="table-wrap"><table>
 <thead><tr><th>Item</th><th>What it does</th></tr></thead>
 <tbody>
-<tr><td>Connect to Computer</td><td>Lets a computer open the calculator's drive, named <strong>PX-42F</strong>, through the USB cable, to copy states, programs, images, fonts, sounds, games and apps in and out. The screen says &ldquo;Waiting for a computer...&rdquo; until one opens it. While it's open, the calculator stays out of the drive. <strong>Eject the drive on the computer before pressing <kbd>EXIT</kbd></strong>. On leaving, the calculator saves what was written and reloads the splash image, sounds and fonts, in case they were changed.</td></tr>
+<tr><td>Connect to PC</td><td>Lets a computer open the calculator's drive, named <strong>PX-42F</strong>, through the USB cable, to copy states, programs, images, fonts, sounds, games and apps in and out. The screen says &ldquo;Waiting for a computer...&rdquo; until one opens it. While it's open, the calculator stays out of the drive. <strong>Eject the drive on the computer before pressing <kbd>EXIT</kbd></strong>. On leaving, the calculator saves what was written and reloads the splash image, sounds and fonts, in case they were changed.</td></tr>
 <tr><td>Format Drive</td><td>Erases every file on the drive, after asking twice: states, programs, screenshots, your own sounds, fonts, splash images, games and apps. The calculator's memory and settings stay. The folders and the built-in sounds are made again, as on the first start. Use it if the drive can't be read any more, for example after a computer reformatted it in a format the calculator doesn't read (such as exFAT).</td></tr>
 <tr><td>Update Firmware</td><td>Installs new firmware without the BOOT and RESET buttons. It clears the memory and keeps the time and the settings. See <a href="#updating">Updating the firmware</a>.</td></tr>
 </tbody>
@@ -646,7 +730,8 @@ PLAYMID</code></pre>
 <tr><td><code>/FONTS/BUILTIN</code></td><td>The built-in fonts as font sheets (<code>LARGE.png</code>, <code>SMALL.png</code>, <code>MINI.png</code>), read-only: copy them to start a font from.</td></tr>
 <tr><td><code>/SOUNDS</code></td><td>Every sound, WAV. Key sounds are in <code>/SOUNDS/KEY</code>. <code>BUILTIN.TXT</code> is the calculator's own record of the built-in sounds it wrote; leave it alone. See <a href="#set-sounds">Sounds</a>.</td></tr>
 <tr><td><code>/MIDI</code></td><td>MIDI songs, <code>.mid</code>, for <code>PLAYMID</code>, alarm sounds and apps. See <a href="#sound-commands">Playing sounds from a program</a>.</td></tr>
-<tr><td><code>/BIN/GAMES</code>, <code>/BIN/APPS</code></td><td>Games and apps, <code>.bin</code>, each with its own folder next to it. See <a href="#set-apps">Games &amp; Apps</a>.</td></tr>
+<tr><td><code>/HOME.TXT</code></td><td>The order of the settings menu's icons, and its favourites. See <a href="#move-icons">Moving icons</a>.</td></tr>
+<tr><td><code>/BIN/GAMES</code>, <code>/BIN/APPS</code></td><td>Games and apps, <code>.bin</code>, each with its own folder next to it. See <a href="#set-apps">Apps and games</a>.</td></tr>
 <tr><td><code>/PROGRAMS</code></td><td>Programs, <code>.raw</code>. See <a href="#set-programs">Programs</a>.</td></tr>
 <tr><td>Top of the drive</td><td>The calculator&rsquo;s own files, so leave them alone: <code>ALARMS.DAT</code> (the alarms), <code>STOPWATCH.DAT</code> (the stopwatch), <code>BOOTLOG.TXT</code> (a log of the last starts) and sometimes <code>OFFSTATE.p42</code> (the memory, when it is too big for its copy in RAM).</td></tr>
 </tbody>
@@ -712,7 +797,7 @@ PLAYMID</code></pre>
 </table></div>
 <ul>
   <li>The calculator can be used while it charges.</li>
-  <li>The battery gauge at the right of the status bar shows the charge in four bars. <a href="#set-info">Settings &rarr; Info</a> shows the battery voltage: about 4.2 V when full.</li>
+  <li>The battery gauge at the right of the status bar shows the charge in four bars. <a href="#set-info">Info</a> in the settings menu shows the battery voltage: about 4.2 V when full.</li>
   <li>When the battery is nearly empty, about 3.45 V, the calculator turns itself off to protect it. Its memory is kept while some charge remains, so charge it soon, then turn it on again. Left empty for long, the battery can run out completely, and the memory and the clock's time are lost: save important work as a <a href="#set-states">state</a>.</li>
   <li>Turned off, the calculator uses very little power, about 135 &micro;A, or 200 &micro;A while the splash picture is showing. A full charge lasts months turned off, and many hours of use.</li>
   <li>While a computer is connected over USB, the <a href="#set-sleep">Sleep Timer</a> doesn't turn the calculator off.</li>
@@ -729,7 +814,7 @@ PLAYMID</code></pre>
 </div>
 <ol class="steps">
   <li>Connect the calculator to the computer with the USB-C cable.</li>
-  <li>Open <a href="#set-usb">Settings &rarr; USB Drive &rarr; Update Firmware</a> and press <kbd>ENTER</kbd>. The new firmware starts with the memory cleared, as after any update: save the memory first if you want it back (<a href="#set-states">Settings &rarr; States &rarr; Save State</a>). Then a new drive named <strong>RP2350</strong> appears on the computer: that's the update mode. The screen shows what to do, and the keys do nothing meanwhile.</li>
+  <li>In the settings menu, open <a href="#set-usb">USB Drive &rarr; Update Firmware</a> and press <kbd>ENTER</kbd>. The new firmware starts with the memory cleared, as after any update: save the memory first if you want it back (<a href="#set-states">Settings &rarr; States &rarr; Save State</a>). Then a new drive named <strong>RP2350</strong> appears on the computer: that's the update mode. The screen shows what to do, and the keys do nothing meanwhile.</li>
   <li>Drag the <code>.uf2</code> file onto the RP2350 drive.</li>
   <li>Wait. When the copy finishes, the drive disappears by itself and the calculator starts the new firmware, with the memory cleared and the time as it was. The computer may warn that the drive was removed without ejecting it; that's normal here.</li>
 </ol>
@@ -745,7 +830,7 @@ PLAYMID</code></pre>
   <li>If you saved your memory, load it back: <a href="#set-states">Settings &rarr; States &rarr; Load State</a>. Set the time in <a href="#set-datetime">Date &amp; Time</a>.</li>
 </ol>
 
-<p>To check the update, <a href="#set-info">Settings &rarr; Info</a> shows the firmware version and the date it was built. To leave update mode without installing anything, press <strong>RESET</strong>. Like any RESET, it clears the calculator's memory.</p>
+<p>To check the update, <a href="#set-info">Info</a> in the settings menu shows the firmware version and the date it was built. To leave update mode without installing anything, press <strong>RESET</strong>. Like any RESET, it clears the calculator's memory.</p>
 
 <h2 id="commands">11. Added commands</h2>
 
@@ -851,6 +936,29 @@ PEN
 BOX</code></pre>
 <p>Plus42's <code>PIXEL</code> and <code>AGRAPH</code> draw on the same 250 by 122, so all of these line up, whatever the number of rows. <code>PIXEL</code> is always black, one dot, and <code>AGRAPH</code> keeps its modes (flags 34 and 35). <code>WIDTH</code> and <code>HEIGHT</code> give 250 and 122. A program written for the HP-42S's 131 by 16 draws at its true size, in the top left corner.</p>
 <p>Drawings stay until the next key, or until <code>CLLCD</code>, and also after a program ends, as on the HP-42S. To end a program with the stack back on the screen, make <code>CLD</code> its last step before <code>STOP</code>. The status bar and the dotted lines between rows are hidden while they show. To keep the stack from showing under them, start with <code>CLLCD</code>. Printing with PRLCD to the HP 82240B prints them, always in Landscape; printing to USB doesn't include them. <code>POLYGON</code> takes up to 64 corners; where its edges cross, a filled one has holes.</p>
+
+<!-- ============================================================ -->
+<h2 id="skins">12. Plus42 on your computer</h2>
+
+<p>Plus42 also runs on Windows, macOS and Linux, free from <a href="https://thomasokken.com/plus42/">thomasokken.com/plus42</a>. These skins make it look like the PX-42F, with the same keys and labels. You can write and try a program on the computer, then move it to the calculator as a <code>.raw</code> file (<a href="#set-programs">Settings &rarr; Programs</a>). The screen inside the skin is Plus42's own, not the PX-42F's fonts and status bar.</p>
+
+<div class="shots">
+<figure><img class="skin" src="{{SKIN:PX42F}}" alt="The PX42F skin: the PX-42F's keyboard in black and gold under a wide gray display"><figcaption><strong>PX42F</strong>, for the computer's window.<br>Download <a href="https://paxerlabs.com/px42f/plus42_skin/PX42F.gif" download>PX42F.gif</a> and <a href="https://paxerlabs.com/px42f/plus42_skin/PX42F.layout" download>PX42F.layout</a>.</figcaption></figure>
+<figure><img class="skin" src="{{SKIN:PX42F_iPhone}}" alt="The PX42F_iPhone skin: the same keyboard, taller, with the display across the full width"><figcaption><strong>PX42F_iPhone</strong>: the same keyboard, taller, with the display across the full width, for a phone's screen.<br>Download <a href="https://paxerlabs.com/px42f/plus42_skin/PX42F_iPhone.gif" download>PX42F_iPhone.gif</a> and <a href="https://paxerlabs.com/px42f/plus42_skin/PX42F_iPhone.layout" download>PX42F_iPhone.layout</a>.</figcaption></figure>
+</div>
+
+<p>A skin is two files with the same name: a <code>.gif</code> (the picture) and a <code>.layout</code> (where the keys and the display are). Plus42 needs both.</p>
+<ol class="steps">
+  <li>Download both files of the skin.</li>
+  <li>Put them in Plus42's folder:
+    <ul>
+      <li>macOS: <code>~/Library/Application Support/Plus42</code> (in the Finder, Go &rarr; Go to Folder, and paste it).</li>
+      <li>Windows: <code>%APPDATA%\Plus42</code> (paste it into the File Explorer's address bar), or the folder that holds <code>Plus42.exe</code>.</li>
+      <li>Linux: <code>~/.local/share/plus42</code>.</li>
+    </ul>
+  </li>
+  <li>Quit Plus42 and open it again, then choose <strong>PX42F</strong> from the <strong>Skin</strong> menu.</li>
+</ol>
 
 <footer>
   <p>PX-42F-Plus. Plus42 by Thomas Okken; port to the PX-42F by Alex Garza. Decimal arithmetic by the Intel Decimal Floating-Point Math Library.</p>

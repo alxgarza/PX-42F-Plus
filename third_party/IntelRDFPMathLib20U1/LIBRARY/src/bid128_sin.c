@@ -128,7 +128,9 @@ static BID_UINT128 BID128_1 =
 // as that order, and you want accuracy of that order). But I may well
 // be able to get away with 5 chunks. Probably not 4?
 
-static BID_UINT384 bid_decimal128_moduli[] =
+/* PX-42F: one copy of this 295 KB table, shared with bid128_cos.c and
+   bid128_tan.c, which each had their own identical static copy. */
+const BID_UINT384 bid_decimal128_moduli[] =
 { {{ 0x4abfd0d644dca156ull, 0xe9cf4c5596df69ecull, 0xd5ccdc56a81e2464ull,
      0x9382546d1dfa1e2aull, 0x000000000000021dull, 0x0000000000000000ull }},
   {{ 0xeb7e285eb09e4d57ull, 0x2218fb57e4ba233aull, 0x5a009b62912d6bf1ull,

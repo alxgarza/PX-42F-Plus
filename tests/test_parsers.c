@@ -456,7 +456,7 @@ static void test_font_sheet_draw(const display_font_t *font, int gap) {
 /* A .bin's header decides whether the calculator jumps into the file:
  * only a sound one may pass. */
 static void test_app_header(void) {
-    px_app_header_t good = {PX_APP_MAGIC, 1, 4096, 1024, PX_APP_BASE + sizeof(px_app_header_t) + 1, 0};
+    px_app_header_t good = {PX_APP_MAGIC, 1, 4096, 1024, APP_OLD_BASE + sizeof(px_app_header_t) + 1, 0};
     CHECK(app_header_check(&good, 4096) == NULL, "a good header refused: %s", app_header_check(&good, 4096));
 
     struct {
@@ -469,21 +469,53 @@ static void test_app_header(void) {
             {"version 0", {PX_APP_MAGIC, 0, 4096, 1024, good.entry, 0}, 4096},
             {"newer version", {PX_APP_MAGIC, PX_APP_API_VERSION + 1, 4096, 1024, good.entry, 0}, 4096},
             {"size differs", good, 4095},
-            {"too big", {PX_APP_MAGIC, 1, PX_APP_RAM + 4, 0, good.entry, 0}, PX_APP_RAM + 4},
-            {"bss too big", {PX_APP_MAGIC, 1, 4096, PX_APP_RAM - 4095, good.entry, 0}, 4096},
+            {"too big", {PX_APP_MAGIC, 1, APP_OLD_RAM + 4, 0, good.entry, 0}, APP_OLD_RAM + 4},
+            {"bss too big", {PX_APP_MAGIC, 1, 4096, APP_OLD_RAM - 4095, good.entry, 0}, 4096},
             {"bss wraps", {PX_APP_MAGIC, 1, 4096, 0xFFFFF000u, good.entry, 0}, 4096},
             {"ARM entry", {PX_APP_MAGIC, 1, 4096, 1024, good.entry - 1, 0}, 4096},
-            {"entry in header", {PX_APP_MAGIC, 1, 4096, 1024, PX_APP_BASE + 1, 0}, 4096},
-            {"entry past image", {PX_APP_MAGIC, 1, 4096, 1024, PX_APP_BASE + 4096 + 1, 0}, 4096},
+            {"entry in header", {PX_APP_MAGIC, 1, 4096, 1024, APP_OLD_BASE + 1, 0}, 4096},
+            {"entry past image", {PX_APP_MAGIC, 1, 4096, 1024, APP_OLD_BASE + 4096 + 1, 0}, 4096},
     };
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
         CHECK(app_header_check(&bad[i].h, bad[i].size) != NULL, "app header: %s accepted", bad[i].what);
+
+    /* API 9 on: 160 KB from PX_APP_BASE. An old app's entry there is refused, and a new one may be bigger. */
+    px_app_header_t big = {PX_APP_MAGIC, 9, PX_APP_RAM - 1024, 1024, PX_APP_BASE + sizeof(px_app_header_t) + 1, 0};
+    CHECK(app_header_check(&big, PX_APP_RAM - 1024) == NULL, "a 160 KB app refused: %s",
+          app_header_check(&big, PX_APP_RAM - 1024));
+    CHECK(app_base(&big) == 0x20058000u && app_ram(&big) == 160 * 1024, "API 9 at %08X, %u bytes", app_base(&big),
+          app_ram(&big));
+    CHECK(app_base(&good) == 0x20060000u && app_ram(&good) == 128 * 1024, "API 1 at %08X, %u bytes",
+          app_base(&good), app_ram(&good));
+    px_app_header_t new_at_old = {PX_APP_MAGIC, 9, 4096, 1024, good.entry, 0};
+    CHECK(app_header_check(&new_at_old, 4096) != NULL, "API 9 entry past the image accepted");
+    px_app_header_t big_old = {PX_APP_MAGIC, 8, APP_OLD_RAM + 4, 0, good.entry, 0};
+    CHECK(strcmp(app_header_check(&big_old, APP_OLD_RAM + 4), "Too big (128 KB at most)") == 0,
+          "an API 8 app over 128 KB: \"%s\"", app_header_check(&big_old, APP_OLD_RAM + 4));
+    px_app_header_t too_big = {PX_APP_MAGIC, 9, 4096, PX_APP_RAM - 4095, big.entry, 0};
+    CHECK(strcmp(app_header_check(&too_big, 4096), "Too big (160 KB at most)") == 0, "an API 9 app over 160 KB: \"%s\"",
+          app_header_check(&too_big, 4096));
     CHECK(strcmp(app_header_check(&bad[3].h, 4096), "Needs a newer firmware") == 0, "newer version: \"%s\"",
           app_header_check(&bad[3].h, 4096));
 
     /* zlib's CRC-32 (the build script uses Python's), in two pieces too. */
     CHECK(app_crc32(0, "123456789", 9) == 0xCBF43926u, "CRC-32 of 123456789: %08X", app_crc32(0, "123456789", 9));
     CHECK(app_crc32(app_crc32(0, "1234", 4), "56789", 5) == 0xCBF43926u, "CRC-32 continued");
+
+    /* The icon after the header: found only whole and with its magic. */
+    uint8_t head[sizeof(px_app_header_t) + sizeof(px_app_icon_t)], bits[PX_APP_ICON_SIZE * PX_APP_ICON_SIZE / 8];
+    px_app_icon_t icon = {PX_APP_ICON_MAGIC, {0}};
+    for (size_t i = 0; i < sizeof(icon.bits); i++)
+        icon.bits[i] = (uint8_t) (i * 7 + 1);
+    memcpy(head, &good, sizeof(good));
+    memcpy(head + sizeof(good), &icon, sizeof(icon));
+    CHECK(app_icon_from(head, sizeof(head), bits) && memcmp(bits, icon.bits, sizeof(bits)) == 0, "app icon not read");
+    CHECK(!app_icon_from(head, sizeof(head) - 1, bits), "app icon: a cut one read");
+    head[sizeof(good)] ^= 1;
+    CHECK(!app_icon_from(head, sizeof(head), bits), "app icon: read without its magic");
+    head[sizeof(good)] ^= 1;
+    head[0] ^= 1;
+    CHECK(!app_icon_from(head, sizeof(head), bits), "app icon: read from a file that isn't an app");
 }
 
 /* ===================== MIDI ===================== */

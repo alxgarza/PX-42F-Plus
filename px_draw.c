@@ -1,6 +1,7 @@
 #include "px_draw.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #define COORD_MAX 4096 /* far enough off any canvas to keep a slope, near enough for 32-bit sums */
 #define THICK_MAX 64
@@ -222,5 +223,82 @@ void px_draw_polygon(const px_canvas_t *c, const px_point_t *p, int n, int t, in
     for (int i = 0; i < n; i++) { /* a filled one too: its corners are its own */
         const px_point_t *a = &p[i], *b = &p[(i + 1) % n];
         px_draw_line(c, a->x, a->y, b->x, b->y, t, black);
+    }
+}
+
+/* Sprites: 8 pixels at a time. Each 8 columns of the destination is one
+ * byte of the source (or, mirrored, the 8 that end there, reversed) shifted
+ * into the two destination bytes it straddles -- not a call per pixel as
+ * bitmap() makes, so a frame of sprites costs little. */
+
+static uint8_t reverse8(uint8_t v) {
+    v = (uint8_t) ((v & 0xF0) >> 4 | (v & 0x0F) << 4);
+    v = (uint8_t) ((v & 0xCC) >> 2 | (v & 0x33) << 2);
+    return (uint8_t) ((v & 0xAA) >> 1 | (v & 0x55) << 1);
+}
+
+/* 8 source pixels from column col (> -8) on, left in the top bit; columns
+ * left of 0 read as 0. The caller masks what's past the sprite's width. */
+static uint8_t source8(const uint8_t *row, int col, int w) {
+    if (col < 0)
+        return (uint8_t) (source8(row, 0, w) >> -col);
+    int b = col / 8, s = col % 8;
+    uint8_t v = (uint8_t) (row[b] << s);
+    if (s != 0 && b + 1 <= (w - 1) / 8)
+        v |= (uint8_t) (row[b + 1] >> (8 - s));
+    return v;
+}
+
+static void put8(uint8_t *byte, uint8_t s, uint8_t m, int mode) {
+    if (mode == PX_SPRITE_XOR)
+        *byte ^= (uint8_t) (s & m);
+    else if (mode == PX_SPRITE_MASKED)
+        *byte = (uint8_t) ((*byte & ~m) | (s & m));
+    else
+        *byte |= (uint8_t) (s & m);
+}
+
+void px_draw_sprite(const px_canvas_t *c, int x, int y, int w, int h, const uint8_t *bits,
+                    const uint8_t *mask, int stride, int mode, int flags) {
+    if (bits == NULL || w <= 0 || h <= 0 || stride < (w + 7) / 8)
+        return;
+    x = coord(x), y = coord(y);
+    w = clamp(w, 0, 2 * COORD_MAX), h = clamp(h, 0, 2 * COORD_MAX);
+    if (x >= c->w || x + w <= 0)
+        return;
+    int top = clamp(-y, 0, h), bottom = clamp(c->h - y, 0, h);
+    int first = clamp(-x, 0, w) / 8 * 8, end = clamp(c->w - x, 0, w);
+    for (int j = top; j < bottom; j++) {
+        int sj = flags & PX_SPRITE_FLIP_Y ? h - 1 - j : j;
+        const uint8_t *src = bits + sj * stride, *msk = mask ? mask + sj * stride : NULL;
+        uint8_t *dst = c->bits + (y + j) * c->stride;
+        for (int i = first; i < end; i += 8) {
+            /* Which of these 8 are the sprite's and on the canvas. */
+            int n = w - i < 8 ? w - i : 8;
+            uint8_t m = (uint8_t) (0xFF << (8 - n));
+            int dx = x + i;
+            if (dx < 0)
+                m &= (uint8_t) (0xFF >> -dx);
+            if (c->w - dx < 8)
+                m &= (uint8_t) (0xFF << (8 - (c->w - dx)));
+            uint8_t s, k;
+            if (flags & PX_SPRITE_FLIP_X) {
+                int col = w - i - 8; /* destination i..i+7 = source w-1-i down to w-8-i */
+                s = reverse8(source8(src, col, w));
+                k = msk ? reverse8(source8(msk, col, w)) : 0xFF;
+            } else {
+                s = source8(src, i, w);
+                k = msk ? source8(msk, i, w) : 0xFF;
+            }
+            m &= k;
+            if (m == 0)
+                continue;
+            /* dx may be negative here only by less than 8: those columns are masked off. */
+            int b = dx >= 0 ? dx / 8 : -1, sh = dx >= 0 ? dx % 8 : dx + 8;
+            if (b >= 0)
+                put8(&dst[b], (uint8_t) (s >> sh), (uint8_t) (m >> sh), mode);
+            if (sh != 0 && (uint8_t) (m << (8 - sh)) != 0)
+                put8(&dst[b + 1], (uint8_t) (s << (8 - sh)), (uint8_t) (m << (8 - sh)), mode);
+        }
     }
 }

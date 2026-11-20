@@ -83,6 +83,7 @@ add_executable(PX-42F-Plus
         sounds_data.c
         settings.c
         settings_menu.c
+        menu_places.c
         splash.c
         images/splash_image.c
         flashdisk.c
@@ -97,6 +98,8 @@ add_executable(PX-42F-Plus
         statefs.c
         usb_msc.c
         usb_descriptors.c
+        usbprint.c
+        escpos.c
         third_party/fatfs/ff.c
         third_party/fatfs/ffunicode.c
         fonts/font_10x16_data.c
@@ -111,6 +114,8 @@ add_executable(PX-42F-Plus
         irtx.c
         hp82240.c
         app.c
+        ui.c
+        ui_screen.c
         px_draw.c
         px_layer.c
         bootlog.c
@@ -123,6 +128,7 @@ add_executable(PX-42F-Plus
         stopwatch.c
         alphakeys.c
         icons.c
+        menu_icons.c
         ${FREE42_CORE_SOURCES}
         )
 
@@ -131,7 +137,10 @@ add_dependencies(PX-42F-Plus inteldecimal_lib)
 # The top of RAM, in SRAM bank 1, stays powered through the deep power-off
 # and holds what has to survive it -- the calculator's memory and the
 # display's framebuffer (retained.h, RETAINED_BASE): keep the heap out.
-pico_set_linker_script_var(PX-42F-Plus HEAP_LIMIT 0x2005F000)
+pico_set_linker_script_var(PX-42F-Plus HEAP_LIMIT 0x20057000)
+
+# The Intel decimal library's tables in flash, not RAM: ld/default_rodata_excludes.incl.
+pico_add_linker_script_override_path(PX-42F-Plus ${CMAKE_CURRENT_LIST_DIR}/ld FILES default_rodata_excludes.incl)
 
 pico_set_program_name(PX-42F-Plus "PX-42F-Plus")
 pico_set_program_version(PX-42F-Plus "0.50b")
@@ -209,6 +218,10 @@ target_compile_definitions(PX-42F-Plus PRIVATE
 # The restart-into-the-bootloader request goes through main.c first (see
 # __wrap_rom_reset_usb_boot_extra there).
 target_link_options(PX-42F-Plus PRIVATE -Wl,--wrap=rom_reset_usb_boot_extra)
+# The USB thermal printer needs real bus resets that TinyUSB's RP2 host
+# driver doesn't do (usbprint.c).
+target_link_options(PX-42F-Plus PRIVATE -Wl,--wrap=hcd_port_reset -Wl,--wrap=hcd_port_reset_end
+                    -Wl,--wrap=hcd_setup_send)
 # Plus42's display_error(), C++ name: the error sound, without touching the
 # core (__wrap__Z13display_errori in free42_app.cc).
 target_link_options(PX-42F-Plus PRIVATE -Wl,--wrap=_Z13display_errori)
@@ -228,6 +241,7 @@ target_link_libraries(PX-42F-Plus
         hardware_flash
         pico_flash
         tinyusb_device
+        tinyusb_host
         ${LIBBID_PATH}
         )
 

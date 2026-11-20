@@ -18,6 +18,7 @@ extern "C" {
 #define ALARM_ARROW    94 /* ↑ in the HP-42S's characters */
 #define ALARM_SOUND_NAME_MAX 28 /* as sounds.h's SOUND_NAME_MAX */
 #define ALARM_SOUND_PATH_MAX 48
+#define ALARM_OWNER_MAX 28 /* an app's name, as px_app.h's PX_FILE_NAME_MAX */
 
 typedef enum {
     ALARM_SOUND_PLUS42, /* the two tones */
@@ -33,6 +34,7 @@ typedef struct {
     char text[ALARM_TEXT_MAX]; /* ALPHA as it was: not a C string */
     uint8_t sound;       /* alarm_sound_t */
     char sound_name[ALARM_SOUND_NAME_MAX + 1];
+    char owner[ALARM_OWNER_MAX + 1]; /* the app that set it (px->alarm_set()), "" for XYZALM's */
 } alarm_t;
 
 typedef enum {
@@ -58,6 +60,13 @@ const alarm_t *alarms_get(int i);
 bool alarms_add(uint64_t at_ms, uint64_t repeat_ms, const char *text, int length, uint64_t now_ms);
 void alarms_remove(int i);
 void alarms_clear(void);
+
+/* An app's message alarm (px->alarm_set()), which the app can take back
+ * with the others it set: false if the table is full, or for an owner name
+ * too long. The text must be a message, not a label to run. */
+bool alarms_add_owned(uint64_t at_ms, const char *text, int length, const char *owner, uint64_t now_ms);
+/* The alarms this app set: how many went. */
+int alarms_remove_owned(const char *owner);
 
 /* Which sound it plays when it comes due (Settings -> Alarms); a new alarm has
  * Plus42's. False for a name too long. */

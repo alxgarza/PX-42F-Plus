@@ -368,8 +368,17 @@ const menu_spec eqn_menus[] = {
 static const menu_spec *getmenu(int id) {
     if (id >= 1000)
         return eqn_menus + id - 1000;
-    else
-        return menus + id;
+#ifdef PX42
+    /* The editor's TOP.FCN keeps its one row: the PX's second (DIR UNITS
+     * R^ X<> VIEW EQN) has nothing an equation can use. */
+    if (id == MENU_TOP_FCN) {
+        static menu_spec top_fcn;
+        top_fcn = menus[MENU_TOP_FCN];
+        top_fcn.next = top_fcn.prev = MENU_NONE;
+        return &top_fcn;
+    }
+#endif
+    return menus + id;
 }
 
 static const short catalog[] = {

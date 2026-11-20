@@ -462,7 +462,11 @@ const menu_spec menus[] = {
                         { 0x2000 + CMD_NORM,   0, "" },
                         { 0x2000 + CMD_TRACE,  0, "" },
                         { 0x2000 + CMD_STRACE, 0, "" } } },
+#ifdef PX42
+    { /* MENU_TOP_FCN */ MENU_NONE, MENU_PX_TOP_FCN2, MENU_PX_TOP_FCN2,
+#else
     { /* MENU_TOP_FCN */ MENU_NONE, MENU_NONE, MENU_NONE,
+#endif
                       { { 0x1000 + CMD_SIGMAADD, 0, "" },
                         { 0x1000 + CMD_INV,      0, "" },
                         { 0x1000 + CMD_SQRT,     0, "" },
@@ -809,7 +813,26 @@ const menu_spec menus[] = {
                         { 0x1000 + CMD_YMAX, 0, "" },
                         { 0x1000 + CMD_SCAN, 0, "" },
                         { 0x1000 + CMD_PLOT, 0, "" } } },
+#ifdef PX42
+    /* Plus42's own features, a key away on a keyboard without their keys;
+     * shifted (core_display.cc, core_keydown.cc): DIR.FCN UNIT.FCN PLOT %CH
+     * SST^ EQN.FCN. */
+    { /* MENU_PX_TOP_FCN2 */ MENU_NONE, MENU_TOP_FCN, MENU_TOP_FCN,
+                      { { 0x1000 + CMD_DIRS,     0, "" },
+                        { 0x1000 + CMD_UNITS,    0, "" },
+                        { 0x1000 + CMD_RUP,      0, "" },
+                        { 0x1000 + CMD_X_SWAP,   0, "" },
+                        { 0x1000 + CMD_VIEW,     0, "" },
+                        { 0x1000 + CMD_EQN,      0, "" } } },
+#endif
 };
+#ifdef PX42
+const int px_top_fcn2_shifted[6] = {
+    CMD_DIR_FCN, CMD_UNIT_FCN, CMD_PLOT, CMD_PERCENT_CH, CMD_SST_UP, CMD_EQN_FCN
+};
+static_assert(sizeof(menus) / sizeof(menus[0]) == MENU_PX_TOP_FCN2 + 1,
+              "menus[] is indexed by MENU_*: MENU_PX_TOP_FCN2 must be its last");
+#endif
 
 
 /* By how much do the variables, programs, and labels
@@ -6062,7 +6085,14 @@ static void save_state2(bool *success) {
     if (!write_bool(mode_shift)) return;
     if (!write_int(mode_appmenu)) return;
     if (!write_int(mode_auxmenu)) return;
+#ifdef PX42
+    /* TOP.FCN's PX row is saved as TOP.FCN: Plus42 doesn't check the number
+     * it loads, and elsewhere (the desktop, an older PX firmware) menu 100
+     * is past the end of its table. */
+    if (!write_int(mode_plainmenu == MENU_PX_TOP_FCN2 ? MENU_TOP_FCN : mode_plainmenu)) return;
+#else
     if (!write_int(mode_plainmenu)) return;
+#endif
     if (!write_bool(mode_plainmenu_sticky)) return;
     if (!write_int(mode_transientmenu)) return;
     if (!write_int(mode_alphamenu)) return;

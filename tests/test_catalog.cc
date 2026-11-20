@@ -4,9 +4,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <string>
 
 #include "core_display.h"
+#include "core_equations.h"
 #include "core_globals.h"
 #include "core_helpers.h"
 #include "core_main.h"
@@ -30,14 +32,15 @@ RAN(docmd_pen, "PEN") RAN(docmd_box, "BOX") RAN(docmd_dline, "DLINE") RAN(docmd_
 
 bool shell_set_date(int4, int4, int4) { ran = "SETDATE"; return true; }
 void shell_set_time(int4, int4, int4) { ran = "SETIME"; }
+void shell_set_print_delay(int) {}
 
 extern "C" void free42_forget_shapes() {}
 bool px_graphics_memory() { return true; }
 void px_pixel(phloat, phloat) {}
 void px_pattern(phloat, phloat, const char *, int) {}
-FILE *my_fopen(const char *, const char *) { return NULL; }
-int my_rename(const char *, const char *) { return -1; }
-int my_remove(const char *) { return -1; }
+FILE *my_fopen(const char *name, const char *mode) { return fopen(name, mode); }
+int my_rename(const char *from, const char *to) { return rename(from, to); }
+int my_remove(const char *name) { return remove(name); }
 int hp2ascii(char *, const char *, int) { return 0; }
 const char *shell_platform() { return "test"; }
 void shell_blitter(const char *, int, int, int, int, int) {}
@@ -143,12 +146,12 @@ static void pick(int t, const cell &c) {
 
 static void test_pages() {
     shifted(KEY_ADD);
-    check("first page", keys(), "FCN PGM REAL CPX MAT MEM");
-    check("second page", (press(KEY_DOWN), keys()), "LIST EQN EQN OTHER DIRS UNITS");
+    check("first page", keys(), "DIRS PGM REAL CPX MAT UNITS");
+    check("second page", (press(KEY_DOWN), keys()), "LIST EQN EQN OTHER FCN MEM");
     check("third page", (press(KEY_DOWN), keys()), "TIME XFCN BASE PRGM STR STK");
     check("fourth page", (press(KEY_DOWN), keys()), "EQNS UNIT STAT DIR DISP MISC");
     check("down to PX42", (press(KEY_DOWN), keys()), PX_PAGE);
-    check("down back to the first", (press(KEY_DOWN), keys()), "FCN PGM REAL CPX MAT MEM");
+    check("down back to the first", (press(KEY_DOWN), keys()), "DIRS PGM REAL CPX MAT UNITS");
     check("up to PX42", (press(KEY_UP), keys()), PX_PAGE);
     check("up to the fourth", (press(KEY_UP), keys()), "EQNS UNIT STAT DIR DISP MISC");
     close_menus();
@@ -250,15 +253,161 @@ static void test_assign() {
     close_menus();
 }
 
+/* TOP.FCN (SHIFT 0): the PX's row of Plus42's own features first, ▼ the
+ * HP-42S's top row; the equation editor's keeps its one row of functions. */
+static const char *const TOP_FCN1 = "\005+ 1/X SQRT LOG LN XEQ", *const TOP_FCN2 = "DIRS UNITS R^ X<> VIEW EQN";
+
+static std::string pending() {
+    return mode_command_entry ? std::string(cmd_array[incomplete_command].name, cmd_array[incomplete_command].name_length) : "";
+}
+
+static void test_top_fcn() {
+    shifted(KEY_0);
+    check("TOP.FCN: the PX's row first", keys(), TOP_FCN2);
+    check("TOP.FCN: SHIFT shows the PX row's shifted keys", (press(KEY_SHIFT), keys()), "DIR.FCN UNIT.FCN PLOT %CH SST^ EQN.FCN");
+    press(KEY_SHIFT);
+    check("TOP.FCN: SHIFT again puts it back", keys(), TOP_FCN2);
+    check("TOP.FCN: down", (press(KEY_DOWN), keys()), TOP_FCN1);
+    check("TOP.FCN: SHIFT shows the shifted top row", (press(KEY_SHIFT), keys()), "\005- Y^X X^2 10^X E^X GTO");
+    press(KEY_SHIFT);
+    check("TOP.FCN: down again", (press(KEY_DOWN), keys()), TOP_FCN2);
+    check("TOP.FCN: up", (press(KEY_UP), keys()), TOP_FCN1);
+    close_menus();
+
+    shifted(KEY_0);
+    press(KEY_DOWN);
+    free_vartype(stack[sp]);
+    stack[sp] = new_real(4);
+    press(KEY_SIGMA + 2); /* SQRT */
+    check("the HP-42S row still works", std::to_string((int) to_double(((vartype_real *) stack[sp])->x)), "2");
+    close_menus();
+
+    shifted(KEY_0);
+    press(KEY_SIGMA);
+    check("DIRS: the directories", get_front_menu() == MENU_CATALOG && get_cat_section() == CATSECT_DIRS
+          ? "dirs" : "not dirs", "dirs");
+    close_menus();
+
+    shifted(KEY_0);
+    shifted(KEY_SIGMA);
+    check("SHIFT DIRS: DIR.FCN", keys(), "CHDIR UPDIR HOME PATH CRDIR RENAME");
+    close_menus();
+
+    shifted(KEY_0);
+    shifted(KEY_SIGMA + 1);
+    check("SHIFT UNITS: UNIT.FCN", std::to_string(get_front_menu()), std::to_string(MENU_UNIT_FCN1));
+    close_menus();
+
+    for (int i = 0; i <= sp; i++) {
+        free_vartype(stack[i]);
+        stack[i] = new_real(sp - i == 0 ? 60 : 50);
+    }
+    shifted(KEY_0);
+    shifted(KEY_SIGMA + 3);
+    check("SHIFT X<>: %CH", std::to_string((int) to_double(((vartype_real *) stack[sp])->x)), "20");
+    close_menus();
+
+    shifted(KEY_0);
+    check("no message before PLOT", std::to_string(mode_message_lines), "0");
+    shifted(KEY_SIGMA + 2);
+    check("SHIFT R^: PLOT, with nothing to plot an error", std::to_string(mode_message_lines), "1");
+    check("and no plot", mode_plot_viewer ? "plot" : "no plot", "no plot");
+    close_menus();
+
+    shifted(KEY_RUN); /* PRGM: two lines, back to the first */
+    press(KEY_SIGMA);
+    press(KEY_INV);
+    press(KEY_UP);
+    int4 line = pc2line(pc);
+    shifted(KEY_0);
+    shifted(KEY_SIGMA + 4);
+    check("SHIFT VIEW: SST^ steps to the next line", std::to_string(pc2line(pc)), std::to_string(line + 1));
+    int4 at = pc;
+    int cmd;
+    arg_struct arg;
+    get_next_command(&at, &cmd, &arg, 0, NULL);
+    check("the program's own next line, nothing entered", cmd_array[cmd].name, "1/X");
+    close_menus();
+    shifted(KEY_RUN);
+
+    shifted(KEY_0);
+    shifted(KEY_SIGMA + 5);
+    check("SHIFT EQN: EQN.FCN", std::to_string(get_front_menu()), std::to_string(MENU_EQN_FCN1));
+    close_menus();
+
+    shifted(KEY_0);
+    press(KEY_SIGMA + 1);
+    check("UNITS: the units catalog", get_front_menu() == MENU_CATALOG && get_cat_section() == CATSECT_UNITS_1
+          ? "units" : "not units", "units");
+    close_menus();
+
+    for (int i = 0; i <= sp; i++) {
+        free_vartype(stack[i]);
+        stack[i] = new_real(i + 1);
+    }
+    shifted(KEY_0);
+    press(KEY_SIGMA + 2);
+    check("R^: X is the old T", std::to_string((int) to_double(((vartype_real *) stack[sp])->x)), "1");
+    close_menus();
+
+    shifted(KEY_0);
+    press(KEY_SIGMA + 3);
+    check("X<>: asks for the register", pending(), "X<>");
+    press(KEY_EXIT);
+    close_menus();
+
+    shifted(KEY_0);
+    press(KEY_SIGMA + 4);
+    check("VIEW: asks for the register", pending(), "VIEW");
+    press(KEY_EXIT);
+    close_menus();
+
+    shifted(KEY_0);
+    press(KEY_SIGMA + 5);
+    check("EQN: the equation editor", eqn_active() ? "editor" : "no editor", "editor");
+    press(KEY_SIGMA + 3); /* NEW */
+    shifted(KEY_0);
+    check("the editor's TOP.FCN", keys(), TOP_FCN1);
+    check("the editor's TOP.FCN: one row", (press(KEY_DOWN), keys()), TOP_FCN1);
+    for (int i = 0; i < 6 && eqn_active(); i++)
+        press(KEY_EXIT);
+    check("the editor closed", eqn_active() ? "open" : "closed", "closed");
+}
+
+/* A state saved with TOP.FCN's PX row up names TOP.FCN: Plus42 elsewhere has
+ * no menu 100, and reads past its table. */
+static void test_state_top_fcn() {
+    char path[] = "/tmp/px_state_XXXXXX";
+    int fd = mkstemp(path);
+    if (fd < 0) {
+        check("a temporary state file", "none", "made");
+        return;
+    }
+    close(fd);
+    shifted(KEY_0);
+    check("state: the PX row up", keys(), TOP_FCN2);
+    core_save_state(path);
+    core_cleanup();
+    int rows, cols;
+    core_init(&rows, &cols, path);
+    remove(path);
+    redisplay();
+    check("state: comes back as TOP.FCN", std::to_string(get_front_menu()), std::to_string(MENU_TOP_FCN));
+    check("state: the HP-42S row", keys(), TOP_FCN1);
+    close_menus();
+}
+
 int main() {
     int rows, cols;
     core_init(&rows, &cols, NULL);
-    skin_flags = 3; /* the PX's: CATALOG's first row is FCN ... MEM */
+    skin_flags = 0; /* the PX's: CATALOG's first row is DIRS ... UNITS */
     test_pages();
     test_tabs();
     test_run();
     test_program();
     test_assign();
+    test_top_fcn();
+    test_state_top_fcn();
     if (failures > 0) {
         printf("Catalog: %d FAILED\n", failures);
         return 1;

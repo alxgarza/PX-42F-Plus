@@ -1,3 +1,4 @@
+#include <malloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +28,7 @@
 #include "crash_report.h"
 #include "splash.h"
 #include "printer.h"
+#include "usbprint.h"
 #include "power.h"
 #include "cpuclock.h"
 #include "idle.h"
@@ -35,6 +37,7 @@
 #include "screenshot.h"
 #include "keyhold.h"
 #include "app.h"
+#include "appdec.h"
 #include "bootlog.h"
 #include "ramstate.h"
 #include "irtx.h"
@@ -154,6 +157,44 @@ static void handle_serial_command(const char *cmd) {
         print_help();
         return;
     }
+    if (strcmp(cmd, "HEAP") == 0) { /* TEMPORARY: measuring RAM for apps (app.h) */
+        struct mallinfo mi = mallinfo();
+        printf("heap: total %lu, in use %lu, largest block now %lu, at the last app's start %lu\n",
+               (unsigned long) app_heap_total(), (unsigned long) mi.uordblks, (unsigned long) app_heap_largest(),
+               (unsigned long) app_heap_at_launch());
+        return;
+    }
+    if (strcmp(cmd, "BENCH") == 0) { /* TEMPORARY: decimal speed, tables in RAM vs flash */
+        static const struct {
+            const char *name;
+            int op;
+        } ops[] = {{"add", PX_DEC_ADD}, {"mul", PX_DEC_MUL},   {"div", PX_DEC_DIV}, {"sqrt", PX_DEC_SQRT},
+                   {"exp", PX_DEC_EXP}, {"ln", PX_DEC_LN},     {"sin", PX_DEC_SIN}, {"pow", PX_DEC_POW},
+                   {"atan", PX_DEC_ATAN}};
+        enum { RUNS = 300 };
+        printf("bench: clock %lu MHz, %d runs each, us per op:", (unsigned long) (clock_get_hz(clk_sys) / 1000000),
+               RUNS);
+        uint64_t all = 0;
+        uint32_t sum = 2166136261u; /* FNV-1a over every result: the same in both builds or a table was written */
+        for (size_t k = 0; k < sizeof(ops) / sizeof(ops[0]); k++) {
+            px_dec_t a, b, r;
+            appdec_from_string(&b, "1.234567890123456789012345678901234");
+            uint64_t t0 = time_us_64();
+            for (int i = 1; i <= RUNS; i++) {
+                appdec_from_int(&a, i);
+                appdec_op(PX_DEC_DIV, &a, &a, &b); /* a different, full-length argument each run */
+                appdec_op(ops[k].op, &r, &a, &b);
+                for (int w = 0; w < 4; w++)
+                    sum = (sum ^ r.w[w]) * 16777619u;
+                watchdog_update();
+            }
+            uint64_t us = time_us_64() - t0;
+            all += us;
+            printf(" %s %lu", ops[k].name, (unsigned long) (us / RUNS));
+        }
+        printf(", total %lu ms, results %08lx\n", (unsigned long) (all / 1000), (unsigned long) sum);
+        return;
+    }
     if (strcmp(cmd, "SCREENSHOT") == 0) {
         screenshot_to_console();
         return;
@@ -239,16 +280,52 @@ static void handle_serial_command(const char *cmd) {
  * (it only dismisses the screen) or something arrives on the console --
  * true -- or the Sleep Timer runs out: false, turn off. Not on a computer's
  * USB, as in the main loop. */
+/* The Hello screen's ENTER button, bottom right: the word in the small font
+ * in a rounded rectangle, drawn (shown) or cleared (hidden) -- blinked by
+ * hello_wait(). */
+#define HELLO_BLINK_MS 500
+
+static void hello_button(bool shown) {
+    static const char label[] = "ENTER";
+    int left = 0, right = 0;
+    display_text_ink(&font_8x12, label, &left, &right);
+    const int w = (right - left + 1) + 2 * 5, h = font_8x12.height + 2 * 3;
+    const int x0 = DISPLAY_WIDTH - 3 - w, y0 = DISPLAY_HEIGHT - 3 - h;
+    const int x1 = x0 + w - 1, y1 = y0 + h - 1;
+    display_fill_rect((uint8_t) x0, (uint8_t) y0, (uint8_t) x1, (uint8_t) y1, false);
+    if (!shown)
+        return;
+    display_fill_rect((uint8_t) (x0 + 2), (uint8_t) y0, (uint8_t) (x1 - 2), (uint8_t) y0, true);
+    display_fill_rect((uint8_t) (x0 + 2), (uint8_t) y1, (uint8_t) (x1 - 2), (uint8_t) y1, true);
+    display_fill_rect((uint8_t) x0, (uint8_t) (y0 + 2), (uint8_t) x0, (uint8_t) (y1 - 2), true);
+    display_fill_rect((uint8_t) x1, (uint8_t) (y0 + 2), (uint8_t) x1, (uint8_t) (y1 - 2), true);
+    display_set_pixel((uint8_t) (x0 + 1), (uint8_t) (y0 + 1), true);
+    display_set_pixel((uint8_t) (x1 - 1), (uint8_t) (y0 + 1), true);
+    display_set_pixel((uint8_t) (x0 + 1), (uint8_t) (y1 - 1), true);
+    display_set_pixel((uint8_t) (x1 - 1), (uint8_t) (y1 - 1), true);
+    display_draw_string(&font_8x12, label, (uint8_t) (x0 + 5 - left), (uint8_t) (y0 + 3), 0x00);
+}
+
 static bool hello_wait(void) {
     absolute_time_t since = get_absolute_time();
     uint8_t row, col;
+    bool shown = true;
+    hello_button(shown);
+    display_flush();
+    absolute_time_t blink = make_timeout_time_ms(HELLO_BLINK_MS);
     while (!keyboard_scan(&row, &col)) {
         watchdog_update();
+        if (time_reached(blink)) {
+            shown = !shown;
+            hello_button(shown);
+            display_flush();
+            blink = make_timeout_time_ms(HELLO_BLINK_MS);
+        }
         /* A computer typing on the console, or sending a command (!STATUS):
          * on with the boot, which reads it -- not taken here, only looked at. */
         if (tud_cdc_n_available(0) > 0)
             return true;
-        absolute_time_t until = make_timeout_time_ms(60000);
+        absolute_time_t until = blink;
         if (px_settings.sleep_minutes != 0 && !idle_usb_host_active()) {
             absolute_time_t off = delayed_by_ms(since, (uint32_t) px_settings.sleep_minutes * 60000u);
             if (time_reached(off))
@@ -718,11 +795,7 @@ int main()
      * flash nor wake from sleep_ms() (the timer IRQ that wakes it runs
      * here). Drop the USB task to the lowest priority: everything else on
      * this core can then interrupt it. It's the only user IRQ claimed. */
-    for (uint irq = FIRST_USER_IRQ; irq < FIRST_USER_IRQ + NUM_USER_IRQS; irq++)
-        if (user_irq_is_claimed(irq)) {
-            irq_set_priority(irq, PICO_LOWEST_IRQ_PRIORITY);
-            printer_set_usb_task_irq(irq); /* the pump below holds it off while it runs */
-        }
+    usbprint_device_started(); /* again each time the port comes back from the thermal printer */
 
     crash_watch_core1_stack(core1_stack, CORE1_STACK_WORDS);
     multicore_launch_core1_with_stack(core1_main, core1_stack, sizeof(core1_stack));
@@ -748,6 +821,7 @@ int main()
         if (!sound_ending) /* (the last ms of a sound are watched, not slept through) */
             __wfe();
         printer_usb_pump();
+        usbprint_poll(); /* the thermal printer: the port made its host while printing */
         power_core0_poll(); /* parks this core for good before a deep power-off */
     }
 }

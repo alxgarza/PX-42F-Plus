@@ -7,9 +7,11 @@
  *
  *   menu_shots <out_dir> <script words...>
  *
- * Script words: ENTER EXIT BSP UP DOWN SHIFT, a digit 0-9, or shot:<name>. */
+ * Script words: ENTER EXIT BSP UP DOWN SHIFT, a digit 0-9, F1-F6 (the top row:
+ * the soft keys), or shot:<name>. */
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <string.h>
 #include <strings.h>
 
@@ -34,6 +36,7 @@
 #include "rtc.h"
 #include "settings.h"
 #include "alarms.h"
+#include "timemodule.h"
 #include "settings_menu.h"
 #include "sounds.h"
 #include "statefs.h"
@@ -89,7 +92,8 @@ static int code_of(const char *word) {
         int code;
     } names[] = {{"ENTER", 13}, {"BSP", 17}, {"UP", 18}, {"DOWN", 23}, {"SHIFT", 28}, {"EXIT", 33},
                  {"0", 34},     {"1", 29},   {"2", 30},  {"3", 31},    {"4", 24},     {"5", 25},
-                 {"6", 26},     {"7", 19},   {"8", 20},  {"9", 21}};
+                 {"6", 26},     {"7", 19},   {"8", 20},  {"9", 21},
+                 {"F1", 1},     {"F2", 2},   {"F3", 3},  {"F4", 4},    {"F5", 5},     {"F6", 6}};
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++)
         if (strcasecmp(word, names[i].name) == 0)
             return names[i].code;
@@ -132,6 +136,10 @@ key_hold_t key_hold_poll(void) {
 /* Wednesday, October 21 2026, 11:42:05. */
 void rtc_get_datetime(rtc_datetime_t *dt) {
     *dt = (rtc_datetime_t) {2026, 10, 21, 11, 42, 5, 0, 3};
+}
+
+uint64_t rtc_now_ms(void) {
+    return (uint64_t) time_days_from_civil(2026, 10, 21) * 86400000 + (11 * 3600 + 42 * 60 + 5) * 1000;
 }
 
 void rtc_get_hms(int *hour, int *min, int *sec) {
@@ -214,6 +222,15 @@ void power_update_mode(void) {
     exit(0);
 }
 
+/* The real one takes the USB port back from the thermal printer. */
+void usbprint_release(void) {
+}
+
+/* The real one restarts the calculator. */
+void free42_memory_clear_restart(void) {
+    exit(0);
+}
+
 void settings_save_later(void) {
 }
 
@@ -267,16 +284,16 @@ static int list(const char *const *items, int n, char *names, size_t name_size, 
 int statefs_list_files(const char *dir, const char *ext, char *names, size_t name_size, int max) {
     static const char *const splash[] = {"20261020-174015", "Mountains"};
     static const char *const large[] = {"Rounded"};
-    static const char *const games[] = {"SNAKE"};
-    static const char *const apps[] = {"IR"};
+    static const char *const games[] = {"SNAKE", "GOLDRUN", "tetra"};
+    static const char *const apps[] = {"IR", "GRAPH", "SUNMAP", "BASIC", "SHEET", "MIDI", "CONTACTS", "NOTES", "UNITS", "TIMER"};
     if (strcmp(dir, STATEFS_SPLASH_DIR) == 0)
         return list(splash, 2, names, name_size, max);
     if (strcmp(dir, FONTS_DIR "/LARGE") == 0)
         return list(large, 1, names, name_size, max);
     if (strcmp(dir, GAMES_DIR) == 0)
-        return list(games, 1, names, name_size, max);
+        return list(games, 3, names, name_size, max);
     if (strcmp(dir, APPS_DIR) == 0)
-        return list(apps, 1, names, name_size, max);
+        return list(apps, 10, names, name_size, max);
     static const char *const raw[] = {"ALL", "Calendar", "QUAD", "Rocket-Science"};
     if (strcmp(dir, PROGRAMS_DIR) == 0)
         return list(raw, 4, names, name_size, max);
@@ -314,16 +331,29 @@ bool statefs_rename_state(const char *old_name, const char *new_name) {
     return true;
 }
 
+/* No drive, unless PX_DRIVE names a folder to stand in for it. */
 FILE *statefs_fopen(const char *name, const char *mode) {
-    return NULL;
+    const char *drive = getenv("PX_DRIVE");
+    if (drive == NULL)
+        return NULL;
+    char path[512];
+    snprintf(path, sizeof(path), "%s%s", drive, name);
+    return fopen(path, mode);
 }
 
 bool statefs_sync(void) {
     return true;
 }
 
+/* The drive's path in PX_DRIVE's folder; false without one. */
+static bool drive_path(char *out, size_t size, const char *name) {
+    const char *drive = getenv("PX_DRIVE");
+    return drive != NULL && snprintf(out, size, "%s%s", drive, name) < (int) size;
+}
+
 bool statefs_file_exists(const char *path) {
-    return false;
+    char full[512];
+    return drive_path(full, sizeof(full), path) && access(full, F_OK) == 0;
 }
 
 void statefs_mkdir(const char *path) {
@@ -333,8 +363,16 @@ bool statefs_format(void) {
     return true;
 }
 
+/* Real ones in PX_DRIVE: safefile.c (the menu's place files) swaps its
+ * new copy in with them. */
 int statefs_remove(const char *name) {
-    return 0;
+    char full[512];
+    return drive_path(full, sizeof(full), name) ? remove(full) : 0;
+}
+
+int statefs_rename(const char *oldname, const char *newname) {
+    char from[512], to[512];
+    return drive_path(from, sizeof(from), oldname) && drive_path(to, sizeof(to), newname) ? rename(from, to) : 0;
 }
 
 void statefs_usb_begin(void) {
@@ -347,6 +385,9 @@ void statefs_usb_end(void) {
 }
 
 int fonts_list(font_kind_t kind, char names[][FONT_NAME_MAX + 1], int max) {
+    static const char *const mini[] = {"Pixel"};
+    if (kind == FONT_MINI)
+        return max > 0 ? (snprintf(names[0], FONT_NAME_MAX + 1, "%s", mini[0]), 1) : 0;
     return kind == FONT_LARGE ? statefs_list_files(FONTS_DIR "/LARGE", ".png", (char *) names, FONT_NAME_MAX + 1, max) : 0;
 }
 
@@ -406,9 +447,46 @@ void sounds_init(bool use_files) {
 void app_folders(void) {
 }
 
+/* SNAKE has its own icon (a snake, drawn here), IR none. */
+bool app_icon(const char *dir, const char *name, uint8_t bits[128]) {
+    if (strcmp(name, "SNAKE") != 0)
+        return false;
+    static const char *const art[] = {
+            "................................", "................................", "................................",
+            "................................", "......##########................", ".....############...............",
+            "....###.......####..............", "....##.........####.............", "....##..........###.............",
+            "....###.........##..............", ".....#####......................", "......#######...................",
+            "........#######.................", "...........#####................", ".............####...............",
+            "..............###...............", "...............###......#####...", "...............###.....#######..",
+            "..............###.....###.#.##..", "............####......########..", ".......#########.......#######...",
+            ".....#########.........####.....", "....####..............###.......", "....###..............###........",
+            "....####...........####.........", ".....###############.............", "......############...............",
+            "................................", "................................", "................................",
+            "................................", "................................",
+    };
+    memset(bits, 0, 128);
+    for (int y = 0; y < 32; y++)
+        for (int x = 0; x < 32; x++)
+            if (art[y][x] == '#')
+                bits[y * 4 + x / 8] |= (uint8_t) (0x80 >> (x & 7));
+    return true;
+}
+
 const char *app_run(const char *dir, const char *name, bool *power_off) {
     *power_off = false;
     return NULL;
+}
+
+uint32_t app_heap_largest(void) {
+    return 0;
+}
+
+uint32_t app_heap_total(void) {
+    return 0;
+}
+
+uint32_t app_heap_at_launch(void) {
+    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -433,6 +511,7 @@ int main(int argc, char **argv) {
             .error_sound = true,
             .date_format = RTC_WMD,
             .clock_24h = false,
+            .menu_style = getenv("PX_MENU_LIST") != NULL ? MENU_STYLE_LIST : MENU_STYLE_ICONS,
     };
     fonts_init();
     settings_menu_run();

@@ -1848,9 +1848,11 @@ int docmd_delay(arg_struct *arg) {
         x = -x;
     if (x >= 1.95)
         return ERR_INVALID_DATA;
-    else
-        /* We don't actually use the delay value... */
-        return ERR_NONE;
+#ifdef PX42
+    shell_set_print_delay(to_int(x * 1000 + 0.5));
+#endif
+    /* We don't actually use the delay value... */
+    return ERR_NONE;
 }
 
 int docmd_pon(arg_struct *arg) {

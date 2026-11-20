@@ -6,7 +6,7 @@
 
 /* A flash clears the alarms with the rest of the memory, so no firmware ever
  * meets an older file: a new layout only needs a new magic. */
-#define FILE_MAGIC 0x324D4C41u /* "ALM2" */
+#define FILE_MAGIC 0x334D4C41u /* "ALM3" */
 
 static struct {
     uint32_t magic;
@@ -71,6 +71,33 @@ bool alarms_add(uint64_t at_ms, uint64_t repeat_ms, const char *text, int length
     memcpy(a.text, text, (size_t) length);
     insert(&a);
     return true;
+}
+
+bool alarms_add_owned(uint64_t at_ms, const char *text, int length, const char *owner, uint64_t now_ms) {
+    size_t n = strlen(owner);
+    if (n == 0 || n > ALARM_OWNER_MAX || table.count >= ALARMS_MAX || length < 0 || length > ALARM_TEXT_MAX)
+        return false;
+    alarm_t a;
+    memset(&a, 0, sizeof(a));
+    a.at_ms = at_ms;
+    a.past_due = at_ms <= now_ms;
+    a.length = (uint8_t) length;
+    memcpy(a.text, text, (size_t) length);
+    memcpy(a.owner, owner, n);
+    if (alarm_kind(&a) != ALARM_MESSAGE)
+        return false;
+    insert(&a);
+    return true;
+}
+
+int alarms_remove_owned(const char *owner) {
+    int gone = 0;
+    for (int i = (int) table.count - 1; i >= 0; i--)
+        if (owner[0] && strcmp(table.alarm[i].owner, owner) == 0) {
+            alarms_remove(i);
+            gone++;
+        }
+    return gone;
 }
 
 void alarms_remove(int i) {
@@ -172,7 +199,8 @@ bool alarms_load(const void *data, size_t size) {
         alarm_t a;
         memcpy(&a, (const char *) data + header + i * sizeof(alarm_t), sizeof(a));
         if (a.length > ALARM_TEXT_MAX || !alarm_label_ok(&a) || a.sound > ALARM_SOUND_MIDI
-            || memchr(a.sound_name, 0, sizeof(a.sound_name)) == NULL) {
+            || memchr(a.sound_name, 0, sizeof(a.sound_name)) == NULL || memchr(a.owner, 0, sizeof(a.owner)) == NULL
+            || (a.owner[0] && alarm_kind(&a) != ALARM_MESSAGE)) {
             table.count = 0;
             return false;
         }

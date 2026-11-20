@@ -126,6 +126,13 @@ void free42_draw_screen(bool with_print_icon);
  * the last line has been sent. */
 void free42_printing_show(void);
 
+/* An app's print_text() (app.c): a line of HP-42S characters to the
+ * printer, as Plus42 prints one but in single width and with none of its
+ * screen (no printer icon). On the HP 82240B, PX_PRINT_COLUMNS characters a
+ * line, a longer text going on to the next; the characters the printer
+ * lacks are drawn as Plus42 draws them. */
+void free42_print_app_text(const char *text, int length);
+
 /* Stopping PRLCD, which holds core 1: free42_print_stop() is true from the moment
  * EXIT or R/S goes down, not one already held when it began (the R/S that started
  * the program). free42_print_stop_end() waits for the key to be released, so it
@@ -214,6 +221,10 @@ bool free42_save_to_drive(void);
 /* After an app: the memory back in its RAM copy (and the drive's copy
  * gone, unless the memory is too big for RAM). */
 void free42_memory_to_ram(void);
+/* Settings → Reset: Plus42's memory cleared (both copies dropped) and the
+ * calculator restarted. Alarms, the stopwatch, the settings and the drive's
+ * files stay -- unlike the RESET button. Doesn't return. */
+__attribute__((noreturn)) void free42_memory_clear_restart(void);
 /* The core's complaint about a file (shell_message()): noted for the two above. */
 void free42_core_message(const char *message);
 

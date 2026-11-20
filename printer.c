@@ -9,6 +9,8 @@
 #include "tusb.h"
 #include "settings.h"
 #include "hp82240.h"
+#include "escpos.h"
+#include "usbprint.h"
 #include "irtx.h"
 #include "display_fb.h"
 #include "sounds.h"
@@ -29,6 +31,11 @@ static volatile uint32_t ring_head; /* written by core 1 */
 static volatile uint32_t ring_tail; /* written by core 0 */
 
 static int usb_task_irq = -1;
+
+/* The status bar's printer icon (printer_busy()), shown this long after
+ * USB output. */
+#define USB_SHOWN_MS 500
+static absolute_time_t print_shown_until;
 
 /* Diagnostics for printer_report() (the console's !PRINTER command). */
 static volatile uint32_t calls, bytes_queued, bytes_sent, bytes_dropped, pumps;
@@ -68,9 +75,83 @@ void printer_write(const char *utf8, int length) {
     }
 }
 
+/* Core 1's side of the ring for the USB thermal printer: waits for room
+ * (core 0 is finding the printer, or it's printing) unless the printer is
+ * unavailable or stop says so. False if not all of it went in. */
+static bool escpos_put(const uint8_t *bytes, uint32_t length, bool (*stop)(void)) {
+    calls++;
+    while (length > 0) {
+        if (usbprint_unavailable() || (stop != NULL && stop())) {
+            bytes_dropped += length;
+            return false;
+        }
+        uint32_t head = ring_head;
+        uint32_t room = RING_SIZE - (head - ring_tail);
+        if (room == 0) {
+            watchdog_update();
+            sleep_us(500);
+            continue;
+        }
+        uint32_t n = length < room ? length : room;
+        for (uint32_t i = 0; i < n; i++)
+            ring[(head + i) % RING_SIZE] = bytes[i];
+        __dmb(); /* data before the index that publishes it */
+        ring_head = head + n;
+        bytes_queued += n;
+        bytes += n;
+        length -= n;
+    }
+    print_shown_until = make_timeout_time_ms(USB_SHOWN_MS);
+    return true;
+}
+
+static bool last_was_picture; /* the spacing after one differs (escpos.h) */
+
+void printer_escpos_text(const char *text, int length, const uint8_t *bits, int bytesperline, bool double_wide) {
+    uint8_t line[ESCPOS_LINE_MAX];
+    int n = escpos_text_line(line, text, length, bits, bytesperline, double_wide, &last_was_picture);
+    escpos_put(line, (uint32_t) n, NULL);
+}
+
+bool printer_escpos_screen(bool (*stop)(void)) {
+    uint8_t bytes[ESCPOS_ROW_BYTES(DISPLAY_WIDTH)];
+    if (!escpos_put(bytes, (uint32_t) escpos_picture_header(bytes, DISPLAY_WIDTH, DISPLAY_HEIGHT), stop))
+        return false;
+    for (int y = 0; y < DISPLAY_HEIGHT; y++) {
+        /* A picture cut short would take the next bytes as its dots: once
+         * begun, it goes out whole. */
+        int n = escpos_picture_row(bytes, display_fb[y], DISPLAY_WIDTH);
+        if (!escpos_put(bytes, (uint32_t) n, NULL))
+            return false;
+    }
+    last_was_picture = true;
+    return true;
+}
+
+uint32_t printer_ring_peek(const uint8_t **data) {
+    uint32_t tail = ring_tail;
+    uint32_t n = ring_head - tail;
+    __dmb(); /* the index before the data it publishes */
+    uint32_t to_wrap = RING_SIZE - tail % RING_SIZE;
+    *data = &ring[tail % RING_SIZE];
+    return n < to_wrap ? n : to_wrap;
+}
+
+void printer_ring_take(uint32_t n) {
+    bytes_sent += n;
+    ring_tail += n;
+}
+
+void printer_ring_drop(void) {
+    bytes_dropped += ring_head - ring_tail;
+    ring_tail = ring_head;
+}
+
 void printer_usb_pump(void) {
     pumps++;
-    if (ring_head == ring_tail)
+    /* The USB thermal printer's bytes are usbprint.c's, and while the port
+     * is its host the device stack isn't running. */
+    if (ring_head == ring_tail || px_settings.printer != PRINTER_USB_SERIAL || !tud_inited())
         return;
 
     /* Keep this core's own TinyUSB task (pico_stdio_usb's background IRQ)
@@ -111,11 +192,13 @@ void printer_usb_pump(void) {
  * way to say: the lines sent, each one's bytes and when it will have
  * printed. HP's interfacing guide: a line takes up to 1.8 s on batteries
  * (the slowest printer, nearly flat), and its bytes leave the 200-byte
- * buffer only once it has printed; 190 leaves the margin it advises.
+ * buffer only once it has printed; 190 leaves the margin it advises. The
+ * time per line is DELAY's (px_settings.print_delay_ms, 1.8 s unless a
+ * program asks for less): a faster printer, on fresh batteries or its
+ * adapter, keeps up with less.
  * The fewest bytes a line takes is 3 (a blank graphics band), so 64 lines
  * always cover the buffer. */
 #define IR_BUFFER_BYTES 190
-#define IR_LINE_MS 1800
 #define IR_LINES 64u
 #define IR_TEXT_LINE_BYTES 29 /* 2 escapes, 24 characters, the linefeed; more only with graphics characters */
 static struct {
@@ -135,21 +218,29 @@ static void ir_forget_printed(void) {
 }
 
 bool printer_ready(void) {
+    if (px_settings.printer == PRINTER_ESCPOS)
+        return usbprint_unavailable() || RING_SIZE - (ring_head - ring_tail) >= ESCPOS_LINE_MAX;
     ir_forget_printed();
     return ir_buffered + IR_TEXT_LINE_BYTES <= IR_BUFFER_BYTES;
 }
 
-#define USB_SHOWN_MS 500
-#define IR_SHOWN_MS  250
-static absolute_time_t print_shown_until;
+#define IR_SHOWN_MS 250
 
 bool printer_will_print(void) {
     if (px_settings.printer == PRINTER_HP82240B)
         return true;
+    if (px_settings.printer == PRINTER_ESCPOS)
+        return !usbprint_unavailable();
     if (px_settings.printer != PRINTER_USB_SERIAL || !tud_cdc_n_connected(PRINTER_CDC))
         return false;
     print_shown_until = make_timeout_time_ms(USB_SHOWN_MS);
     return true;
+}
+
+printer_target_t printer_target(void) {
+    if (px_settings.printer == PRINTER_USB_SERIAL && !tud_cdc_n_connected(PRINTER_CDC))
+        return PRINTER_OFF;
+    return (printer_target_t) px_settings.printer;
 }
 
 bool printer_busy(void) {
@@ -184,7 +275,7 @@ static bool ir_send_line(const uint8_t *bytes, int n, bool (*stop)(void)) {
             start = before;
     }
     ir_line[ir_end % IR_LINES].bytes = (uint16_t) n;
-    ir_line[ir_end % IR_LINES].printed = delayed_by_ms(start, IR_LINE_MS);
+    ir_line[ir_end % IR_LINES].printed = delayed_by_ms(start, px_settings.print_delay_ms);
     ir_end++;
     ir_buffered += n;
     ir_lines_sent++;
@@ -198,13 +289,14 @@ void printer_hp82240b_text(const char *text, int length, const uint8_t *bits, in
     ir_send_line(line, hp82240_text_line(line, text, length, bits, bytesperline, double_wide), NULL);
 }
 
-void printer_hp82240b_screen(bool (*stop)(void)) {
+bool printer_hp82240b_screen(bool (*stop)(void)) {
     uint8_t line[HP82240_LINE_MAX];
     for (int band = 0; band < (DISPLAY_WIDTH + 7) / 8; band++) {
         int n = hp82240_screen_line(line, &display_fb[0][0], DISPLAY_STRIDE, DISPLAY_WIDTH, DISPLAY_HEIGHT, band);
         if (!ir_send_line(line, n, stop) || stop())
-            return;
+            return false;
     }
+    return true;
 }
 
 void printer_hp82240b_paper(int height, bool (*stop)(void)) {
@@ -217,13 +309,14 @@ void printer_hp82240b_paper(int height, bool (*stop)(void)) {
 }
 
 void printer_report(void) {
-    printf("printer: target=%u (1=USB serial, 2=HP 82240B) port_connected(DTR)=%d usb_task_irq=%d\n",
+    printf("printer: target=%u (1=USB serial, 2=HP 82240B, 3=USB thermal) port_connected(DTR)=%d usb_task_irq=%d\n",
            (unsigned) px_settings.printer, (int) tud_cdc_n_connected(PRINTER_CDC), usb_task_irq);
     printf("printer: calls=%lu queued=%lu sent=%lu dropped=%lu buffered=%lu core0_pumps=%lu\n",
            (unsigned long) calls, (unsigned long) bytes_queued, (unsigned long) bytes_sent,
            (unsigned long) bytes_dropped, (unsigned long) (ring_head - ring_tail), (unsigned long) pumps);
     printf("printer: HP 82240B lines=%lu bytes=%lu buffer_after_last_line=%d\n", (unsigned long) ir_lines_sent,
            (unsigned long) ir_bytes_sent, ir_buffered);
+    usbprint_report();
 }
 
 /* Unicode quadrant blocks, indexed by upper-left | upper-right << 1 |
@@ -233,24 +326,30 @@ static const char *const quadrant[16] = {
         "▗", "▚", "▐", "▜", "▄", "▙", "▟", "█",
 };
 
-static int pixel(const uint8_t *bits, int bytesperline, int width, int height, int x, int y) {
-    if (x >= width || y >= height)
+/* A picture's pixels: Free42's bitmaps put the leftmost in the least
+ * significant bit, the framebuffer in the most. */
+typedef struct {
+    const uint8_t *bits;
+    int bytesperline, width, height;
+    bool msb_first;
+} picture_t;
+
+static int pixel(const picture_t *p, int x, int y) {
+    if (x >= p->width || y >= p->height)
         return 0;
-    return (bits[y * bytesperline + (x >> 3)] >> (x & 7)) & 1;
+    uint8_t byte = p->bits[y * p->bytesperline + (x >> 3)];
+    return (p->msb_first ? byte >> (7 - (x & 7)) : byte >> (x & 7)) & 1;
 }
 
-void printer_write_bitmap(const uint8_t *bits, int bytesperline, int width, int height) {
+static void write_blocks(const picture_t *p) {
     if (px_settings.printer != PRINTER_USB_SERIAL || !tud_cdc_n_connected(PRINTER_CDC))
         return;
 
     char line[3 * 128 + 2];
-    for (int y = 0; y < height; y += 2) {
+    for (int y = 0; y < p->height; y += 2) {
         int len = 0, used = 0; /* used: length without trailing spaces */
-        for (int x = 0; x < width && len < (int) sizeof(line) - 5; x += 2) {
-            int q = pixel(bits, bytesperline, width, height, x, y)
-                    | pixel(bits, bytesperline, width, height, x + 1, y) << 1
-                    | pixel(bits, bytesperline, width, height, x, y + 1) << 2
-                    | pixel(bits, bytesperline, width, height, x + 1, y + 1) << 3;
+        for (int x = 0; x < p->width && len < (int) sizeof(line) - 5; x += 2) {
+            int q = pixel(p, x, y) | pixel(p, x + 1, y) << 1 | pixel(p, x, y + 1) << 2 | pixel(p, x + 1, y + 1) << 3;
             for (const char *c = quadrant[q]; *c; c++)
                 line[len++] = *c;
             if (q != 0)
@@ -260,4 +359,14 @@ void printer_write_bitmap(const uint8_t *bits, int bytesperline, int width, int 
         line[used++] = '\n';
         printer_write(line, used);
     }
+}
+
+void printer_write_bitmap(const uint8_t *bits, int bytesperline, int width, int height) {
+    picture_t p = {bits, bytesperline, width, height, false};
+    write_blocks(&p);
+}
+
+void printer_write_screen(void) {
+    picture_t p = {&display_fb[0][0], DISPLAY_STRIDE, DISPLAY_WIDTH, DISPLAY_HEIGHT, true};
+    write_blocks(&p);
 }

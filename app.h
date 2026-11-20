@@ -2,6 +2,7 @@
 #define APP_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,6 +24,18 @@ void app_folders(void);
  * Timer, an empty battery) -- or why it couldn't run (one line of the
  * menu); the calculator's memory is then as it was. */
 const char *app_run(const char *dir, const char *name, bool *power_off);
+
+/* The icon <dir>/<name>.bin carries (px_app_icon_t): 32 x 32, rows of 4
+ * bytes, 1 = black. false if it has none, or the file can't be read. */
+bool app_icon(const char *dir, const char *name, uint8_t bits[128]);
+
+/* TEMPORARY, measuring how much RAM an app could be given: the largest
+ * block malloc() can give now; the heap's whole size (end of bss to
+ * HEAP_LIMIT); and the largest block when the last app started (0: none
+ * has yet). Shown on Settings -> Info. */
+uint32_t app_heap_largest(void);
+uint32_t app_heap_total(void);
+uint32_t app_heap_at_launch(void);
 
 #ifdef __cplusplus
 }

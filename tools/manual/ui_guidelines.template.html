@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PX-42F UI Guidelines</title>
+<style>
+:root {
+  --bg: #fbfaf7; --fg: #1d1d1f; --muted: #5d5d63; --rule: #dcd9d2; --panel: #f1efe9;
+  --accent: #2f5d8a; --lcd-bg: #e9eae2; --code-bg: #ecebe6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17181a; --fg: #e8e7e3; --muted: #a3a29d; --rule: #34353a; --panel: #212226;
+    --accent: #8ab4dd; --lcd-bg: #d9dbd1; --code-bg: #26272b;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #17181a; --fg: #e8e7e3; --muted: #a3a29d; --rule: #34353a; --panel: #212226;
+  --accent: #8ab4dd; --lcd-bg: #d9dbd1; --code-bg: #26272b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+main { max-width: 860px; margin: 0 auto; padding: 32px 16px 80px; }
+header { border-bottom: 2px solid var(--fg); padding-bottom: 18px; margin-bottom: 24px; }
+header h1 { font-size: 2rem; line-height: 1.15; margin: 0 0 6px; }
+header p { margin: 0; color: var(--muted); }
+h2 { font-size: 1.4rem; margin: 44px 0 12px; padding-top: 8px; border-top: 1px solid var(--rule); }
+h3 { font-size: 1.08rem; margin: 24px 0 8px; }
+p, ul, ol { margin: 0 0 14px; }
+li { margin: 4px 0; }
+a { color: var(--accent); }
+code, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+kbd { display: inline-block; padding: 0 6px; border: 1px solid var(--rule); border-bottom-width: 2px;
+  border-radius: 4px; background: var(--panel); line-height: 1.5; white-space: nowrap; }
+.table-wrap { overflow-x: auto; margin: 0 0 16px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+th { font-weight: 600; background: var(--panel); }
+.note { border-left: 3px solid var(--accent); background: var(--panel); padding: 10px 14px; border-radius: 0 6px 6px 0; margin: 0 0 16px; }
+.shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px 18px; margin: 8px 0 18px; }
+figure { margin: 0; }
+figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 6px; }
+img.shot { display: block; width: 100%; max-width: 500px; height: auto; image-rendering: pixelated;
+  border: 6px solid #3a3b3e; border-radius: 6px; background: var(--lcd-bg); }
+.tabs { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; max-width: 520px; margin: 8px 0 6px; }
+.tabs span { background: #1b1c1a; color: #e9eae2; text-align: center; border-radius: 6px 6px 0 0;
+  font: 600 0.85rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 3px 0; }
+.tabs span.off { background: transparent; border: 1px dashed var(--rule); color: var(--muted); font-weight: 400; }
+.tabs-label { color: var(--muted); font-size: 0.85rem; margin: 0 0 12px; }
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>PX-42F UI Guidelines</h1>
+<p>How every settings screen looks and answers the keys. Apps get the same screens (the <code>ui_*()</code> calls of <code>px_app.h</code>), so they follow the same rules.</p>
+</header>
+
+<h2 id="principles">1. The four rules</h2>
+<ol>
+  <li><strong>Only standard elements.</strong> Every setting is set with one of the screens in <a href="#elements">section 3</a>: a radio list, a check box, a pull-down, a number, a time, a date, text, a list, a form, an icon page or a message. No screen invents its own way.</li>
+  <li><strong>Tabs have fixed places.</strong> F1 is what <kbd>ENTER</kbd> does, F4 and F5 are the arrows (&#9650; &#9660; in lists, &larr; &rarr; on icons), F6 is EXIT. The same thing is always under the same key.</li>
+  <li><strong>Only live tabs show.</strong> A tab that does nothing on this screen isn't drawn, and its place stays empty: the others don't move into it.</li>
+  <li><strong>EXIT never changes anything.</strong> It goes back, or leaves an editor as it was. The EXIT tab and the <kbd>EXIT</kbd> key do the same.</li>
+</ol>
+
+<h2 id="screen">2. The screen</h2>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:states}}" alt="States: a title bar, three saved states, tabs SAVE LOAD RENAM DEL and EXIT"><figcaption>Title bar, rows, tabs.</figcaption></figure>
+</div>
+<ul>
+  <li><strong>Title bar</strong> (13 px, black): the screen's name at the left, the time at the right, the shift sign while <kbd>SHIFT</kbd> is down. The name is the one on the row or icon that opened it.</li>
+  <li><strong>Rows</strong>: up to 7, in the small font, 13 px apart. The picked row is black. A scroll bar at the right edge shows where the rows are when there are more than 7.</li>
+  <li><strong>Tabs</strong>: six, one over each key of the top row (<kbd>&Sigma;+</kbd> to <kbd>XEQ</kbd>), called F1 to F6 here.</li>
+</ul>
+
+<h2 id="elements">3. The elements</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>To set or do</th><th>Use</th><th>Its tabs</th><th>Examples</th></tr></thead>
+<tbody>
+<tr><td>One of a fixed few, on its own screen</td><td><strong>Radio list</strong>: the filled button is the one in use; <kbd>ENTER</kbd> or its tab moves it.</td><td>ENTER &middot; &#9650; &#9660; EXIT</td><td>Date Format, Time Format, Menu Style, Correction</td></tr>
+<tr><td>A file, among other settings</td><td><strong>Pull-down</strong> in a settings form. A sound plays when picked; a font or picture is shown first, and only USE takes it (EXIT keeps the one in use).</td><td>(the form's)</td><td>Key Sound, Fonts (all three), Splash Image's Image</td></tr>
+<tr><td>On or off</td><td><strong>Check box</strong> in a form: <kbd>ENTER</kbd> ticks it.</td><td>(the form's)</td><td>On Sound, Off Sound, Calc Error Sound, Silence Plus42</td></tr>
+<tr><td>One of many, inside a form</td><td><strong>Pull-down</strong>: opens under the field; <kbd>ENTER</kbd> picks, <kbd>EXIT</kbd> keeps.</td><td>none</td><td>An alarm's Repeat, Kind, Message, Sound</td></tr>
+<tr><td>A number</td><td><strong>Number</strong>: type it, or &#9650; &#9660; step; its range shown.</td><td>ENTER &middot; &middot; &#9650; &#9660; EXIT</td><td>Sleep Timer, Splash Timer</td></tr>
+<tr><td>A time or a duration</td><td><strong>Time picker</strong>: &larr; &rarr; pick the field, &#9650; &#9660; or digits set it.</td><td>ENTER &larr; &rarr; &#9650; &#9660; EXIT</td><td>Set Time, Exact Time, an alarm's time and repeat</td></tr>
+<tr><td>A date</td><td><strong>Calendar</strong>: 4 6 a day, 8 2 a week, the tabs a month or a year.</td><td>ENTER &larr;MON MON&rarr; &larr;YR YR&rarr; EXIT</td><td>Set Date, an alarm's date</td></tr>
+<tr><td>A name or a message</td><td><strong>Text</strong>: the keys type their letters. No tabs: the top row types A&ndash;F. A hint line says <kbd>ENTER</kbd> done, <kbd>&larr;</kbd> delete, <kbd>EXIT</kbd> back.</td><td>none</td><td>Save State, RENAM, an alarm's message</td></tr>
+<tr><td>Several settings of one page</td><td><strong>Settings form</strong>: a row each, the value at the right; each change counts at once.</td><td>ENTER &middot; &middot; &#9650; &#9660; EXIT</td><td>Sounds, Fonts, Splash Image, Printer</td></tr>
+<tr><td>A record: create or edit</td><td><strong>Record form</strong>: fields change nothing until SAVE.</td><td>SAVE &middot; &middot; &#9650; &#9660; EXIT</td><td>New Alarm, Edit Alarm</td></tr>
+<tr><td>Things you keep (files, alarms)</td><td><strong>List with actions</strong>: the tabs act on the picked row.</td><td>e.g. NEW EDIT DEL &#9650; &#9660; EXIT</td><td>States, Programs, Alarms</td></tr>
+<tr><td>Settings that open their own screens</td><td><strong>List</strong>, the current value at the right of each row.</td><td>ENTER &middot; &middot; &#9650; &#9660; EXIT</td><td>Date &amp; Time, Time Calibration</td></tr>
+<tr><td>Going somewhere</td><td><strong>Icon page</strong> (a list in the List style). The arrows as a cursor cluster: &larr; &rarr; (and <kbd>4</kbd> <kbd>6</kbd>, the keypad's arrows) to the icon before and after, &#9650; &#9660; (and <kbd>8</kbd> <kbd>2</kbd>) a row up and down. With SHIFT: MOVE, FAV or UNFAV (only where it applies), BACK (to the plain tabs).</td><td>ENTER &larr; &#9650; &#9660; &rarr; EXIT</td><td>Home, Apps, Games, Settings, Plus42, USB Drive</td></tr>
+<tr><td>A question</td><td><strong>Message</strong> whose F1 names the answer.</td><td>DEL (LOAD, FORMT...) &middot; &middot; &middot; &middot; EXIT</td><td>Delete State, Load State, Format Drive</td></tr>
+<tr><td>A yes-or-no question over a screen</td><td><strong>Dialog box</strong>, a classic alert: the screen dimmed (a checkerboard), a square box with a double border (1 px, a 1 px gap, 2 px), a stop, note or caution icon, the text, and two buttons at the bottom right drawn as the Hello screen's, named for what they do. The left is the default, ringed at first; the arrows move the ring and ENTER presses the ringed one. F1 is the left, F6, EXIT and &larr; the right.</td><td>none (its own buttons)</td><td>Apps (<code>ui_dialog()</code>)</td></tr>
+<tr><td>Long text to read</td><td><strong>Text viewer</strong>: wrapped lines, a page at a time, the page in the title bar.</td><td>&middot; &middot; &middot; &#9650; &#9660; EXIT</td><td>Help, Info, apps (<code>ui_view()</code>)</td></tr>
+<tr><td>A result or information</td><td><strong>Message</strong>.</td><td>ENTER</td><td>"Saved X", errors</td></tr>
+</tbody>
+</table></div>
+<div class="shots">
+<figure><img class="shot" src="{{SHOT:time_format}}" alt="Time Format radio list"><figcaption>Radio list.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:font_large}}" alt="Fonts form with the Large Font list pulled down"><figcaption>A file pulled down in a settings form.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:sounds}}" alt="Sounds form with check boxes"><figcaption>Settings form with check boxes.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:alarm_edit}}" alt="Edit Alarm form, tabs SAVE and EXIT"><figcaption>Record form: SAVE.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:alarm_repeat}}" alt="A pull-down under Repeat"><figcaption>Pull-down.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:sleep_timer}}" alt="Sleep Timer number entry"><figcaption>Number.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:set_time}}" alt="Set Time picker"><figcaption>Time picker.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:set_date}}" alt="Set Date calendar"><figcaption>Calendar.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:save_state}}" alt="Save State text entry"><figcaption>Text.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:usb_menu}}" alt="USB Drive icon page"><figcaption>Icon page.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:load_state}}" alt="Load State question, tabs LOAD and EXIT"><figcaption>Question.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:font_large_preview}}" alt="Font preview, tabs USE and EXIT"><figcaption>Preview: USE or EXIT.</figcaption></figure>
+</div>
+
+<h2 id="tabs">4. The tabs</h2>
+<h3>Places</h3>
+<div class="tabs"><span>F1</span><span>F2</span><span>F3</span><span>F4</span><span>F5</span><span>F6</span></div>
+<div class="tabs"><span>verb</span><span>verb</span><span>verb</span><span>&#9650;</span><span>&#9660;</span><span>EXIT</span></div>
+<p class="tabs-label">Lists, forms and editors.</p>
+<div class="tabs"><span>ENTER</span><span>&larr;</span><span>&#9650;</span><span>&#9660;</span><span>&rarr;</span><span>EXIT</span></div>
+<p class="tabs-label">Icons: the arrows as a cursor cluster, the only place &#9650; &#9660; leave F4 F5. BACK instead of EXIT in Apps and Games; DONE &hellip; CANCL while an icon is carried.</p>
+<div class="tabs"><span>MOVE</span><span>FAV</span><span class="off">&nbsp;</span><span class="off">&nbsp;</span><span class="off">&nbsp;</span><span>BACK</span></div>
+<p class="tabs-label">Icons with SHIFT on, on home and in Apps and Games: FAV in a folder, UNFAV on a home favourite, blank where neither applies; MOVE not on Off. On an icon with neither, SHIFT changes nothing. BACK here only ends SHIFT: the plain tabs come back. The pages inside keep their tabs.</p>
+<ul>
+  <li><strong>F1</strong> names what <kbd>ENTER</kbd> does: ENTER where <kbd>ENTER</kbd> opens, takes or answers (never OK), or a verb where it does one thing (SAVE, LOAD, USE, IMPRT).</li>
+  <li><strong>F2, F3</strong>: other actions on the picked row (EDIT, DEL, RENAM, MOVE, FAV).</li>
+  <li><strong>F4, F5</strong>: the arrows. In lists and forms &#9650; &#9660;, only when there is more than one row; they put them there by themselves when the places are free. On icons &larr; &rarr;, always.</li>
+  <li><strong>F6</strong>: EXIT, on every screen that can be left. Lists and forms add it by themselves.</li>
+  <li>A list with four actions (States: SAVE LOAD RENAM DEL; Programs: IMPRT EXPRT RENAM DEL) uses F1&ndash;F4 and has no &#9650; &#9660; tabs: the arrow keys still move.</li>
+  <li>A screen that only tells something has just ENTER (<kbd>EXIT</kbd> answers it too).</li>
+</ul>
+<h3>What shows</h3>
+<ul>
+  <li>Only the tabs that do something now. A list of states with none saved shows SAVE and EXIT; Alarms with none shows NEW and EXIT.</li>
+  <li>A hidden tab leaves its place empty. Its key does nothing (no beep, no other action).</li>
+</ul>
+<h3>Words</h3>
+<p>At most 5 capitals. Only these:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Tab</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>ENTER</td><td>Open the picked item (a page, a field's pull-down), take this value, or seen. There is no OK.</td></tr>
+<tr><td>SAVE</td><td>Keep the record (a form), or save a new state.</td></tr>
+<tr><td>LOAD, IMPRT, EXPRT</td><td>Load a state; import a file's programs; export programs to a file.</td></tr>
+<tr><td>NEW, EDIT, DEL, RENAM</td><td>Make one; change the picked one; delete it (asks first); rename it.</td></tr>
+<tr><td>USE</td><td>Take what's previewed (a font, a splash image).</td></tr>
+<tr><td>REPLC, APPLY, FORMT, START, RESET</td><td>Answers to questions: replace the file, apply the correction, format, start the update, clear Plus42's memory and restart.</td></tr>
+<tr><td>MOVE, DONE, CANCL, FAV, UNFAV</td><td>Carry an icon, put it down, put it back where it was (on F6); add an app to home, send it back.</td></tr>
+<tr><td>BACK</td><td>EXIT's place and job (F6, the EXIT key does the same) on the screens the home screen opens: Apps, Games, Alarms, Settings, Plus42 (and its States), USB Drive, Help, Info. In apps, help that returns to the app's own screen (<code>ui_view_leave(..., "BACK")</code>). The screens deeper in keep EXIT.</td></tr>
+<tr><td>&#9650; &#9660; &larr; &rarr;, &larr;MON MON&rarr; &larr;YR YR&rarr;</td><td>Move.</td></tr>
+<tr><td>EXIT</td><td>Go back, change nothing. Only on F6.</td></tr>
+</tbody>
+</table></div>
+<p class="note">Never: KEEP, OPEN; BACK and CANCL only where the table says (the user's choice for the icons). A new word is added to this table and to the check (<a href="#checked">section 9</a>) first.</p>
+
+<h2 id="keys">5. The keys</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Key</th><th>Everywhere</th></tr></thead>
+<tbody>
+<tr><td><kbd>ENTER</kbd></td><td>What F1 names. On icons <kbd>5</kbd> too.</td></tr>
+<tr><td><kbd>EXIT</kbd>, F6</td><td>Back, nothing changed. On the home screen with Off picked, <kbd>EXIT</kbd> (the ON key) turns off; the EXIT tab just leaves.</td></tr>
+<tr><td><kbd>&larr;</kbd></td><td>Deletes while typing; otherwise as <kbd>EXIT</kbd>.</td></tr>
+<tr><td><kbd>&#9650;</kbd> <kbd>&#9660;</kbd>, <kbd>8</kbd> <kbd>2</kbd></td><td>Up and down a row (on icons, &#9650; &#9660; the icon before and after). Where digits are typed, only the arrow keys.</td></tr>
+<tr><td><kbd>4</kbd> <kbd>6</kbd></td><td>Left and right: icons, calendar days.</td></tr>
+<tr><td><kbd>SHIFT</kbd> <kbd>EXIT</kbd>, hold <kbd>EXIT</kbd></td><td>Off, from any screen. The Sleep Timer too.</td></tr>
+</tbody>
+</table></div>
+
+<h2 id="commit">6. When a change counts</h2>
+<ul>
+  <li><strong>One value</strong> (radio list, number, time, date, text): on <kbd>ENTER</kbd> or F1. EXIT leaves it as it was.</li>
+  <li><strong>Settings form and check boxes</strong>: each change at once, as it's made. EXIT leaves the page; nothing to undo.</li>
+  <li><strong>Record form</strong> (an alarm): nothing until SAVE; EXIT drops every change. SAVE refuses what can't work (a time already past) and says why.</li>
+  <li><strong>Preview</strong> (fonts, splash images): picking one from the pull-down shows it; only USE takes it, and EXIT puts the pull-down back on the one in use.</li>
+  <li>Settings changed often from programs are written to flash at OFF, not at once (<code>settings_save_later()</code>).</li>
+</ul>
+
+<h2 id="lists">7. Lists</h2>
+<ul>
+  <li>A setting's current value is at the right of its row.</li>
+  <li>A radio list's filled button is always the value in use.</li>
+  <li>A list opened again comes back on the same row.</li>
+  <li>An empty list says so in one line, with what to do: "No saved states yet.", "No alarms. NEW sets one."</li>
+  <li>A list of files (states, programs, fonts, images) is read again each time it shows, so files copied in with USB Drive appear.</li>
+</ul>
+
+<h2 id="messages">8. Questions and answers</h2>
+<ul>
+  <li>Destroying something (delete, load over the memory, replace a file, format) asks first: F1 names the act, F6 is EXIT. Format Drive asks twice; nothing else does.</li>
+  <li>A result is one short line: "Saved X", "Could not save X", "Imported 3 programs". A failure beeps and says why.</li>
+  <li>Work that takes a while shows a line first: "Saving...", "Loading...".</li>
+  <li>Titles are in title case and name what was opened. Lines are short sentences, at most 31 characters. The same thing always has the same word (Delete, not Remove or Erase; Format erases the whole drive).</li>
+</ul>
+
+<h2 id="checked">9. How it's checked</h2>
+<p>The screenshot tool (<code>tools/menu_shots/run.sh</code>) and the host tests (<code>tests/run.sh</code>) build the toolkit with <code>UI_CHECK_TABS</code>: every tab drawn is checked against the words of section 4, &#9650; &#9660; only on F4 F5, EXIT only on F6. A screen that breaks them stops the run with its word and place. The firmware doesn't carry the check.</p>
+<p>In code: <code>ui.c</code> places &#9650; &#9660; and EXIT in lists and forms; <code>settings_menu.c</code>'s <code>CONFIRM(verb)</code> makes a question's tabs, <code>run_list()</code> a list's, <code>choose()</code> a radio list's.</p>
+
+<h2 id="apps">10. Apps</h2>
+<p>An app that uses <code>ui_list()</code>, <code>ui_form()</code>, <code>ui_message()</code> and the editors gets the same places and keys; a screen of its own gets the same title bar and tabs from <code>ui_title()</code> and <code>ui_tabs()</code>. The icon pages are the settings menu's alone. Leaving an app asks first, with the dialog "Quit NAME?" (QUIT / STAY): the firmware asks it when EXIT ends the app; an app that takes EXIT as a key asks it itself where EXIT would leave it. The game's pause and game-over messages are dialogs too (GO ON / QUIT, AGAIN / QUIT). Its own words for F1&ndash;F3 are its own choice, but F4 F5 stay &#9650; &#9660; and F6 stays EXIT. The developer manual is <code>../PX-42F-App-Template/framework_manual.html</code>.</p>
+</main>
+</body>
+</html>

@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.13)
+set(PICO_SDK_PATH $ENV{HOME}/.pico-sdk/sdk/2.3.0)
+set(PX /Users/agarza/Dropbox/aliensClock/Calculators/PX-42f/PX-42F-Plus)
+set(PICO_BOARD_HEADER_DIRS ${PX}/boards)
+set(PICO_BOARD px42f)
+set(PICO_PLATFORM rp2350-arm-s)
+include(${PICO_SDK_PATH}/external/pico_sdk_import.cmake)
+project(usbhost_test C CXX ASM)
+pico_sdk_init()
+
+add_executable(usbhost_test main.c
+    ${PX}/display.c ${PX}/display_draw.c ${PX}/fonts/font_8x12_data.c ${PX}/fonts/font_6x8_data.c)
+target_include_directories(usbhost_test PRIVATE ${CMAKE_CURRENT_LIST_DIR} ${PX} ${PX}/fonts)
+target_link_libraries(usbhost_test pico_stdlib pico_multicore tinyusb_host hardware_spi)
+pico_enable_stdio_usb(usbhost_test 0)
+pico_enable_stdio_uart(usbhost_test 0)
+target_link_options(usbhost_test PRIVATE -Wl,--wrap=hcd_port_reset -Wl,--wrap=hcd_port_reset_end -Wl,--wrap=hcd_setup_send)
+pico_add_extra_outputs(usbhost_test)

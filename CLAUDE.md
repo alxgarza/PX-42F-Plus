@@ -7,10 +7,10 @@ everything else at the top level is the board: display, keyboard, power, USB, st
 The sister repo PX-42F (remote `px42f`) runs Free42 on the same board: board-code fixes
 can be cherry-picked between them.
 
-- The Catalog's PX42 page (up from FCN...): its tabs and commands are `PX_CATALOG` in `tools/px_core_tables.py` (the script refuses a command missing from it), what a soft key shows of a long name is `SOFT_KEYS` (Plus42's way: the other letters marked with bit 7 in the table, `draw_key()` leaves them out, program lines and XEQ don't), the sections `CATSECT_PX` from 100, generated into `core_tables.*`; the rest is `PX42` patches in `core_display.cc` and `core_keydown.cc` wherever Plus42 names its catalog sections. A section it doesn't know is read as a variable and crashes: `tests/test_catalog.cc` presses the keys on the real core (binary math, the commands stood in for).
+- The Catalog's PX42 page (up from the first row): its tabs and commands are `PX_CATALOG` in `tools/px_core_tables.py` (the script refuses a command missing from it), what a soft key shows of a long name is `SOFT_KEYS` (Plus42's way: the other letters marked with bit 7 in the table, `draw_key()` leaves them out, program lines and XEQ don't), the sections `CATSECT_PX` from 100, generated into `core_tables.*`; the rest is `PX42` patches in `core_display.cc` and `core_keydown.cc` wherever Plus42 names its catalog sections. A section it doesn't know is read as a variable and crashes: `tests/test_catalog.cc` presses the keys on the real core (binary math, the commands stood in for).
 - PX changes to the core, kept small so a new Plus42 can be dropped in: `my_fopen` etc.
   (`core_main.cc`) and 5 rows (`core_main.cc`) and ATOP (`core_globals.cc`) at Memory Clear under `PX42`, the screen hooks under `PX42`
-  in `core_display.cc`, SETDATE/SETIME (`core_commands7.cc`, `shell.h`), and the commands
+  in `core_display.cc`, TOP.FCN's PX row DIRS UNITS R↑ X<> VIEW EQN, shifted DIR.FCN UNIT.FCN PLOT %CH SST↑ EQN.FCN (`px_top_fcn2_shifted[]`, read where Plus42 does TOP.FCN's: `core_display.cc`, `core_keydown.cc`, and `core_main.cc`'s redraw on SHIFT), the one SHIFT 0 opens (two places in `core_keydown.cc`), ▼ the HP-42S row (`MENU_PX_TOP_FCN2` = 100, after Plus42's last menu, `core_globals.h/.cc`; the equation editor's `getmenu()` keeps TOP.FCN one row, `core_equations.cc`; `tests/test_catalog.cc`), SETDATE/SETIME (`core_commands7.cc`, `shell.h`), DELAY (`docmd_delay`, `core_commands2.cc` -> `shell_set_print_delay()`: `px_settings.print_delay_ms`, the HP 82240B's time per line in `printer.c`, 1.8 s again at Memory Clear), and the commands
   in `core_tables.*`. Those two files are generated: `tools/px_core_tables.py` (its `COMMANDS` list)
   appends the PX's commands to Plus42's, so never edit them or merge them; `tests/run.sh` checks
   them. New commands' handlers go in `px_commands.cc` (the shapes: PEN, BOX, DLINE, ELLIPSE, POLYGON, on the panel's 250 x 122, from 1,1 as Plus42 counts (apps: 0,0), in two layers over everything (`px_layer.c`, `free42_shape_canvases()`), as long as `mode_message_lines` lasts, the status bar hidden meanwhile; PIXEL, AGRAPH use it too, and WIDTH, HEIGHT say 250, 122: PX42 patches in `pixel_helper()`, `docmd_pixel`, `docmd_agraph` (`core_commands2.cc`), `draw_pattern()` (`core_display.cc`), `docmd_width/height` (`core_commands9.cc`); USB PRLCD still prints Plus42's own bitmap, so not these; the Time Module's clock: CLKT, CLKTD, CLOCK, CORRECT, RCLAF, SETAF, T+X; the alarms: XYZALM, ALMCAT, ALMNOW, CLALMA, CLALMX, CLRALMS, RCLALM; the stopwatch: SW, SWPT, RUNSW, STOPSW, SETSW, RCLSW; PLAYWAV and PLAYMID start and go on; SNDWAIT waits, interruptibly; STOPSND; R/S stops them, key sounds don't: `sounds_file_playing()`, `free42_key_down()`). Names at most 7
@@ -18,9 +18,11 @@ can be cherry-picked between them.
   ALPHA), the HP-41 Time Module's own XROM codes (`a680` + n for 26,n), or for the PX's own commands XROM 0 (`a000` + n, from 0,1; no HP-41 module uses it, and Thomas Okken has left it to the PX). If Plus42 ever takes a code of ours the script stops and ours moves. `free42_app.cc` and `shell.cc` are the PX's own (names kept from the Free42
   port). Plus42 needs C++ exceptions (`std::bad_alloc`) and `PICO_MALLOC_PANIC=0`.
 - Plus42 can't read Free42 `.f42` states (different magic); state files are `.p42`.
-- Now Plus42 1.5.2 (`PLUS42_VERSION` in `settings_menu.c`, the Info screen). Updating: in
-  `plus42-upstream/` fetch the tag, `git merge-file` each changed `common/` file into `src/core/`
-  (old tag = base), but not `core_tables.*`: fast-forward its master, then run `tools/px_core_tables.py`.
+- Now Plus42 1.5.2 (`PLUS42_VERSION` in `settings_menu.c`, the Info screen). Updating:
+  `tools/update_plus42.sh [NEW_TAG]` (src/core/ committed first): in `plus42-upstream/` it fetches the tag,
+  `git merge-file`s each changed `common/` file into `src/core/` (old tag = base), but not `core_tables.*`,
+  fast-forwards its master, runs `tools/px_core_tables.py`, sets `PLUS42_VERSION`, runs `tests/run.sh`;
+  conflicts are left marked `<<<<<<< PX-42F` for a person. Then build, and this line's version.
 
 ## Build
 
@@ -138,8 +140,8 @@ can be cherry-picked between them.
   Plus42's header line (`{ HOME }` path, flags, BASE/TVM) is shown in the 12 px status bar
   instead (`display_header_text()`), or with HEADER off the date and time; right to left:
   battery, angle (° π G: ∡ is HPOLAR's), shift, ↑↓, ▶ running, bell, printer (Plus42's annunciator 3, `print_icon`: while sending, off about 250 ms after the last line; the header gives way only then). The core's `HEADER_SHOWN` /
-  `HEADER_ROWS` (PX42, `core_display.h`): the header takes no display row. Skin flags 3: CATALOG's first row is
-  FCN … MEM, as on the HP-42S. Every font code is the HP-42S character (0-31: ÷ × √ ∫ ▒ Σ ▶
+  `HEADER_ROWS` (PX42, `core_display.h`): the header takes no display row. Skin flags 0 (Thomas's advice): CATALOG's first row is
+  DIRS PGM REAL CPX MAT UNITS, FCN and MEM on the second. Every font code is the HP-42S character (0-31: ÷ × √ ∫ ▒ Σ ▶
   π ¿ ≤ LF ≥ ≠ ↵ ↓ → ← µ £ ° Å Ñ Ä ∡ ᴇ Æ … Esc Ö Ü ^ •; 94 ↑, 126 ~).
 - Fonts (`fonts.c`, Settings → Fonts, `/FONTS/LARGE|SMALL|MINI`, PNG sheets 175x135,
   128x96, 96x64): the calculator screen's three layouts, the status bar and menu tabs
@@ -171,39 +173,68 @@ can be cherry-picked between them.
   subroutine), at the keyboard `core_keydown_command(name, 1)`, so labels must be ASCII. In RAM, `/ALARMS.DAT` written at OFF through `safefile.c` (as `/STOPWATCH.DAT`: a new file beside the old, which only then goes; `tests/test_safefile.c`; a label read from the file is held to what XYZALM allows)
   (`alarms_save()`), read at boot, deleted by Memory Clear. While off: `RETAINED_NEXT_ALARM` (`retained.h`) is in `next_wake()`; when due,
   `power_off_wake()` boots fully, `power_woke_for_alarm()`, and it turns itself off afterwards unless a key was pressed. Bell in the status bar
-  (`icon_bell()`) when any is set, Settings -> Alarms lists, deletes and picks each alarm's sound (`alarm_t.sound`: Plus42's tones, `/SOUNDS/*.wav` or `/MIDI/*.mid`; `alarm_sound()` falls back to the tones if the file is gone, and a song outlasts the 20 s). Not done from the HP-41: past-due alarms activating at OFF, the
+  (`icon_bell()`) when any is set, Settings -> Alarms lists them (`ui_list()`, tabs NEW EDIT DEL, EDIT/DEL only with alarms); NEW/EDIT open XYZALM's fields as a `ui_form()` (`alarm_form()`, SAVE; Repeat, Kind, Message/Program, Sound pull down; `af_changed()` does Repeat's Other..., Type..., playing the sound; a time already past is refused; an app's alarm can only be deleted) (`alarm_t.sound`: Plus42's tones, `/SOUNDS/*.wav` or `/MIDI/*.mid`; `alarm_sound()` falls back to the tones if the file is gone, and a song outlasts the 20 s). Not done from the HP-41: past-due alarms activating at OFF, the
   bypassed-alarm order, the catalog's T/D/R keys, catalog-2 function names. An alarm has rung on the hardware (the user, Nov 2026); the rest is unverified.
+  Apps set message alarms too (`px->alarm_set()`/`alarm_clear()`, API 6, `app.c`): `alarms_add_owned()` keeps the app's name in `alarm_t.owner`
+  ("" for XYZALM's), `alarms_remove_owned()` takes back only that app's; an owned alarm can't be a control or conditional one, here or in a file
+  (`ALM3`). They ring like any message alarm, outside apps (`alarm_service()` doesn't run in one). Unverified on the hardware.
 - Stopwatch (HP-41 Time Module; manual: HP-41CX vol. 2, section 17): the rules in `stopwatch.c` (no hardware; the clock passed in, the registers as functions; `tests/test_time.c`), the keys and the top line in `free42_app.cc`, REGS and the commands in `px_commands.cc`. SW/SWPT return ERR_INTERRUPTIBLE, and `free42_service()` doesn't call the core while `sw_showing`, so the keys are all the stopwatch's and a program goes on after EXIT. Counts from the always-on clock, so it runs through OFF; `rtc.c` tells it when the clock is set (`stopwatch_clock_moved()`). `/STOPWATCH.DAT` written at OFF if changed, deleted by Memory Clear. A negative time's zero is in `next_alarm_ms()`: it wakes the calculator from OFF, and shows as `ALARM_TIMER`, not in the alarm table. Unverified on the hardware.
-- Settings menu (`settings_menu.c`, SHIFT+EXIT): Off, Games & Apps, Date & Time, Alarms, Sounds, Fonts, Sleep Timer,
-  Splash (Timer, Image), Printer, States (save/load/rename/delete), Programs (Plus42 `.raw`
-  files in `/PROGRAMS`: import, export one or all, delete; `free42_*_programs()` around the core's
-  own import/export, the current directory's programs; `shell_message()` flags a file error),
-  USB Drive (Connect to Computer, Format Drive, Update Firmware), Info. A new item shifts the key scripts: `tools/menu_shots/run.sh` and the tour's
+- Standard screens (`ui.c`, `ui.h`; types and `ui_*()` in `px_app.h`, API 10): lists with soft-key tabs (only those that do something, in fixed places: F1 what ENTER does, ▲ ▼ on F4 F5 by themselves with more than one row, EXIT on F6 by itself; an "EXIT" tab = the EXIT key), radio buttons, check boxes, pull-downs, forms (`px_ui_form_t`, a `changed()` callback), text (no tabs: the top row types A-F), numbers, the calendar, the time picker. No hardware: drawing and keys come through a `ui_port_t` -- the settings menu's (`menu_ui`, from `wait_key()`), apps' (`app_ui` in `app.c`), the template simulator's, and `tests/test_ui.c`'s (keys scripted, results checked; the ALPHA letters held to `keymap.h`). `ui_screen.c`: the display drawing both firmware ports and the apps' `fill()`/`text()` share. Every settings screen uses them: `show_message()`/`run_list()`/`choose()` take tabs (`TABS(...)`, a question `CONFIRM(verb)`), not hint lines. The rules: `ui_guidelines.html` (built with the manual from `tools/manual/ui_guidelines.template.html`); `UI_CHECK_TABS` (the menu_shots tool, test_ui) stops on a tab word not in its list or out of place -- add a new word there and in the guidelines. Settings forms (each change at once, no SAVE): Sounds (Key Sound a pull-down, the rest check boxes), Fonts (three pull-downs), Splash Image (Timer, Image a pull-down), Printer (Printer a pull-down, Screen Print one shown only with the HP 82240B); no tab is ever OK (ENTER instead; not in the word list); a font or image picked is previewed, kept only with USE. A screen of its own draws `ui_title()`/`ui_tabs()` and reads `tab_key()`; apps have both too (API 10, `PX_UI_TOP`/`PX_UI_BOTTOM` the space between), and `ui_view()`, long text a page at a time (`ui_view_leave()`: F6 named, "BACK" for an app's help, as Help and Info; ▲ ▼ EXIT; Help and Info use it), and `ui_dialog(icon, text, left, right)`, a classic b/w alert: the screen dimmed (checkerboard), a double-bordered box, a stop/note/caution icon (drawn in `ui.c`), buttons in the Hello screen's style, the left the default, ringed (the arrows move the ring, ENTER presses it; F1 the left, F6/EXIT/← the right) (apps only so far). The icon grid is the menu's alone. The template's `tools/sync_framework.sh` copies `ui.c`/`ui.h` into each app's `sim/`.
+- Settings menu (`settings_menu.c`, SHIFT+EXIT): pages of 32x32 icons (`run_grid()`: 7 x 3 between a header bar
+  -- the picked icon's name, date, time, shift sign -- and soft-key tabs in the small font, as Plus42's menu, for the top row, codes 1-6:
+  ENTER ← ▲ ▼ → EXIT (BACK in the folders, and F6 is BACK on Alarms, Plus42, States, Settings, USB Drive, Help, Info: `run_page()`'s `leave`, `ui_view_leave()`, ui.c takes a BACK tab as EXIT; the user's layout; `ui.c`'s tab check lets ▲ ▼ sit on F3 F4 for it), with SHIFT on home and in the folders MOVE FAV/UNFAV (only where it applies) · · · BACK (only back to the plain tabs; an icon with neither keeps the plain tabs), moving DONE ← ▲ ▼ → CANCL (puts it back; EXIT too); a soft key acts by its tab's word (`grid_soft_key()`); `grid_step()`: ▲ ▼ and 8 2 rows; ← →, the keypad's ↑↓ and 4 6 the icon before / after, wrapping to the next row / the top; 5 = ENTER); scrolls by row; icons drawn as text in `menu_icons.c`). Home:
+  Off, Settings (the gear: a page, `run_page()`, of Date & Time, Fonts, Sounds, Printer, Splash Image (Timer, Image),
+  Sleep Timer, Menu Style, Reset: `free42_memory_clear_restart()`, Plus42's memory only (the user's choice: alarms, stopwatch,
+  settings stay; written first, as at OFF), both copies dropped, then `watchdog_reboot()`, which brings no memory back), Plus42 (a page of States (the saved states listed, tabs SAVE LOAD RENAM DEL BACK), Programs (Plus42 `.raw`
+  files in `/PROGRAMS` listed, tabs IMPRT EXPRT (one or all) RENAM DEL BACK; `free42_*_programs()` around the core's
+  own import/export, the current directory's programs; `shell_message()` flags a file error)),
+  Apps and Games (folders: `do_folder()`, a grid of that folder's `.bin`s, favourites left out, in places kept in
+  `ORDER.TXT` in the folder as `/HOME.TXT` (`folder_list()`; new ones by name into the first blank);
+  SHIFT then FAV (`grid_tab_fn`, `GRID_SECOND`) moves one to the home screen's first blank, its folder place left blank; there SHIFT then UNFAV on a
+  favourite: back to its folder's first blank, its home place left blank), USB Drive (a page of icons, `run_page()`, a list in the List style: Connect to PC, Format Drive, Update Firmware),
+  Info, Alarms, Help, and the favourites (`home_list()`); at first (`home_default[]`) Off, USB Drive, Plus42, Alarms,
+  Apps, Games, Settings, a blank row, Help and Info at the right of the third; FAV takes the first blank (`home_free()`). SHIFT then MOVE (SHIFT then ENTER doesn't, the user's choice) moves a home or folder icon (`grid_moves_t`;
+  Off pinned first): it's carried over the others, which stay put, and put down it swaps with what's there, so its old
+  place is left blank (`HOME_BLANK`, names[] NULL) -- the user's wish; a row of
+  empty places opens past the last while carrying; picking skips blanks (`grid_step()`). The places are `/HOME.TXT`
+  on the drive, one line each after Off, by name (APPS/NAME, GAMES/NAME), an empty line a blank; a menu icon the file
+  doesn't name goes where it is by default; a file without "Apps" is from before the folders (it named every app): ignored. The places
+  (lists, files, FAV/UNFAV) are `menu_places.c`, no hardware: written through `safefile.c` (a reset mid-write had cut
+  them), only when something moved (no wear levelling), names matched without case; folders compared by text, not
+  pointer (`APPS_DIR` in two files can be two copies). `tools/menu_shots/run.sh` checks the HOME.TXT and ORDER.TXT its
+  keys leave (`places`), so a change to the keys there changes those lines too. `px_settings.menu_style` List (settings version 13) is the menu as it was: one
+  `run_list()` of everything (`run_text_menu()`), Apps and Games as lists; changing it (`style_changed`) unwinds every
+  screen and `settings_menu_run()` opens the other style. A new item shifts the key scripts: `tools/menu_shots/run.sh` and the tour's
   storyboard (`~/Documents/PX-42F Media/scripts/settings_tour.txt`).
   A boot that dies loading sounds moves the folder to `/SOUNDS.BAD` (POWMAN scratch 6).
-- Games & Apps (`app.c`, `appfile.c`, the contract `px_app.h`): native `.bin` apps in
-  `/BIN/GAMES` and `/BIN/APPS` (`app_folders()`), each with its folder next to it for its files.
+- Apps and Games (`app.c`, `appfile.c`, the contract `px_app.h`): native `.bin` apps in
+  `/BIN/GAMES` and `/BIN/APPS` (`app_folders()`), each with its folder next to it for its files, on the home screen:
+  the app's own (`px_app_icon_t`, "PXIC" + 32x32 right after the header, part of the image so an older firmware
+  still runs it; `app_icon()` reads only the file's start; the template's `icon.txt` -> `pxicon.py` -> `.px_icon`
+  section), else `MENU_ICON_FRAME` with its first letter.
   A `.bin` = 24-byte header (magic PXAP, API version, image/bss size, Thumb entry, CRC-32 of the
-  rest) + code linked at 0x20060000 = `RETAINED_RAMSTATE`: apps run in the 128 KB that keeps the
-  memory while off. `app_run()` checks the whole file first (`app_header_check()`, CRC), then
+  rest) + code linked at `PX_APP_BASE`: from API 9, 160 KB at 0x20058000 (the 32 KB under
+  `RETAINED_RAMSTATE` and the 128 KB that keeps the memory while off); API 1-8 apps the top 128 KB at
+  0x20060000 they were linked for (`app_base()`, `app_ram()` in `appfile.c`). `app_run()` checks the whole file first (`app_header_check()`, CRC), then
   `free42_save_to_drive()` (memory to `/OFFSTATE.p42`, RAM copy dropped: a crashing app loses
   nothing, `free42_init()` takes the file), copies it, zeroes bss, calls entry(&api) on core 1;
   after, `free42_memory_to_ram()`. The table (`px_api_t`) only grows: add at the end, raise
   `PX_APP_API_VERSION`. Keys reach apps as places RxCy with down/up events
-  (`keyboard_held()`, one change per call); ON = `PX_KEY_QUIT` (held 2 s: off), as do the Sleep
-  Timer and an empty battery. Every API call that waits ends with `CKPT_APP`, so a hang in the
+  (`keyboard_held()`, one change per call); ON = `PX_KEY_QUIT` after the firmware's "Quit NAME?" dialog
+  (`ask_quit()` in `on_pressed()`, app.c: STAY swallows the press; apps with `on_key(1)` ask themselves) (held 2 s: off, no question), as do the Sleep
+  Timer and an empty battery. `api_ui_dialog()` puts the app's screen back after it and stops `millis()` meanwhile (`run.paused_ms`); keys pressed in it are swallowed when let go (`run.swallow`); the template's `sim.c` does the same (`SIM_ASK`). `sync_framework.sh` now covers every sibling with a `px42f/` (PX-*, Contacts too). Every API call that waits ends with `CKPT_APP`, so a hang in the
   app's own loop shows APP, and returns at 150 MHz (`wait()`): frames take the same time, key
   or not. The developer manual is `../PX-42F-App-Template/framework_manual.html`. The app projects are siblings of this repo, not in it:
   `../PX-42F-App-Template` (the framework: `px42f/` = copy of `px_app.h`, runtime, linker script,
   `pxbin.py`; `sim/` = the app on the Mac against a stand-in table, PNG shots; VS Code tasks),
   `../PX-42F-Snake`, `../PX-42F-Gold-Runner` (a Lode Runner clone: levels in `levels/builtin.txt`, `LEVELS.TXT` on the drive replaces them), `../PX-42F-IR-Remote` (all public on GitHub, alxgarza/PX-42F-*; the framework's `tools/sync_framework.sh` keeps their `px42f/` and `sim/` the same as the template's and `px_app.h` as this repo's) (the IR remote, moved out of the firmware: `.ir` files
   in `/BIN/APPS/IR`, Flipper's 14 protocols, `make test` against Flipper's encoders). After
-  changing `px_app.h`, copy it into each project's `px42f/`. API version 5 added the shapes (`box`, `ellipse`, `thick_line`, `polygon`): `px_draw.c` draws into any `px_canvas_t`, so Plus42 can use it for its own display later; `tests/test_draw.c` has them as pictures; the template's `sim/` has a copy (`sync_framework.sh`). API version 3 added `on_key()`
+  changing `px_app.h`, copy it into each project's `px42f/`. API version 10 added the standard screens (`ui_*()`, above); 9 moved apps to 160 KB from 0x20058000 (`appfile.c` still runs 1-8 at 0x20060000; the template's `app.ld` and `pxbin.py`, which now reads `PX_APP_BASE`/`PX_APP_RAM` from `px_app.h`). API version 8 added `sprite()` (`px_draw_sprite()`: OR / XOR / masked, mirrored, a byte at a time; `tests/test_draw.c` checks it against the pixel-by-pixel way everywhere). API version 5 added the shapes (`box`, `ellipse`, `thick_line`, `polygon`): `px_draw.c` draws into any `px_canvas_t`, so Plus42 can use it for its own display later; `tests/test_draw.c` has them as pictures; the template's `sim/` has a copy (`sync_framework.sh`). API version 3 added `on_key()`
   (a short ON press as `PX_KEY_ON` for an app with its own exit; held 2 s still off), version 2
   decimal numbers (`appdec.c`): `px_dec_t` is a `BID_UINT128`, each `PX_DEC_*` op one call into the
   libbid Plus42 already links (by reference, global rounding/flags -- Plus42 never reads the
   flags nor changes the rounding, and apps can't), so they cost almost no flash. The
-  simulator's stand-in is doubles (`sim/sim_dec.c`). Also `../PX-42F-MIDI-Player` (the MIDI player, local git only so far), `../PX-42F-Tiny-BASIC`, PX-BASIC (Palo
+  simulator's stand-in is doubles (`sim/sim_dec.c`). Also `../PX-42F-MIDI-Player` (the MIDI player, local git only so far), `../PX-42F-BASIC`, PX-BASIC (Palo
   Alto Tiny BASIC on those decimals; `make test` runs programs on the Mac), `../PX-42F-Spreadsheet`
   (SPREADSHEET: A1-Z999, Excel's formulas on those decimals, CSV sheets in its folder; local git only;
   `make test` runs the engine on the Mac).
@@ -220,7 +251,28 @@ can be cherry-picked between them.
   every half-bit exactly 448 cycles (the printer allows 1%); `printer.c` paces them to the
   printer's 200-byte buffer at 1.8 s a line (it can't answer): a listing waits in `free42_service()`
   (`printer_ready()`), the keys still read, EXIT stops it; PRLCD blocks core 1 until it's sent or EXIT/R/S stops it between lines (`free42_print_stop()`, a key already held when it began doesn't count). The user has
-  printed on the real printer: PRP, PRLCD and stopping it work. No IR receiver on the board (learning codes would need one).
+  printed on the real printer: PRP, PRLCD and stopping it work. Apps print too (API 7: `printer()`, `print_ready()`, `print_text()`, `print_screen()` in `app.c`): text through `free42_print_app_text()` (`shell.cc`: Plus42's glyphs for the characters the 82240B lacks, 24 a line; UTF-8 on USB), the screen through `printer_hp82240b_screen()` or `printer_write_screen()`; Plus42's own printing is unchanged. App files opened "w" are crash-safe (`app.c`: written to name.NEW, swapped in by `safefile_take_new()` at a good `api_close()`, `safefile_recover()` at the next read; `NEW_PATH_MAX` in `safefile.c` fits an app's path). No IR receiver on the board (learning codes would need one).
+- USB thermal printer (Settings → Printer → USB Thermal, `PRINTER_ESCPOS`): a 58 mm ESC/POS printer on the USB-C port
+  (tried: YICHIP "YC Printer demo" 28E9:0289, printer class, 384 dots), the PX its USB host only while printing, no 5 V
+  given (the printer has its battery). `escpos.c` (no hardware, `tests/test_escpos.c`; with a file name it writes a sample
+  job for `tools/usb_printer_test/yc_print.py --file`): text in the printer's font, only bytes code pages 437 and 850
+  share (`ESC t 0` is ignored: it stays in 850); a line with any other character is a picture (`GS v 0`) of Plus42's
+  line bitmap, 2 x 3 per dot = the font's 12 x 24 cell, 24 rows, 6 blank on top after another picture (the printer
+  leaves ~8 dots more after a picture; text lines 30 apart, `ESC 3`); `ESC *` inline images were tried: each went on
+  its own line and lost the text before it. PRLCD the framebuffer upright (`GS v 0`). A Mac sees this printer only
+  through its own cable (USB-A), not USB-C to USB-C (no CC resistors?); the PX doesn't care. Core 1 puts
+  it in printer.c's ring (`printer_escpos_*()`, waits for room; `printer_ready()` paces listings); core 0's
+  `usbprint_poll()` (`usbprint.c`): first bytes → `stdio_usb_deinit()` + `tuh_init(0)` (not over a sound), the
+  printer's bulk OUT found, `ESCPOS_INIT`, the ring sent, `ESCPOS_FEED` after 1.5 s idle, back to device
+  (`stdio_usb_init()`, `usbprint_device_started()`) after 30 s (the user's choice), at once for Connect to PC
+  (`usbprint_release()`); no printer in 5 s → dropped, and prints for 10 s after (`usbprint_unavailable()`).
+  `usbprint_shutdown()` at power-off stops whichever role. TinyUSB 0.18's RP2 host never resets the bus
+  (`hcd_port_reset()` empty, RESET_BUS lasts 2 us): `--wrap`ped with SE0 through the PHY override, the connect
+  interrupt masked, then waiting for SPEED (20 ms wasn't enough); and a second reset before Set Address
+  (`--wrap=hcd_setup_send`, as Windows/macOS) -- without them this printer stalled Set Address. The SDK's TinyUSB is
+  unpatched (a 64-byte first descriptor read wasn't needed). `CFG_TUH_API_EDPT_XFER 1` or `tuh_edpt_xfer()`'s
+  callback never runs. Apps: `PX_PRINTER_THERMAL` (3). The standalone test that found all this: `tools/usb_printer_test/`.
+  Printing worked from the test firmware (Nov 2026); the firmware's own path is unverified on the hardware.
 - Battery: GP28/ADC2, 1M/1M divider. Free: GP23-25, 29.
 
 ## Architecture
@@ -272,7 +324,7 @@ can be cherry-picked between them.
   ("FRI-OCT-9") is MDY to Free42. A full chip reset (RESET button, battery) loses the time.
 - Settings written from frequent/program-driven paths (SETIME, DMY...) use
   `settings_save_later()` — flushed at OFF — so a looping program can't wear the flash.
-- Retained RAM layout: `retained.h` (framebuffer 0x2005F000, RAM state 0x20060000-top);
+- Retained RAM layout: `retained.h` (framebuffer 0x20057000, RAM state 0x20060000-top, the 32 KB between free until an app runs);
   `HEAP_LIMIT` in `CMakeLists.txt` must equal `RETAINED_BASE`. It only holds because
   `shell.cc` overrides `_sbrk()`: the SDK's grows the heap to the end of RAM, over the retained
   RAM. `shell_get_mem()` (MEM) = heap left below `__HeapLimit` + malloc's free blocks.

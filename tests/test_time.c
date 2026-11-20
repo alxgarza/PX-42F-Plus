@@ -91,9 +91,42 @@ static void test_alarm_sounds(void) {
     second->length = ALARM_TEXT_MAX;
     CHECK(alarms_load(copy, size) && alarms_count() == 2, "any 44 characters do as a message");
     second->length = (uint8_t) length;
-    uint32_t old_magic = 0x314D4C41u; /* "ALM1", the layout without a sound */
+    memset(second->owner, 'x', sizeof(second->owner));
+    CHECK(!alarms_load(copy, size) && alarms_count() == 0, "unterminated owner refused");
+    strcpy(second->owner, "APP");
+    text[0] = ALARM_ARROW;
+    CHECK(!alarms_load(copy, size) && alarms_count() == 0, "an app's alarm that would run a label refused");
+    text[0] = 'A';
+    second->owner[0] = 0;
+    uint32_t old_magic = 0x324D4C41u; /* "ALM2", the layout without an owner */
     memcpy(copy, &old_magic, sizeof(old_magic));
     CHECK(!alarms_load(copy, size), "older file refused");
+}
+
+/* px->alarm_set(): an app's alarms, taken back together, the others left. */
+static void test_owned_alarms(void) {
+    alarms_clear();
+    ADD(T0 + 500, 0, "MINE");
+    CHECK(alarms_add_owned(T0 + 100, "Dentist", 7, "PX-Organizer", T0), "add an app's");
+    CHECK(alarms_add_owned(T0 + 900, "Gym", 3, "PX-Organizer", T0), "add another");
+    CHECK(alarms_add_owned(T0 + 300, "Feed", 4, "Pets", T0), "another app's");
+    CHECK(alarms_count() == 4 && !strcmp(alarms_get(0)->owner, "PX-Organizer") && !strcmp(alarms_get(1)->owner, "Pets")
+          && alarms_get(2)->owner[0] == 0, "in time order with the others");
+    char arrow[2] = {ALARM_ARROW, 'X'};
+    CHECK(!alarms_add_owned(T0 + 100, arrow, 2, "PX-Organizer", T0), "an app can't set one that runs a label");
+    CHECK(!alarms_add_owned(T0 + 100, "A", 1, "", T0), "no owner");
+    CHECK(!alarms_add_owned(T0 + 100, "A", 1, "12345678901234567890123456789", T0), "owner too long");
+    CHECK(alarms_add_owned(T0 + 100, "A", 1, "1234567890123456789012345678", T0), "the longest owner");
+    CHECK(alarms_remove_owned("1234567890123456789012345678") == 1, "remove it");
+    CHECK(alarms_remove_owned("PX-Organizer") == 2 && alarms_count() == 2, "an app's go");
+    CHECK(!strcmp(alarms_get(0)->owner, "Pets") && alarms_get(1)->owner[0] == 0, "the rest stay");
+    CHECK(alarms_remove_owned("") == 0 && alarms_count() == 2, "\"\" isn't an owner");
+
+    size_t size;
+    static unsigned char copy[sizeof(uint32_t) * 2 + ALARMS_MAX * sizeof(alarm_t)];
+    memcpy(copy, alarms_image(&size), size);
+    CHECK(alarms_load(copy, size) && !strcmp(alarms_get(0)->owner, "Pets"), "the owner survives the file");
+    alarms_clear();
 }
 
 static void test_alarms(void) {
@@ -423,6 +456,7 @@ static void test_stopwatch(void) {
 int main(void) {
     test_alarms();
     test_alarm_sounds();
+    test_owned_alarms();
     test_stopwatch();
     test_alarm_numbers();
     check_digits(0, 0);

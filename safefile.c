@@ -3,7 +3,7 @@
 #include "safefile.h"
 #include "statefs.h"
 
-#define NEW_PATH_MAX 48
+#define NEW_PATH_MAX 176 /* an app's file: its folder (64) and a path (96), and ".NEW" */
 
 static bool new_path(char *out, const char *path) {
     int n = snprintf(out, NEW_PATH_MAX, "%s.NEW", path);

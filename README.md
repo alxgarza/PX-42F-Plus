@@ -33,23 +33,40 @@ The calculator works like an HP-42S. On top of that:
 | Hold EXIT for 2 s | Turns the calculator off |
 | Hold SHIFT and − together for ½ s | Saves a screenshot to the drive |
 
-In the settings menu, ▲ ▼ move, ENTER selects, and EXIT or ← goes back.
-With **Off** highlighted, EXIT turns the calculator off.
+The settings menu opens on a home screen of 32×32 icons, seven across and three
+down, under a bar with the picked icon's name and the date and time, over tabs
+for the top row of keys (OPEN, MOVE, ↑ ↓ ← →). At first the top row
+is **Off**, **USB Drive**, **Plus42**, **Alarms**, **Apps**, **Games** and **Settings**
+(the gear), the second row is left for your favourites, and **Help** and **Info**
+are at the right of the third. In the Apps and Games folders (each `.bin` by
+name), FAV moves one to the home screen's first empty place; there SHIFT turns
+MOVE into UNFAV, which sends it back. The tabs and 8 2 / 4 6 move up,
+down, left and right (past a row's end to the next row, past the bottom to the
+top); ▲ ▼ step to the icon before and after; ENTER or 5 opens, and EXIT or ←
+goes back.
+With **Off** picked, EXIT turns the calculator off. MOVE (or SHIFT then ENTER)
+picks an icon up to move it (it swaps with icons and blank places, so it can
+leave gaps), DONE puts it down; Off stays first. The order and
+the favourites are kept in `/HOME.TXT` on the drive.
 
-The settings menu has:
+**Plus42** opens a page with **States** and **Programs** (below). The gear's
+**Menu Style** switches the whole menu to one list of text, as it was before the
+icons (and back: Menu Style is in that list too).
 
-- **Off**
-- **Games & Apps**: runs games and apps from the drive (below)
+The gear opens a page of icons:
+
 - **Date & Time**: time, date, their formats, and clock calibration
-- **Sounds**: key click, and the boot, on and off sounds
-- **Fonts**: the two calculator fonts
+- **Fonts**: the three calculator fonts
+- **Sounds**: key click, and the boot, on, off and error sounds
+- **Printer**: where Plus42's printer output goes
+- **Splash Image**: a picture with a clock shown while off, and for how long
 - **Sleep Timer**: turns off after this long without a keypress (never while
   connected to a computer)
-- **Splash Image**: a picture with a clock shown while off, and for how long
-- **Printer**: where Free42's printer output goes
-- **States**: save, load, rename and delete calculator states
-- **USB Drive**: shows the calculator's drive on a computer
-- **Info**
+- **Menu Style**: icons, or one list of text
+
+**Plus42** has **States** (save, load, rename and delete calculator states) and
+**Programs** (import and export `.raw` files). **USB Drive** shows the
+calculator's drive on a computer.
 
 ### The USB drive
 
@@ -72,11 +89,13 @@ grid 16 across and 8 down: copy one from `FONTS/BUILTIN/` (`LARGE.png`,
 
 ### Games and apps
 
-**Settings → Games & Apps** runs programs written for the PX-42F itself: `.bin`
+The home screen's app and game icons run programs written for the PX-42F itself: `.bin`
 files in `BIN/GAMES` and `BIN/APPS` on the drive. ON always leaves one (held
 2 s: off). The calculator's memory is saved to the drive before one starts,
 so a game that crashes loses nothing. Each keeps its own files in a folder
-next to it (`BIN/GAMES/SNAKE/` for `SNAKE.bin`).
+next to it (`BIN/GAMES/SNAKE/` for `SNAKE.bin`). Each shows its own icon, which
+comes inside its `.bin` (the template makes it from `icon.txt`); one without
+gets a frame with its first letter.
 
 They're written in C against [`px_app.h`](px_app.h), the contract between the
 firmware and an app: the screen and fonts, keys, time, sound, files on the

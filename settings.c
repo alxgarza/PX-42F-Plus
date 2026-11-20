@@ -30,7 +30,7 @@ static const uint32_t sector_offset[SETTINGS_SECTORS] = {
 #define SEQ_INV_AT (FLASH_PAGE_SIZE - 8)
 
 #define SETTINGS_MAGIC   0x32345850u /* "PX42" */
-#define SETTINGS_VERSION 12          /* bump when px_settings_t changes */
+#define SETTINGS_VERSION 14          /* bump when px_settings_t changes */
 
 typedef struct {
     uint32_t magic;
@@ -83,6 +83,7 @@ static const px_settings_t defaults = {
     .alpha_mode = ALPHA_MODE_HP42S, /* the DM42's first time too */
     .screen_print = SCREEN_PRINT_UPRIGHT,
     .error_sound = true,
+    .print_delay_ms = PRINT_DELAY_DEFAULT_MS,
 };
 
 /* FNV-1a over everything before the checksum field. */
@@ -116,64 +117,67 @@ static const settings_record_t *stored_record(void) {
     return (const settings_record_t *) sector_page(current);
 }
 
-/* Version 7 was today's layout without the fonts, which were added at the
- * end: its settings are the first V7_SIZE bytes, its checksum right after.
- * Versions 8, 9, 10 and 11, likewise, without the mini font / the alpha mode /
- * the screen print / the error sound --
- * their settings ended in chars, so the struct's padding to 8 (it holds a
- * uint64_t) came before the checksum. */
-#define V7_SIZE        offsetof(px_settings_t, small_font)
-#define V7_CHECKSUM_AT (offsetof(settings_record_t, settings) + V7_SIZE)
-#define V8_SIZE        offsetof(px_settings_t, mini_font)
-#define V8_CHECKSUM_AT (offsetof(settings_record_t, settings) + ((V8_SIZE + 7) & ~(size_t) 7))
-#define V9_SIZE        offsetof(px_settings_t, alpha_mode)
-#define V9_CHECKSUM_AT (offsetof(settings_record_t, settings) + ((V9_SIZE + 7) & ~(size_t) 7))
-#define V10_SIZE        offsetof(px_settings_t, screen_print)
-#define V10_CHECKSUM_AT (offsetof(settings_record_t, settings) + ((V10_SIZE + 7) & ~(size_t) 7))
-#define V11_SIZE        offsetof(px_settings_t, error_sound)
-#define V11_CHECKSUM_AT (offsetof(settings_record_t, settings) + ((V11_SIZE + 7) & ~(size_t) 7))
+/* Versions 7 to 13: today's layout cut short before the field each one
+ * lacked. Version 7's checksum came right after its settings; from 8 on
+ * they ended in chars, so the struct's padding to 8 (it holds a uint64_t)
+ * came first. */
+static const struct {
+    uint32_t version;
+    size_t size;
+} older[] = {
+    { 13, offsetof(px_settings_t, print_delay_ms) },
+    { 12, offsetof(px_settings_t, menu_style) },
+    { 11, offsetof(px_settings_t, error_sound) },
+    { 10, offsetof(px_settings_t, screen_print) },
+    {  9, offsetof(px_settings_t, alpha_mode) },
+    {  8, offsetof(px_settings_t, mini_font) },
+    {  7, offsetof(px_settings_t, small_font) },
+};
 
-/* The current layout, or one of the six before -- versions 6 and 7 too:
+static size_t older_checksum_at(int i) {
+    size_t size = older[i].size;
+    if (older[i].version >= 8)
+        size = (size + 7) & ~(size_t) 7;
+    return offsetof(settings_record_t, settings) + size;
+}
+
+/* The current layout, or one of the eight before -- versions 6 and 7 too:
  * settings are only written when one changes, so a calculator can still
  * hold them. Anything older gets the defaults. */
 static bool load_record(const settings_record_t *r) {
-    const settings_record_v6_t *r6 = (const settings_record_v6_t *) r;
-    uint32_t v7_checksum, v8_checksum, v9_checksum, v10_checksum, v11_checksum;
-    memcpy(&v7_checksum, (const uint8_t *) r + V7_CHECKSUM_AT, sizeof(v7_checksum));
-    memcpy(&v8_checksum, (const uint8_t *) r + V8_CHECKSUM_AT, sizeof(v8_checksum));
-    memcpy(&v9_checksum, (const uint8_t *) r + V9_CHECKSUM_AT, sizeof(v9_checksum));
-    memcpy(&v10_checksum, (const uint8_t *) r + V10_CHECKSUM_AT, sizeof(v10_checksum));
-    memcpy(&v11_checksum, (const uint8_t *) r + V11_CHECKSUM_AT, sizeof(v11_checksum));
-    if (r->magic == SETTINGS_MAGIC && r->version == SETTINGS_VERSION && r->checksum == checksum(r)) {
-        px_settings = r->settings;
-    } else if (r->magic == SETTINGS_MAGIC && r->version == 11 && v11_checksum == checksum_bytes(r, V11_CHECKSUM_AT)) {
-        memcpy(&px_settings, &r->settings, V11_SIZE);
-    } else if (r->magic == SETTINGS_MAGIC && r->version == 10 && v10_checksum == checksum_bytes(r, V10_CHECKSUM_AT)) {
-        memcpy(&px_settings, &r->settings, V10_SIZE);
-    } else if (r->magic == SETTINGS_MAGIC && r->version == 9 && v9_checksum == checksum_bytes(r, V9_CHECKSUM_AT)) {
-        memcpy(&px_settings, &r->settings, V9_SIZE);
-    } else if (r->magic == SETTINGS_MAGIC && r->version == 8 && v8_checksum == checksum_bytes(r, V8_CHECKSUM_AT)) {
-        memcpy(&px_settings, &r->settings, V8_SIZE);
-    } else if (r->magic == SETTINGS_MAGIC && r->version == 7 && v7_checksum == checksum_bytes(r, V7_CHECKSUM_AT)) {
-        memcpy(&px_settings, &r->settings, V7_SIZE);
-    } else if (r6->magic == SETTINGS_MAGIC && r6->version == 6
-               && r6->checksum == checksum_bytes(r6, offsetof(settings_record_v6_t, checksum))) {
-        const px_settings_v6_t *o = &r6->settings;
-        px_settings.sleep_minutes = o->sleep_minutes;
-        px_settings.splash_minutes = o->splash_minutes;
-        memcpy(px_settings.splash_image, o->splash_image, sizeof(px_settings.splash_image));
-        px_settings.printer = o->printer;
-        memcpy(px_settings.key_sound, o->key_sound, sizeof(px_settings.key_sound));
-        px_settings.off_sound = o->off_sound;
-        px_settings.date_format = o->date_format;
-        px_settings.clock_24h = o->clock_24h;
-        px_settings.time_trim = o->time_trim;
-        px_settings.cal_drift = o->cal_drift;
-        px_settings.cal_span_h = o->cal_span_h;
-        px_settings.cal_ref_ms = o->cal_ref_ms;
-    } else {
+    if (r->magic != SETTINGS_MAGIC)
         return false;
+    if (r->version == SETTINGS_VERSION && r->checksum == checksum(r)) {
+        px_settings = r->settings;
+        return true;
     }
+    for (size_t i = 0; i < sizeof(older) / sizeof(older[0]); i++) {
+        if (r->version != older[i].version)
+            continue;
+        size_t at = older_checksum_at((int) i);
+        uint32_t sum;
+        memcpy(&sum, (const uint8_t *) r + at, sizeof(sum));
+        if (sum != checksum_bytes(r, at))
+            return false;
+        memcpy(&px_settings, &r->settings, older[i].size);
+        return true;
+    }
+    const settings_record_v6_t *r6 = (const settings_record_v6_t *) r;
+    if (r6->version != 6 || r6->checksum != checksum_bytes(r6, offsetof(settings_record_v6_t, checksum)))
+        return false;
+    const px_settings_v6_t *o = &r6->settings;
+    px_settings.sleep_minutes = o->sleep_minutes;
+    px_settings.splash_minutes = o->splash_minutes;
+    memcpy(px_settings.splash_image, o->splash_image, sizeof(px_settings.splash_image));
+    px_settings.printer = o->printer;
+    memcpy(px_settings.key_sound, o->key_sound, sizeof(px_settings.key_sound));
+    px_settings.off_sound = o->off_sound;
+    px_settings.date_format = o->date_format;
+    px_settings.clock_24h = o->clock_24h;
+    px_settings.time_trim = o->time_trim;
+    px_settings.cal_drift = o->cal_drift;
+    px_settings.cal_span_h = o->cal_span_h;
+    px_settings.cal_ref_ms = o->cal_ref_ms;
     return true;
 }
 
@@ -200,6 +204,10 @@ void settings_load(void) {
         px_settings.alpha_mode = ALPHA_MODE_HP42S;
     if (px_settings.screen_print >= SCREEN_PRINTS)
         px_settings.screen_print = SCREEN_PRINT_UPRIGHT;
+    if (px_settings.menu_style >= MENU_STYLES)
+        px_settings.menu_style = MENU_STYLE_ICONS;
+    if (px_settings.print_delay_ms > PRINT_DELAY_MAX_MS)
+        px_settings.print_delay_ms = PRINT_DELAY_DEFAULT_MS;
 }
 
 static bool pending = false;

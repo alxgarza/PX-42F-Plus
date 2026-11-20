@@ -205,10 +205,10 @@ static const layout_t LAYOUTS[] = {
 #define TEXT_AVAIL   (LCD_AVAIL - MENU_AREA) /* with a menu up */
 #define MAX_ROWS     (1 + TEXT_AVAIL / 8)
 
-/* The keyboard is printed like the HP-42S's: CATALOG's first row has FCN
- * and MEM (skin flags 1 and 2, see core_repaint_display()); Shift-0 is
- * TOP.FCN. */
-#define SKIN_FLAGS   3
+/* No skin flags (core_repaint_display()), as Thomas Okken advised for a
+ * keyboard without DIRS and UNITS keys: CATALOG's first row is DIRS PGM REAL
+ * CPX MAT UNITS (FCN and MEM one row down), Shift-0 is TOP.FCN. */
+#define SKIN_FLAGS   0
 
 static const layout_t *layout = &LAYOUTS[0];
 
@@ -676,15 +676,17 @@ int free42_draw_paper(int paper_w) {
  * can't take. display_error() is wrapped at link time (CMakeLists.txt), so the
  * core stays as it is: errors flag 25 or a trap swallow never get here, and
  * those shown by core_display.cc itself (a menu with no variables) aren't
- * seen, the linker only wrapping calls from other files. Interrupted: the
- * user's own EXIT. */
+ * seen, the linker only wrapping calls from other files. Not errors: the
+ * user's own EXIT (Interrupted), and the answers of the tests -- FS?, X=Y?
+ * and the rest, at the keyboard, show "Yes" or "No" through display_error()
+ * too, and squeaked. */
 static bool error_shown = false;
 
 extern "C" void __real__Z13display_errori(int error);
 
 extern "C" void __wrap__Z13display_errori(int error) {
     __real__Z13display_errori(error);
-    if (error != ERR_INTERRUPTED)
+    if (error != ERR_INTERRUPTED && error != ERR_YES && error != ERR_NO && error != ERR_NONE)
         error_shown = true;
 }
 
@@ -800,6 +802,10 @@ void free42_init(bool after_crash, bool memory_clear) {
     if (memory_clear) {
         if (px_settings.alpha_mode != ALPHA_MODE_HP42S) { /* the keyboard too: as new */
             px_settings.alpha_mode = ALPHA_MODE_HP42S;
+            settings_save_later();
+        }
+        if (px_settings.print_delay_ms != PRINT_DELAY_DEFAULT_MS) { /* DELAY too, as on the HP-42S */
+            px_settings.print_delay_ms = PRINT_DELAY_DEFAULT_MS;
             settings_save_later();
         }
         ramstate_discard();
@@ -1184,6 +1190,22 @@ void free42_memory_to_ram(void) {
     core_save_state(RAMSTATE_PATH);
     if (ramstate_valid() && statefs_ready())
         safefile_remove(OFF_STATE_FILE);
+}
+
+void free42_memory_clear_restart(void) {
+    sounds_stop(); /* its file, if it's one */
+    /* Neither copy of Plus42's memory left: the boot finds none and starts
+     * Plus42 from Memory Clear (free42_init()). The rest is kept, so what
+     * only OFF writes is written now. */
+    ramstate_discard();
+    if (statefs_ready())
+        safefile_remove(OFF_STATE_FILE);
+    settings_save_pending();
+    alarms_save();
+    stopwatch_save();
+    watchdog_reboot(0, 0, 0);
+    while (true)
+        tight_loop_contents();
 }
 
 /* ============================ programs ============================ */

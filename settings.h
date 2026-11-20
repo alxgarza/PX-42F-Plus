@@ -22,6 +22,9 @@ extern "C" {
  * printed by each key, lower or upper case. SHIFT then an arrow switches. */
 typedef enum { ALPHA_MODE_HP42S, ALPHA_MODE_LOWER, ALPHA_MODE_UPPER, ALPHA_MODES } alpha_mode_t;
 
+/* The settings menu (settings_menu.c): pages of icons, or one list of text. */
+typedef enum { MENU_STYLE_ICONS, MENU_STYLE_LIST, MENU_STYLES } menu_style_t;
+
 typedef struct {
     uint16_t sleep_minutes;  /* auto power-off after this long idle; 0 = never */
     uint16_t splash_minutes; /* after OFF, show the splash this long, then blank; 0 = blank right away */
@@ -48,6 +51,8 @@ typedef struct {
     uint8_t alpha_mode;      /* alpha_mode_t: the last one used, the next ALPHA starts in it */
     uint8_t screen_print;    /* screen_print_t (printer.h): PRLCD on the HP 82240B */
     bool error_sound;        /* /SOUNDS/ERROR.wav when Plus42 shows an error message (free42_app.cc) */
+    uint8_t menu_style;      /* menu_style_t */
+    uint16_t print_delay_ms; /* DELAY: how long the HP 82240B takes per line (printer.c) */
 } px_settings_t;
 
 extern px_settings_t px_settings;

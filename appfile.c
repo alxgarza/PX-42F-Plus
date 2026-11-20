@@ -1,4 +1,15 @@
+#include <string.h>
 #include "appfile.h"
+
+_Static_assert(APP_OLD_BASE + APP_OLD_RAM == PX_APP_BASE + PX_APP_RAM, "an old app's RAM is the top of a new one's");
+
+uint32_t app_base(const px_app_header_t *h) {
+    return h->api_version >= 9 ? PX_APP_BASE : APP_OLD_BASE;
+}
+
+uint32_t app_ram(const px_app_header_t *h) {
+    return h->api_version >= 9 ? PX_APP_RAM : APP_OLD_RAM;
+}
 
 const char *app_header_check(const px_app_header_t *h, uint32_t file_size) {
     if (file_size < sizeof(*h) || h->magic != PX_APP_MAGIC)
@@ -9,10 +20,11 @@ const char *app_header_check(const px_app_header_t *h, uint32_t file_size) {
         return "Needs a newer firmware";
     if (h->image_size != file_size)
         return "The file is damaged";
-    if (h->image_size > PX_APP_RAM || h->bss_size > PX_APP_RAM - h->image_size)
-        return "Too big (128 KB at most)";
+    uint32_t base = app_base(h), ram = app_ram(h);
+    if (h->image_size > ram || h->bss_size > ram - h->image_size)
+        return ram == PX_APP_RAM ? "Too big (160 KB at most)" : "Too big (128 KB at most)";
     uint32_t entry = h->entry & ~1u;
-    if (!(h->entry & 1) || entry < PX_APP_BASE + sizeof(*h) || entry >= PX_APP_BASE + h->image_size)
+    if (!(h->entry & 1) || entry < base + sizeof(*h) || entry >= base + h->image_size)
         return "Not a PX-42F app";
     return NULL;
 }
@@ -30,4 +42,17 @@ uint32_t app_crc32(uint32_t crc, const void *data, size_t n) {
         crc = table[crc & 15] ^ (crc >> 4);
     }
     return ~crc;
+}
+
+bool app_icon_from(const uint8_t *head, size_t n, uint8_t bits[sizeof(((px_app_icon_t *) 0)->bits)]) {
+    px_app_header_t h;
+    px_app_icon_t icon;
+    if (n < sizeof(h) + sizeof(icon))
+        return false;
+    memcpy(&h, head, sizeof(h));
+    memcpy(&icon, head + sizeof(h), sizeof(icon));
+    if (h.magic != PX_APP_MAGIC || icon.magic != PX_APP_ICON_MAGIC)
+        return false;
+    memcpy(bits, icon.bits, sizeof(icon.bits));
+    return true;
 }

@@ -1,0 +1,9 @@
+/* The SDK's own line (pico_standard_link/script_include), then the Intel
+   decimal library's tables: its source declares them without const, so
+   they'd be .data -- 33 KB copied into RAM at boot -- though nothing ever
+   writes them (its only variables, the rounding mode and the flags, are
+   .bss). Placed here, in .rodata, they stay in flash and the heap gets
+   the 33 KB. .rodata comes before .data in the script, so these rules
+   take the sections first. */
+*(EXCLUDE_FILE(*libgcc.a: *libc.a: *lib*_a-mem*.o *libm.a:) .rodata*)
+*libbid.a:*(.data .data.*)

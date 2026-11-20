@@ -18,6 +18,7 @@
 #include "rtc.h"
 #include "settings.h"
 #include "irtx.h"
+#include "usbprint.h"
 
 #define SERIAL_RX_PIN 17 /* see main.c */
 
@@ -54,8 +55,9 @@ void power_core0_poll(void) {
     /* Shut USB down first, as the SDK's pico_low_power does before a
      * power-down: the USB transceiver otherwise stays biased. This core
      * owns USB (and the SDK's timer pool, which stdio_usb_deinit() needs),
-     * so it happens here. Then hold the controller in reset. */
-    stdio_usb_deinit();
+     * so it happens here -- in whichever role it's in (usbprint.h). Then
+     * hold the controller in reset. */
+    usbprint_shutdown();
     reset_block(RESETS_RESET_USBCTRL_BITS);
     (void) save_and_disable_interrupts();
     quiesce_this_core();

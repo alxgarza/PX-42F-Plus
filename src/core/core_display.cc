@@ -4318,6 +4318,11 @@ void redisplay(int mode) {
                             }
                             break;
                         }
+#ifdef PX42
+                        case MENU_PX_TOP_FCN2:
+                            scmd = px_top_fcn2_shifted[i];
+                            break;
+#endif
                         case MENU_PGM_FCN1: {
                             if (i == 5)
                                 scmd = CMD_GTO;

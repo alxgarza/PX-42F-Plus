@@ -294,6 +294,13 @@ void shell_get_time_date(uint4 *time, uint4 *date, int *weekday);
 bool shell_set_date(int4 year, int4 month, int4 day);
 void shell_set_time(int4 hour, int4 min, int4 sec);
 
+/* shell_set_print_delay()
+ *
+ * PX-42 addition: DELAY's time per printed line, in ms (0 to 1949; the
+ * HP 82240B's pacing, printer.c). Upstream ignores the value.
+ */
+void shell_set_print_delay(int ms);
+
 /* shell_message()
  *
  * Displays a modal pop-up message box.

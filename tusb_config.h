@@ -25,4 +25,15 @@
 
 #define CFG_TUD_MSC_EP_BUFSIZE  512
 
+/* The host side, for the USB thermal printer (usbprint.c): the port is
+ * started as a device (CFG_TUSB_RHPORT0_MODE, tusb_init()), and made a host
+ * by tuh_init() only while printing. One device, no hub, no class driver:
+ * the printer's bulk endpoint is driven directly. */
+#define CFG_TUH_ENABLED             1
+#define CFG_TUH_DEVICE_MAX          1
+#define CFG_TUH_HUB                 0
+#define CFG_TUH_ENDPOINT_MAX        4
+#define CFG_TUH_ENUMERATION_BUFSIZE 256
+#define CFG_TUH_API_EDPT_XFER       1 /* tuh_edpt_xfer()'s callback: off, a finished transfer reaches no one */
+
 #endif

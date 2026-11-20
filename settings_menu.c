@@ -33,7 +33,12 @@
 #include "keyhold.h"
 #include "app.h"
 #include "icons.h"
+#include "menu_icons.h"
+#include "menu_places.h"
+#include "ui.h"
+#include "ui_screen.h"
 #include "power.h"
+#include "usbprint.h"
 
 #ifndef PICO_PROGRAM_VERSION_STRING
 #define PICO_PROGRAM_VERSION_STRING "?"
@@ -59,21 +64,16 @@
 #define K_SLEEP    -2 /* sleep timer ran out */
 #define K_POWEROFF -3 /* SHIFT then EXIT */
 
-/* Layout, in font_8x12 rows: a title bar, up to LIST_ROWS items, and a
- * hint line. */
-#define TITLE_HEIGHT 13
-#define ITEM_Y0      15
-#define ITEM_STRIDE  13
-#define LIST_ROWS    7
-#define HINT_Y       (DISPLAY_HEIGHT - 12)
-#define CHAR_W       8 /* font_8x12.advance */
-
 #define MAX_STATES 32
 #define MAX_PROGRAMS      64 /* programs listed for Export */
 #define MAX_PROGRAM_FILES 64 /* .raw files listed for Import and Delete */
 #define PROGRAM_FILE_MAX  28 /* characters of a .raw file's name shown; longer ones aren't listed */
 
 static bool shift_on = false;
+
+/* Menu Style was just changed: every screen goes back, and the menu opens
+ * again in the new style (settings_menu_run()). */
+static bool style_changed = false;
 
 /* Details of the key wait_key() last returned, for screens that need more
  * than its key code -- name entry wants its letter, and whether SHIFT was
@@ -193,36 +193,55 @@ static int wait_key(void) {
 }
 
 static void error_beep(void) {
-    sounds_play_tone(10, true); /* Free42's own error squeak (shell_beeper(10)) */
+    /* Free42's own error squeak (shell_beeper(10)), not waited for: an
+     * ERROR.wav of a few seconds froze the screen and keys until it ended. */
+    sounds_play_tone(10, false);
 }
 
-/* Black title bar with white text, the shift indicator, and the time at
- * the right -- same look as the calculator's status header. */
-static void draw_title(const char *title) {
-    display_fill_rect(0, 0, DISPLAY_WIDTH - 1, TITLE_HEIGHT - 2, true);
-    display_draw_string(&font_8x12, title, 2, 0, 0xFF);
-    if (shift_on)
-        display_draw_char(&font_8x12, '\r', 174, 0, 0xFF); /* ↵, code 13, like the calculator's */
+/* ===================== the standard screens (ui.c) ===================== */
 
-    char buf[8];
+/* wait_key() as ui.c takes keys: by place, SHIFT before it folded in; the
+ * minute changing, SHIFT itself and a screenshot redraw. */
+static int menu_ui_key(void) {
+    int key = wait_key();
+    if (key == K_POWEROFF || key == K_SLEEP)
+        return PX_UI_QUIT;
+    if (key <= 0 || key == K_SHIFT)
+        return UI_REDRAW;
+    int place = last_row == 7 ? PX_KEY(last_col, 5) : PX_KEY(last_row, last_col);
+    return place | (last_shifted ? UI_SHIFTED : 0);
+}
+
+static int menu_ui_shifted(void) {
+    return shift_on;
+}
+
+static void menu_ui_clock(char *buf, int size) {
     rtc_datetime_t now;
     rtc_get_datetime(&now);
-    rtc_format_time(buf, sizeof(buf), &now, true);
-    display_draw_string(&font_8x12, buf, (uint8_t) (DISPLAY_WIDTH - 2 - (int) strlen(buf) * CHAR_W), 0, 0xFF);
+    rtc_format_time(buf, (size_t) size, &now, true);
 }
 
-static void draw_hint(const char *hint) {
-    display_draw_dotted_hline(0, DISPLAY_WIDTH - 1, HINT_Y - 2);
-    display_draw_string(&font_8x12, hint, 2, HINT_Y, 0x00);
+static void menu_ui_show(void) {
+    display_flush();
 }
 
+static const ui_port_t menu_ui = {screen_fill,    screen_text,     screen_text_width, menu_ui_show,
+                                  menu_ui_key,    menu_ui_shifted, menu_ui_clock,     error_beep};
+
+/* The soft keys' tabs, left to right; those not named are none. */
+#define TABS(...) ((const char *const[6]){__VA_ARGS__})
+/* A question: the tab naming the answer (DEL, LOAD, FORMT...) on F1, EXIT on F6. */
+#define CONFIRM(verb) TABS(verb, "", "", "", "", "EXIT")
+
+/* A line of text on a screen of rows (a list's rows, ui.h). */
 static void draw_line(int line, const char *text) {
-    display_draw_string(&font_8x12, text, 2, (uint8_t) (ITEM_Y0 + line * ITEM_STRIDE), 0x00);
+    screen_text(4, UI_ROW_Y0 + line * UI_ROW_H, text, PX_FONT_SMALL, 0);
 }
 
 static void show_busy(const char *title, const char *text) {
     display_clear();
-    draw_title(title);
+    ui_title(&menu_ui, title, NULL);
     draw_line(1, text);
     display_flush();
 }
@@ -236,25 +255,33 @@ static void format_minutes(char *buf, size_t size, uint16_t minutes) {
 
 typedef enum { EDIT_OK, EDIT_CANCEL, EDIT_POWER_OFF } edit_result_t;
 
-/* A screen of up to six lines of text and a hint; waits for ENTER (OK) or
- * EXIT (cancel). For messages, both just mean "seen". */
-static edit_result_t show_message(const char *title, const char *const *lines, int count, const char *hint) {
-    while (true) {
-        display_clear();
-        draw_title(title);
-        for (int i = 0; i < count; i++)
-            draw_line(i, lines[i]);
-        draw_hint(hint);
-        display_flush();
+/* A ui_*() result: ENTER, or the first tab (what ENTER does, named), is OK;
+ * back or any other tab (EXIT) isn't. */
+static edit_result_t edit_result(int r) {
+    return r == PX_UI_QUIT ? EDIT_POWER_OFF : r == PX_UI_ENTER || r == 0 ? EDIT_OK : EDIT_CANCEL;
+}
 
-        int key = wait_key();
-        if (key == K_POWEROFF || key == K_SLEEP)
-            return EDIT_POWER_OFF;
-        if (key == K_ENTER)
-            return EDIT_OK;
-        if (is_back(key))
-            return EDIT_CANCEL;
-    }
+/* Lines of text; the first tab names what ENTER does, a second one backs
+ * out. For messages ("ENTER") both just mean "seen". */
+static edit_result_t show_message(const char *title, const char *const *lines, int count, const char *const *tabs) {
+    return edit_result(ui_message(&menu_ui, title, lines, count, tabs));
+}
+
+/* For a screen drawn its own way with the tabs USE (F1) and EXIT (F6):
+ * ENTER or the first is EDIT_OK, back or EXIT EDIT_CANCEL; -1 for anything
+ * else (draw it again). */
+static int tab_key(void) {
+    int k = menu_ui_key();
+    if (k == PX_UI_QUIT)
+        return EDIT_POWER_OFF;
+    if (k < 0)
+        return -1;
+    int place = k & 0xFF;
+    if (place == PX_KEY_ENTER || place == PX_KEY(0, 0))
+        return EDIT_OK;
+    if (place == PX_KEY_BACKSPACE || place == PX_KEY_ON || place == PX_KEY(0, 5))
+        return EDIT_CANCEL;
+    return -1;
 }
 
 /* ===================== lists ===================== */
@@ -264,277 +291,423 @@ static edit_result_t show_message(const char *title, const char *const *lines, i
 
 typedef void (*item_value_fn)(int item, char *buf, size_t size);
 
-/* A scrolling list: ▲/▼ move (wrapping), ENTER returns the highlighted
- * index, EXIT returns LIST_BACK. *selected is kept across calls, so a
- * screen reopened after an item returns with the same row highlighted.
- * value, if non-NULL, gives a right-aligned value for each row. */
+static item_value_fn list_value_fn;
+
+static void list_value(int item, char *buf, int size, void *ctx) {
+    (void) ctx;
+    list_value_fn(item, buf, (size_t) size);
+}
+
+static int list_result(int r, int selected) {
+    return r == PX_UI_QUIT ? LIST_POWER_OFF : r == PX_UI_ENTER || r == 0 ? selected : LIST_BACK;
+}
+
+/* A list: ENTER (or the tab naming it, NULL: none) returns the highlighted
+ * index, back (or the EXIT tab) returns LIST_BACK. *selected is kept across calls, so a screen
+ * reopened returns with the same row highlighted. value, if non-NULL, gives
+ * a right-aligned value for each row. */
 static int run_list(const char *title, const char *const *names, int count, item_value_fn value,
-                    int *selected, const char *hint) {
+                    int *selected, const char *enter_tab) {
+    list_value_fn = value;
+    px_ui_list_t l = {title, names, count, value != NULL ? list_value : NULL, NULL, "",
+                      {enter_tab != NULL ? enter_tab : ""}, 0, -1, *selected};
+    int r = ui_list(&menu_ui, &l);
+    *selected = l.selected;
+    return list_result(r, l.selected);
+}
+
+/* One of several, as radio buttons, the one in use on: ENTER (or its tab)
+ * chooses, EXIT keeps it. Returns the index chosen, LIST_BACK or
+ * LIST_POWER_OFF. */
+static int choose(const char *title, const char *const *names, int count, int current) {
+    px_ui_list_t l = {title, names, count, NULL, NULL, "", {"ENTER"}, 1, current, current};
+    return list_result(ui_list(&menu_ui, &l), l.selected);
+}
+
+/* ===================== pages of icons ===================== */
+
+/* A header bar naming the picked icon, with the date and time; GRID_COLS x
+ * GRID_ROWS icons of 32 x 32 under it, 7 x 35 = 245 across, 3 x 32 down,
+ * the rows touching (an icon's own margin keeps them apart); and the soft
+ * keys' tabs along the bottom (the top row of keys) in the small font, as
+ * Plus42's menu: 12 rows, 2 for the rounded corners, the capitals in the
+ * other 10. The picked icon is drawn inverted, its own 32 x 32. */
+#define GRID_COLS 7
+#define GRID_ROWS 3
+_Static_assert(GRID_COLS == PLACES_ROW, "menu_places.c opens a row of places while carrying");
+#define GRID_X0   4
+#define GRID_DX   35
+#define GRID_Y0   13
+#define GRID_DY   32
+
+/* The soft keys: the top row's key codes, F1 to F6. */
+enum { SOFT_F1 = 1, SOFT_EXIT = 6 };
+
+/* On the icons (the user's layout): ENTER ← ▲ ▼ → EXIT (BACK in the
+ * folders); with SHIFT on, MOVE, FAV or UNFAV where one applies, and BACK,
+ * which only puts the plain tabs back (any key ends SHIFT), but the plain
+ * ones stay on an icon with neither; DONE ← ▲ ▼ → CANCL while
+ * carrying. A soft key does what its tab says (grid_soft_key()), so a
+ * word means the same in either row. What the arrows give grid_step(): */
+enum { GO_ROW_UP = -20, GO_ROW_DOWN = -21, GO_MOVE = -22, GO_SECOND = -23, GO_CANCEL = -24 };
+
+/* The header: the picked icon's name, then (right to left) the time, the
+ * date, and the shift sign while SHIFT is on. A name the date leaves no
+ * room for ("Connect to PC" beside "WED-OCT-21 11:42AM") goes whole, and
+ * the date goes; a name too long even then is cut. */
+static void draw_grid_header(const char *name) {
+    display_fill_rect(0, 0, DISPLAY_WIDTH - 1, UI_TITLE_H - 2, true);
+    rtc_datetime_t now;
+    rtc_get_datetime(&now);
+    char date[16], time[12], right[32];
+    rtc_format_date(date, sizeof(date), &now);
+    rtc_format_time(time, sizeof(time), &now, true);
+    snprintf(right, sizeof(right), "%s %s", date, time);
+    int sign = shift_on ? UI_CHAR_W + 2 : 0;
+    if ((int) strlen(name) * UI_CHAR_W + 4 > DISPLAY_WIDTH - 2 - (int) strlen(right) * UI_CHAR_W - sign)
+        snprintf(right, sizeof(right), "%s", time);
+    int x = DISPLAY_WIDTH - 2 - (int) strlen(right) * UI_CHAR_W;
+    display_draw_string(&font_8x12, right, (uint8_t) x, 0, 0xFF);
+    if (shift_on) {
+        x -= UI_CHAR_W + 2;
+        display_draw_char(&font_8x12, '\r', (uint8_t) x, 0, 0xFF); /* ↵, code 13, like the calculator's */
+    }
+    int fits = (x - 4) / UI_CHAR_W, len = (int) strlen(name);
+    display_draw_chars(&font_8x12, name, len < fits ? len : fits, 2, 0, 0xFF);
+}
+
+
+/* An item's icon into bits; *letter, if not 0, is drawn in the middle of
+ * it (an app without its own icon: MENU_ICON_FRAME and its first letter). */
+typedef void (*grid_icon_fn)(int item, uint8_t bits[MENU_ICON_BYTES], char *letter);
+
+/* The picked icon keeps its shape: only its black is dithered, every
+ * other pixel of it left white, so it reads as grey. */
+static void draw_icon(const uint8_t *bits, char letter, int x, int y, bool picked) {
+    for (int row = 0; row < MENU_ICON_SIZE; row++)
+        for (int col = 0; col < MENU_ICON_SIZE; col++)
+            if (bits[row * 4 + col / 8] & (0x80 >> (col & 7)))
+                display_set_pixel((uint8_t) (x + col), (uint8_t) (y + row), true);
+    if (letter != 0)
+        display_draw_char(&font_10x16, letter, (uint8_t) (x + 11), (uint8_t) (y + 8), 0x00);
+    if (picked)
+        for (int row = 0; row < MENU_ICON_SIZE; row++)
+            for (int col = (row + 1) & 1; col < MENU_ICON_SIZE; col += 2)
+                display_set_pixel((uint8_t) (x + col), (uint8_t) (y + row), false);
+}
+
+/* Where key takes the pick from sel: up and down a row (8 2, the ▲ ▼
+ * tabs), past the bottom to the top and the other way; back and on one
+ * icon (the keypad's ↑ ↓, 4 6, the ← → tabs as K_UP K_DOWN), past the end of a row to the
+ * next. A short last row: down into it lands on its last icon, up past the
+ * top on the row above it. sel if key isn't one of them. */
+static int grid_step_once(int key, int sel, int count) {
+    int rows = (count + GRID_COLS - 1) / GRID_COLS, col = sel % GRID_COLS, row = sel / GRID_COLS;
+    int digit = digit_of(key);
+    if (key == GO_ROW_UP)
+        digit = 8;
+    if (key == GO_ROW_DOWN)
+        digit = 2;
+    if (digit == 8) {
+        int to = row > 0 ? sel - GRID_COLS : (rows - 1) * GRID_COLS + col;
+        return to < count ? to : to - GRID_COLS;
+    }
+    if (digit == 2) {
+        if (sel + GRID_COLS < count)
+            return sel + GRID_COLS;
+        return row < rows - 1 ? count - 1 : col;
+    }
+    if (key == K_UP || digit == 4)
+        return (sel + count - 1) % count;
+    if (key == K_DOWN || digit == 6)
+        return (sel + 1) % count;
+    return sel;
+}
+
+/* The same, past the blank places (names[] NULL) when skip: on in the
+ * same direction to the next icon, or sel if there's none that way. */
+static int grid_step(int key, int sel, int count, const char *const *names, bool skip) {
+    int to = grid_step_once(key, sel, count);
+    for (int n = 0; skip && names[to] == NULL && n < count; n++)
+        to = grid_step_once(key, to, count);
+    return skip && names[to] == NULL ? sel : to;
+}
+
+/* Moving icons: MOVE picks the icon up (it's drawn
+ * with a double frame), the same keys carry it over the others, which stay
+ * where they are, and DONE, ENTER or back puts it down: into an empty
+ * place, leaving its own empty (the user's wish: the icons after it used
+ * to close the gap, which scrambled the groups), or onto an icon, which
+ * then takes the place it came from. While carrying, a row of empty places
+ * is open past the last icon, up to max places. The first `pinned` can't
+ * be moved, nor passed. move(from, to) swaps two places in the caller's
+ * lists (names[] included, NULL for a blank); save() returns the count
+ * without the trailing blanks, and keeps them if changed. */
+typedef struct {
+    int pinned, max;
+    void (*move)(int from, int to);
+    int (*save)(bool changed);
+} grid_moves_t;
+
+/* The name of the shifted second soft key (FAV, UNFAV) for the picked
+ * one; NULL for none. */
+typedef const char *(*grid_tab_fn)(int item);
+
+#define GRID_SECOND -4 /* run_grid(): second()'s soft key, on *selected */
+
+/* A soft key on the icons as the key it stands for, by its tab's word. */
+static int grid_soft_key(const char *tab) {
+    static const struct {
+        const char *tab;
+        int key;
+    } keys[] = {{"ENTER", K_ENTER},     {"DONE", K_ENTER},  {"EXIT", K_EXIT},        {"BACK", K_BSP},
+                {"CANCL", GO_CANCEL},   {"\x10", K_UP},     {"\x0f", K_DOWN},        {"^", GO_ROW_UP},
+                {"\x0e", GO_ROW_DOWN}, {"MOVE", GO_MOVE}};
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
+        if (strcmp(tab, keys[i].tab) == 0)
+            return keys[i].key;
+    return GO_SECOND; /* FAV, UNFAV */
+}
+
+/* run_list()'s twin for icons: ENTER (the key or the tab) returns the
+ * picked index, back (or the BACK tab, on a page with no MOVE or second
+ * tab) LIST_BACK, a second soft key that second() names GRID_SECOND.
+ * moves is NULL on a page whose icons stay put. names[i] NULL is a blank
+ * place, never picked. The icons on screen are fetched once each time
+ * the rows shown change (an app's comes from its file), and carried along
+ * when one is moved. */
+static int run_grid(const char *const *names, int count, grid_icon_fn icon, int *selected,
+                    const grid_moves_t *moves, grid_tab_fn second, const char *leave) {
+    /* The HP-42S characters: 16 ←, 15 →, 14 ▼; ^ ▲ as every list's. */
+    static const char *const tabs[6] = {"ENTER", "\x10", "^", "\x0e", "\x0f", "EXIT"};
+    static const char *const tabs_shifted[6] = {"MOVE", "", "", "", "", "BACK"};
+    static const char *const tabs_moving[6] = {"DONE", "\x10", "^", "\x0e", "\x0f", "CANCL"};
+    static uint8_t bits[GRID_COLS * GRID_ROWS][MENU_ICON_BYTES];
+    static char letters[GRID_COLS * GRID_ROWS];
+    static uint8_t carried[MENU_ICON_BYTES];
+    char carried_letter = 0;
+    int fetched = -1; /* the first row the icons in bits[] are of */
+    int first = 0;
+    int from = -1; /* the place of the icon carried; -1 none */
     while (true) {
+        bool moving = from >= 0;
         if (*selected >= count)
             *selected = count - 1;
         if (*selected < 0)
             *selected = 0;
-        int first = *selected - (LIST_ROWS - 1);
-        if (first < 0)
-            first = 0;
+        while (!moving && *selected > 0 && names[*selected] == NULL)
+            (*selected)--;
+        while (!moving && *selected < count - 1 && names[*selected] == NULL)
+            (*selected)++; /* a folder may start with blanks */
+        int row = *selected / GRID_COLS;
+        if (row < first)
+            first = row;
+        else if (row >= first + GRID_ROWS)
+            first = row - GRID_ROWS + 1;
+        if (fetched != first) {
+            for (int i = 0; i < GRID_COLS * GRID_ROWS && first * GRID_COLS + i < count; i++) {
+                letters[i] = 0;
+                if (names[first * GRID_COLS + i] != NULL)
+                    icon(first * GRID_COLS + i, bits[i], &letters[i]);
+            }
+            fetched = first;
+        }
 
         display_clear();
-        draw_title(title);
-        for (int row = 0; row < LIST_ROWS && first + row < count; row++) {
-            int i = first + row;
-            int y = ITEM_Y0 + row * ITEM_STRIDE;
-            uint8_t color = 0x00;
-            if (i == *selected) {
-                display_fill_rect(0, (uint8_t) (y - 1), DISPLAY_WIDTH - 1, (uint8_t) (y + 11), true);
-                color = 0xFF;
-            }
-            display_draw_string(&font_8x12, names[i], 4, (uint8_t) y, color);
-            if (value != NULL) {
-                char buf[24];
-                value(i, buf, sizeof(buf));
-                int x = DISPLAY_WIDTH - 4 - (int) strlen(buf) * CHAR_W;
-                display_draw_string(&font_8x12, buf, (uint8_t) x, (uint8_t) y, color);
+        char moving_name[48];
+        snprintf(moving_name, sizeof(moving_name), "Move: %s", moving ? names[from] : "");
+        draw_grid_header(moving ? moving_name : names[*selected]);
+        int rows = (count + GRID_COLS - 1) / GRID_COLS;
+        for (int i = 0; i < GRID_COLS * GRID_ROWS && first * GRID_COLS + i < count; i++) {
+            int place = first * GRID_COLS + i;
+            bool picked = place == *selected;
+            /* Carried: drawn where it is now, over what's there; its own
+             * place empty. */
+            bool here = moving && picked;
+            if (!here && (names[place] == NULL || (moving && place == from)))
+                continue;
+            int x = GRID_X0 + i % GRID_COLS * GRID_DX, y = GRID_Y0 + i / GRID_COLS * GRID_DY;
+            draw_icon(here ? carried : bits[i], here ? carried_letter : letters[i], x, y, picked);
+            /* Picked: a frame on its square's edge (outside it would touch
+             * the header bar and the tabs), the corners rounded: the lines
+             * stop 2 short, a dot between them. Carried: a second one just
+             * inside. */
+            for (int k = picked ? (moving ? 2 : 1) : 0, inset = 0; k > 0; k--, inset++) {
+                int l = x + inset, t = y + inset, r = x + MENU_ICON_SIZE - 1 - inset, b = y + MENU_ICON_SIZE - 1 - inset;
+                display_fill_rect((uint8_t) (l + 2), (uint8_t) t, (uint8_t) (r - 2), (uint8_t) t, true);
+                display_fill_rect((uint8_t) (l + 2), (uint8_t) b, (uint8_t) (r - 2), (uint8_t) b, true);
+                display_fill_rect((uint8_t) l, (uint8_t) (t + 2), (uint8_t) l, (uint8_t) (b - 2), true);
+                display_fill_rect((uint8_t) r, (uint8_t) (t + 2), (uint8_t) r, (uint8_t) (b - 2), true);
+                display_set_pixel((uint8_t) (l + 1), (uint8_t) (t + 1), true);
+                display_set_pixel((uint8_t) (r - 1), (uint8_t) (t + 1), true);
+                display_set_pixel((uint8_t) (l + 1), (uint8_t) (b - 1), true);
+                display_set_pixel((uint8_t) (r - 1), (uint8_t) (b - 1), true);
             }
         }
-        /* More above / below the visible rows. */
-        if (first > 0)
-            display_draw_string(&font_8x12, "\x5e", DISPLAY_WIDTH - 20, (uint8_t) (HINT_Y), 0x00); /* up arrow */
-        if (first + LIST_ROWS < count)
-            display_draw_string(&font_8x12, "\x0e", DISPLAY_WIDTH - 10, (uint8_t) (HINT_Y), 0x00); /* down arrow */
-        draw_hint(hint);
+        if (rows > GRID_ROWS) { /* where these rows are among all of them */
+            int span = UI_TABS_Y - 1 - GRID_Y0;
+            int top = GRID_Y0 + span * first / rows;
+            int bottom = GRID_Y0 + span * (first + GRID_ROWS) / rows - 1;
+            display_fill_rect(DISPLAY_WIDTH - 2, (uint8_t) top, DISPLAY_WIDTH - 1, (uint8_t) bottom, true);
+        }
+        /* An icon that can't move nor go to (or from) the home screen
+         * keeps the plain tabs with SHIFT on: there's nothing to show. */
+        bool can_move = moves != NULL && *selected >= moves->pinned; /* Off stays put */
+        const char *fav = second != NULL ? second(*selected) : NULL;
+        bool shifted = shift_on && !moving && (can_move || fav != NULL);
+        const char *const *shown = moving ? tabs_moving : shifted ? tabs_shifted : tabs;
+        const char *tabs_now[6];
+        for (int i = 0; i < 6; i++)
+            tabs_now[i] = shown[i];
+        if (shifted) {
+            tabs_now[1] = fav != NULL ? fav : "";
+            if (!can_move)
+                tabs_now[0] = "";
+        } else if (!moving) {
+            tabs_now[5] = leave;
+        }
+        ui_tabs(&menu_ui, tabs_now);
         display_flush();
 
         int key = wait_key();
+        if (key >= SOFT_F1 && key <= SOFT_EXIT) {
+            if (tabs_now[key - 1][0] == 0 || (shifted && key == SOFT_EXIT))
+                continue; /* a blank tab does nothing; the shifted BACK, back to the plain tabs */
+            key = grid_soft_key(tabs_now[key - 1]);
+        }
+        if (digit_of(key) == 5) /* the middle of 4 6 8 2: ENTER */
+            key = K_ENTER;
+        /* Carrying: DONE (ENTER) puts it down, CANCL (EXIT, <-) puts it
+         * back where it was; turning off puts it down. */
+        bool cancel = key == GO_CANCEL || is_back(key);
+        bool put_down = key == K_ENTER || key == K_POWEROFF || key == K_SLEEP;
+        if (moving && (put_down || cancel)) {
+            bool changed = put_down && *selected != from;
+            if (changed)
+                moves->move(from, *selected);
+            if (cancel)
+                *selected = from;
+            from = -1;
+            count = moves->save(changed); /* written only if it moved: the drive has no wear levelling */
+            fetched = -1;
+        }
         if (key == K_POWEROFF || key == K_SLEEP)
             return LIST_POWER_OFF;
+        if (moving) {
+            if (!put_down && !cancel) {
+                int to = grid_step(key, *selected, count, names, false);
+                if (to < moves->pinned) /* around Off, not onto it: from the first place back to the end */
+                    to = *selected == moves->pinned ? count - 1 : moves->pinned;
+                *selected = to;
+            }
+            continue;
+        }
         if (is_back(key))
             return LIST_BACK;
-        if (key == K_UP)
-            *selected = (*selected + count - 1) % count;
-        else if (key == K_DOWN)
-            *selected = (*selected + 1) % count;
-        else if (key == K_ENTER)
+        if (key == GO_SECOND)
+            return GRID_SECOND;
+        if (key == GO_MOVE) { /* only shown where it can */
+            if (*selected >= moves->pinned) { /* Off can't be moved, nor turned off this way */
+                int i = *selected - first * GRID_COLS; /* in view: it's the one picked */
+                memcpy(carried, bits[i], sizeof(carried));
+                carried_letter = letters[i];
+                from = *selected;
+                /* a row of blank places open past the last icon */
+                int open = ((count + GRID_COLS - 1) / GRID_COLS + 1) * GRID_COLS;
+                count = open < moves->max ? open : moves->max;
+                fetched = -1;
+            }
+            continue;
+        }
+        if (key == K_ENTER)
             return *selected;
+        *selected = grid_step(key, *selected, count, names, true);
     }
 }
 
-/* ===================== number entry ===================== */
+/* A page of the menu's own icons (the gear's, Plus42's): each opens its
+ * screen. leaves: that screen's EDIT_OK means back to the calculator (a
+ * state was loaded). */
+typedef struct {
+    const char *name;
+    menu_icon_t icon;
+    edit_result_t (*open)(void);
+    bool leaves;
+} page_item_t;
 
-/* Digit entry against a mask: each '#' is one digit slot, anything else is
- * shown literally -- "##:##" for a time, "####-##-##" for a date. With
- * require_full, ENTER only accepts a completely filled mask; otherwise at
- * least one digit. note is a line of context above the entry (e.g. the
- * current value); error, if non-NULL, is shown below it. On EDIT_OK the
- * typed digits (no literals) are in digits[], NUL-terminated. */
-static edit_result_t edit_number(const char *title, const char *note, const char *error,
-                                 const char *mask, bool require_full, char *digits) {
-    int slots = 0;
-    for (const char *p = mask; *p; p++)
-        slots += *p == '#';
-    int len = 0;
-    digits[0] = 0;
+static const page_item_t *page_items;
 
-    while (true) {
-        display_clear();
-        draw_title(title);
-        display_draw_string(&font_8x12, note, 2, 20, 0x00);
-        if (error != NULL)
-            display_draw_string(&font_8x12, error, 2, 76, 0x00);
-
-        /* The entry line, big: typed digits, '_' for the slots still empty. */
-        char line[24];
-        int n = 0, d = 0;
-        for (const char *p = mask; *p && n < (int) sizeof(line) - 1; p++) {
-            if (*p == '#') {
-                line[n++] = d < len ? digits[d] : '_';
-                d++;
-            } else {
-                line[n++] = *p;
-            }
-        }
-        line[n] = 0;
-        int width = n * font_10x16.advance;
-        display_draw_string(&font_10x16, line, (uint8_t) ((DISPLAY_WIDTH - width) / 2), 44, 0x00);
-
-        draw_hint("Enter:OK Bsp:Del Exit:Cancel");
-        display_flush();
-
-        int key = wait_key();
-        if (key == K_POWEROFF || key == K_SLEEP)
-            return EDIT_POWER_OFF;
-        if (key == K_EXIT || (key == K_BSP && len == 0))
-            return EDIT_CANCEL;
-        if (key == K_BSP) {
-            digits[--len] = 0;
-            error = NULL;
-        } else if (key == K_ENTER) {
-            if (len == slots || (!require_full && len > 0))
-                return EDIT_OK;
-            error_beep();
-        } else if (digit_of(key) >= 0) {
-            if (len < slots) {
-                digits[len++] = (char) ('0' + digit_of(key));
-                digits[len] = 0;
-                error = NULL;
-            }
-        }
-    }
+static void page_icon(int item, uint8_t bits[MENU_ICON_BYTES], char *letter) {
+    menu_icon_bits(page_items[item].icon, bits);
 }
 
-static int parse_digits(const char *s, int count) {
-    int v = 0;
+/* EDIT_OK when the calculator should show at once (a state was loaded).
+ * In the List style the same items are a list, titled. leave names F6:
+ * EXIT, or BACK (Settings, Plus42, USB Drive: the user's choice). */
+static edit_result_t run_page(const char *title, const page_item_t *items, int count, int *selected,
+                              const char *leave) {
+    const char *names[GRID_COLS * GRID_ROWS];
     for (int i = 0; i < count; i++)
-        v = v * 10 + (s[i] - '0');
-    return v;
+        names[i] = items[i].name;
+    while (true) {
+        debug_checkpoint(CKPT_MENU, 0);
+        page_items = items; /* again: what an item opened may be a page too */
+        int pick;
+        if (px_settings.menu_style == MENU_STYLE_LIST) {
+            px_ui_list_t l = {title, names, count, NULL, NULL, "", {"ENTER", "", "", "", "", leave}, 0, -1, *selected};
+            int r = ui_list(&menu_ui, &l);
+            *selected = l.selected;
+            pick = list_result(r, l.selected);
+        } else {
+            pick = run_grid(names, count, page_icon, selected, NULL, NULL, leave);
+        }
+        if (pick == LIST_POWER_OFF)
+            return EDIT_POWER_OFF;
+        if (pick == LIST_BACK)
+            return EDIT_CANCEL;
+        edit_result_t r = items[pick].open();
+        if (r == EDIT_POWER_OFF || (r == EDIT_OK && items[pick].leaves))
+            return r;
+        if (style_changed)
+            return EDIT_CANCEL;
+    }
 }
 
 /* ===================== name entry ===================== */
 
-/* Typing a state name: each key types its ALPHA-mode letter (the same
- * layout as the calculator's own ALPHA mode); SHIFT then a digit key types
- * the digit. Only A-Z, 0-9 and '-' -- characters that are safe in a file
- * name on every computer. name holds the initial text and receives the
- * result. */
+/* A state's or a file's name: only A-Z, 0-9 and '-', characters that are
+ * safe in a file name on every computer. name holds the initial text and
+ * receives the result. */
 static edit_result_t edit_name(const char *title, char *name) {
-    int len = (int) strlen(name);
-    while (true) {
-        display_clear();
-        draw_title(title);
-        draw_line(0, "Name (the letters on the keys,");
-        draw_line(1, "SHIFT+digit key for digits):");
-
-        char line[STATEFS_NAME_MAX + 2];
-        snprintf(line, sizeof(line), "%s%s", name, len < STATEFS_NAME_MAX ? "_" : "");
-        display_draw_string(&font_10x16, line, 4, 50, 0x00);
-
-        draw_hint("Enter:OK Bsp:Del Exit:Cancel");
-        display_flush();
-
-        int key = wait_key();
-        if (key == K_POWEROFF || key == K_SLEEP)
-            return EDIT_POWER_OFF;
-        if (key == K_EXIT || (key == K_BSP && len == 0))
-            return EDIT_CANCEL;
-        if (key == K_BSP) {
-            name[--len] = 0;
-            continue;
-        }
-        if (key == K_ENTER) {
-            if (len > 0)
-                return EDIT_OK;
-            error_beep();
-            continue;
-        }
-        if (key <= 0)
-            continue;
-
-        char c = 0;
-        if (last_shifted) {
-            if (digit_of(key) >= 0)
-                c = (char) ('0' + digit_of(key));
-        } else {
-            c = free42_alpha_char(last_row, last_col);
-            if (!((c >= 'A' && c <= 'Z') || c == '-'))
-                c = 0;
-        }
-        if (c == 0 || len >= STATEFS_NAME_MAX) {
-            error_beep();
-            continue;
-        }
-        name[len++] = c;
-        name[len] = 0;
-    }
+    return edit_result(ui_text(&menu_ui, title, "Name:", name, STATEFS_NAME_MAX, PX_UI_CHARS_NAME));
 }
 
 /* ===================== the items ===================== */
 
 /* ===================== Date & Time ===================== */
 
-/* A time of day, typed in: HH:MM, or HH:MM:SS with seconds. 12-hour: the
- * hour 1-12, then AM or PM. On EDIT_OK, *hour is 0-23. */
-static edit_result_t enter_time(const char *title, const char *hint_end, bool seconds, int *hour, int *min,
-                                int *sec) {
-    const char *error = NULL;
-    while (true) {
-        rtc_datetime_t now;
-        rtc_get_datetime(&now);
-        char current[16], note[40];
-        if (!seconds)
-            rtc_format_time(current, sizeof(current), &now, false);
-        else if (px_settings.clock_24h)
-            snprintf(current, sizeof(current), "%02d:%02d:%02d", now.hour, now.min, now.sec);
-        else
-            snprintf(current, sizeof(current), "%d:%02d:%02d %s", now.hour % 12 ? now.hour % 12 : 12, now.min,
-                     now.sec, now.hour >= 12 ? "PM" : "AM");
-        snprintf(note, sizeof(note), "Now %s. %s", current, hint_end);
-
-        char digits[8];
-        edit_result_t r = edit_number(title, note, error, seconds ? "##:##:##" : "##:##", true, digits);
-        if (r != EDIT_OK)
-            return r;
-        int h = parse_digits(digits, 2), m = parse_digits(digits + 2, 2);
-        int sc = seconds ? parse_digits(digits + 4, 2) : 0;
-        if (m < 60 && sc < 60 && px_settings.clock_24h && h < 24) {
-            *hour = h, *min = m, *sec = sc;
-            return EDIT_OK;
-        }
-        if (m < 60 && sc < 60 && !px_settings.clock_24h && h >= 1 && h <= 12) {
-            static const char *const ampm[] = {"AM", "PM"};
-            int selected = now.hour >= 12;
-            int pick = run_list(title, ampm, 2, NULL, &selected, "Enter:Select  Exit:Back");
-            if (pick == LIST_POWER_OFF)
-                return EDIT_POWER_OFF;
-            if (pick == LIST_BACK)
-                continue;
-            *hour = h % 12 + (pick ? 12 : 0), *min = m, *sec = sc;
-            return EDIT_OK;
-        }
-        error_beep();
-        error = "Invalid time";
-    }
+static int time_flags(void) {
+    return px_settings.clock_24h ? 0 : PX_UI_TIME_12H;
 }
 
 /* To the minute: the seconds start at 0 on ENTER. */
 static edit_result_t do_set_time(void) {
     int h, m, s;
-    edit_result_t r = enter_time("Set Time", "Enter at :00", false, &h, &m, &s);
+    rtc_get_hms(&h, &m, &s);
+    edit_result_t r = edit_result(ui_time(&menu_ui, "Set Time", "ENTER sets it, at :00.", &h, &m, &s, time_flags()));
     if (r == EDIT_OK)
-        rtc_set_hms(h, m, s);
+        rtc_set_hms(h, m, 0);
     return r;
 }
 
-/* Entered in the Date Format's order (DOW-MON-DAY, with no year, as
- * YYYY-MM-DD). */
 static edit_result_t do_set_date(void) {
-    static const char *const masks[] = {"####-##-##", "##.##.####", "##/##/####", "####-##-##"};
-    const char *error = NULL;
-    while (true) {
-        rtc_datetime_t now;
-        rtc_get_datetime(&now);
-        char current[12], note[32];
-        rtc_format_date(current, sizeof(current), &now);
-        snprintf(note, sizeof(note), "Now %s", current);
-
-        char digits[12];
-        uint8_t f = px_settings.date_format;
-        edit_result_t r = edit_number("Set Date", note, error, masks[f], true, digits);
-        if (r != EDIT_OK)
-            return r;
-        int y, m, d;
-        if (f == RTC_YMD || f == RTC_WMD) {
-            y = parse_digits(digits, 4), m = parse_digits(digits + 4, 2), d = parse_digits(digits + 6, 2);
-        } else {
-            int a = parse_digits(digits, 2), b = parse_digits(digits + 2, 2);
-            y = parse_digits(digits + 4, 4);
-            d = f == RTC_DMY ? a : b;
-            m = f == RTC_DMY ? b : a;
-        }
-        if (rtc_set_date(y, m, d))
-            return EDIT_OK;
-        error_beep();
-        error = "Invalid date";
-    }
+    rtc_datetime_t now;
+    rtc_get_datetime(&now);
+    int y = now.year, m = now.month, d = now.day;
+    edit_result_t r = edit_result(ui_date(&menu_ui, "Set Date", &y, &m, &d));
+    if (r == EDIT_OK)
+        rtc_set_date(y, m, d);
+    return r;
 }
 
 /* Indexed by rtc_date_format_t. */
@@ -550,8 +723,7 @@ static void set_formats(uint8_t date_format, bool clock_24h) {
 }
 
 static edit_result_t do_date_format(void) {
-    int selected = px_settings.date_format;
-    int pick = run_list("Date Format", date_format_names, 4, NULL, &selected, "Enter:Select  Exit:Back");
+    int pick = choose("Date Format", date_format_names, 4, px_settings.date_format);
     if (pick == LIST_POWER_OFF)
         return EDIT_POWER_OFF;
     if (pick >= 0)
@@ -560,8 +732,7 @@ static edit_result_t do_date_format(void) {
 }
 
 static edit_result_t do_time_format(void) {
-    int selected = px_settings.clock_24h ? 0 : 1;
-    int pick = run_list("Time Format", time_format_names, 2, NULL, &selected, "Enter:Select  Exit:Back");
+    int pick = choose("Time Format", time_format_names, 2, px_settings.clock_24h ? 0 : 1);
     if (pick == LIST_POWER_OFF)
         return EDIT_POWER_OFF;
     if (pick >= 0)
@@ -601,8 +772,7 @@ static void set_trim(int tenths) {
 /* By hand: whether the clock runs slow or fast, then by how much. */
 static edit_result_t edit_correction(void) {
     static const char *const ways[] = {"Clock Runs Slow", "Clock Runs Fast", "No Correction"};
-    int selected = px_settings.time_trim < 0 ? 1 : px_settings.time_trim > 0 ? 0 : 2;
-    int pick = run_list("Correction", ways, 3, NULL, &selected, "Enter:Select  Exit:Back");
+    int pick = choose("Correction", ways, 3, px_settings.time_trim < 0 ? 1 : px_settings.time_trim > 0 ? 0 : 2);
     if (pick == LIST_POWER_OFF)
         return EDIT_POWER_OFF;
     if (pick < 0)
@@ -611,12 +781,13 @@ static edit_result_t edit_correction(void) {
         set_trim(0);
         return EDIT_OK;
     }
-    char digits[8];
-    edit_result_t r = edit_number("Correction", pick == 0 ? "Seconds a day it loses" : "Seconds a day it gains",
-                                   NULL, "##.#", true, digits);
+    int tenths = abs(px_settings.time_trim);
+    edit_result_t r = edit_result(ui_number(&menu_ui, "Correction",
+                                            pick == 0 ? "Tenths of a second a day it loses:"
+                                                      : "Tenths of a second a day it gains:",
+                                            &tenths, 0, 999));
     if (r != EDIT_OK)
         return r;
-    int tenths = parse_digits(digits, 3);
     set_trim(pick == 0 ? tenths : -tenths);
     return EDIT_OK;
 }
@@ -637,7 +808,7 @@ static edit_result_t apply_measured(void) {
     px_settings.cal_span_h = 0; /* used */
     settings_save();
     const char *lines[] = {"Applied.", line1, line2, "", "Correction now:", line3};
-    return show_message("Time Calibration", lines, 6, "Exit:Back");
+    return show_message("Time Calibration", lines, 6, TABS("ENTER"));
 }
 
 /* Auto calibration: the exact time, to the second. The clock is set to it,
@@ -645,20 +816,22 @@ static edit_result_t apply_measured(void) {
  * apart) -- offered to apply. */
 static edit_result_t enter_exact_time(void) {
     int h, m, s;
-    edit_result_t r = enter_time("Exact Time", "Enter on it", true, &h, &m, &s);
+    rtc_get_hms(&h, &m, &s);
+    edit_result_t r = edit_result(ui_time(&menu_ui, "Exact Time", "ENTER on the second it shows.", &h, &m, &s,
+                                          time_flags() | PX_UI_TIME_SECONDS));
     if (r != EDIT_OK)
         return r;
     rtc_set_hms(h, m, s);
     if (!rtc_set_measured()) {
         const char *lines[] = {"Clock set: the reference.", "", "Enter the exact time again",
                                "after a day or more (6 hours", "at least) to measure the", "drift."};
-        return show_message("Time Calibration", lines, 6, "Exit:Back");
+        return show_message("Time Calibration", lines, 6, TABS("ENTER"));
     }
     char line1[32], line2[32];
     measured_lines(line1, line2, sizeof(line1));
     const char *lines[] = {"Clock set. Since the last", "exact time:", line1, line2, "",
                            "Apply it as the correction?"};
-    r = show_message("Time Calibration", lines, 6, "Enter:Apply  Exit:Keep");
+    r = show_message("Time Calibration", lines, 6, CONFIRM("APPLY"));
     return r == EDIT_OK ? apply_measured() : r;
 }
 
@@ -672,7 +845,7 @@ static edit_result_t do_measured(void) {
              abs(px_settings.cal_drift) / 10, abs(px_settings.cal_drift) % 10);
     const char *choices[] = {apply, "Enter Exact Time"};
     int selected = 0;
-    int pick = run_list("Measured", choices, 2, NULL, &selected, "Enter:Select  Exit:Back");
+    int pick = run_list("Measured", choices, 2, NULL, &selected, "ENTER");
     if (pick == LIST_POWER_OFF)
         return EDIT_POWER_OFF;
     if (pick == 0)
@@ -689,7 +862,7 @@ static edit_result_t do_time_calibration(void) {
     static int selected = 0;
     while (true) {
         int pick = run_list("Time Calibration", cal_items, CAL_COUNT, cal_value, &selected,
-                            "Enter:Select  Exit:Back");
+                            "ENTER");
         if (pick == LIST_POWER_OFF)
             return EDIT_POWER_OFF;
         if (pick == LIST_BACK)
@@ -729,7 +902,7 @@ static void dt_value(int item, char *buf, size_t size) {
 static edit_result_t do_date_time(void) {
     static int selected = 0;
     while (true) {
-        int pick = run_list("Date & Time", dt_items, DT_COUNT, dt_value, &selected, "Enter:Select  Exit:Back");
+        int pick = run_list("Date & Time", dt_items, DT_COUNT, dt_value, &selected, "ENTER");
         if (pick == LIST_POWER_OFF)
             return EDIT_POWER_OFF;
         if (pick == LIST_BACK)
@@ -759,53 +932,36 @@ static edit_result_t do_date_time(void) {
 
 /* Minutes, 0-999, 0 = off. Saved to flash on OK. */
 static edit_result_t do_minutes(const char *title, const char *what, uint16_t *value) {
-    char current[16], note[40];
-    format_minutes(current, sizeof(current), *value);
-    snprintf(note, sizeof(note), "%s: %s. 0 = Off", what, current);
-
-    char digits[8];
-    edit_result_t r = edit_number(title, note, NULL, "### min", false, digits);
+    char note[40];
+    snprintf(note, sizeof(note), "%s, minutes (0 = Off):", what);
+    int v = *value;
+    edit_result_t r = edit_result(ui_number(&menu_ui, title, note, &v, 0, 999));
     if (r != EDIT_OK)
         return r;
-    *value = (uint16_t) parse_digits(digits, (int) strlen(digits));
+    *value = (uint16_t) v;
     settings_save();
     return EDIT_OK;
 }
 
 static edit_result_t do_info(void) {
-    while (true) {
-        display_clear();
-        draw_title("Info");
-
-        char buf[40];
-        int y = 18;
-        snprintf(buf, sizeof(buf), "Plus42    %s, Thomas Okken", PLUS42_VERSION);
-        display_draw_string(&font_8x12, buf, 2, (uint8_t) y, 0x00);
-        y += 13;
-        display_draw_string(&font_8x12, "Port      Alex Garza", 2, (uint8_t) y, 0x00);
-        y += 13;
-        snprintf(buf, sizeof(buf), "Decimal   Intel %s", INTEL_LIB_VERSION);
-        display_draw_string(&font_8x12, buf, 2, (uint8_t) y, 0x00);
-        y += 13;
-        snprintf(buf, sizeof(buf), "Firmware  %s, %s", PICO_PROGRAM_VERSION_STRING, __DATE__);
-        display_draw_string(&font_8x12, buf, 2, (uint8_t) y, 0x00);
-        y += 13;
-        int mv = battery_read_mv();
-        snprintf(buf, sizeof(buf), "Battery   %d.%02d V", mv / 1000, mv % 1000 / 10);
-        display_draw_string(&font_8x12, buf, 2, (uint8_t) y, 0x00);
-        y += 13;
-        snprintf(buf, sizeof(buf), "Stack     %lu of %u bytes", (unsigned long) crash_core1_stack_peak(), 32u * 1024u);
-        display_draw_string(&font_8x12, buf, 2, (uint8_t) y, 0x00);
-
-        draw_hint("Exit:Back");
-        display_flush();
-
-        int key = wait_key();
-        if (key == K_POWEROFF || key == K_SLEEP)
-            return EDIT_POWER_OFF;
-        if (is_back(key) || key == K_ENTER)
-            return EDIT_OK;
-    }
+    char lines[7][40];
+    snprintf(lines[0], sizeof(lines[0]), "Plus42    %s, Thomas Okken", PLUS42_VERSION);
+    snprintf(lines[1], sizeof(lines[1]), "Port      Alex Garza");
+    snprintf(lines[2], sizeof(lines[2]), "Decimal   Intel %s", INTEL_LIB_VERSION);
+    snprintf(lines[3], sizeof(lines[3]), "Firmware  %s, %s", PICO_PROGRAM_VERSION_STRING, __DATE__);
+    int mv = battery_read_mv();
+    snprintf(lines[4], sizeof(lines[4]), "Battery   %d.%02d V", mv / 1000, mv % 1000 / 10);
+    snprintf(lines[5], sizeof(lines[5]), "Stack     %lu of %u bytes", (unsigned long) crash_core1_stack_peak(),
+             32u * 1024u);
+    /* TEMPORARY: largest block now, of the heap's size; at the last app's start. */
+    snprintf(lines[6], sizeof(lines[6]), "Heap  %luK of %luK, app %luK", (unsigned long) (app_heap_largest() / 1024),
+             (unsigned long) (app_heap_total() / 1024), (unsigned long) (app_heap_at_launch() / 1024));
+    /* The viewer: room for more lines than a screen holds. */
+    char text[7 * 41];
+    text[0] = 0;
+    for (int i = 0; i < 7; i++)
+        snprintf(text + strlen(text), sizeof(text) - strlen(text), "%s\n", lines[i]);
+    return ui_view_leave(&menu_ui, "Info", text, "BACK") == PX_UI_QUIT ? EDIT_POWER_OFF : EDIT_OK;
 }
 
 /* ===================== Splash Image ===================== */
@@ -817,75 +973,15 @@ static edit_result_t do_info(void) {
 static edit_result_t preview_splash(void) {
     while (true) {
         splash_preview_draw();
-        display_fill_rect(0, HINT_Y - 2, DISPLAY_WIDTH - 1, DISPLAY_HEIGHT - 1, true);
-        display_draw_string(&font_8x12, "Enter:Use  Exit:Back", 2, HINT_Y, 0xFF);
+        ui_tabs(&menu_ui, CONFIRM("USE"));
         display_flush();
-
-        int key = wait_key();
-        if (key == K_POWEROFF || key == K_SLEEP)
-            return EDIT_POWER_OFF;
-        if (key == K_ENTER)
-            return EDIT_OK;
-        if (is_back(key))
-            return EDIT_CANCEL;
-    }
-}
-
-static edit_result_t do_splash_image(void) {
-    static char names[MAX_SPLASHES][SPLASH_NAME_MAX + 1];
-    int count = statefs_list_files(STATEFS_SPLASH_DIR, ".png", (char *) names, SPLASH_NAME_MAX + 1, MAX_SPLASHES);
-
-    const char *items[MAX_SPLASHES + 1];
-    items[0] = "Built-In";
-    int selected = 0;
-    for (int i = 0; i < count; i++) {
-        items[i + 1] = names[i];
-        if (strcmp(names[i], px_settings.splash_image) == 0)
-            selected = i + 1;
-    }
-
-    while (true) {
-        int pick = run_list("Splash Image", items, count + 1, NULL, &selected, "Enter:Preview  Exit:Back");
-        if (pick == LIST_POWER_OFF)
-            return EDIT_POWER_OFF;
-        if (pick == LIST_BACK)
-            return EDIT_CANCEL;
-
-        const char *name = pick == 0 ? NULL : names[pick - 1];
-        char error[48];
-        show_busy("Splash Image", "Loading...");
-        if (!splash_preview_load(name, error, sizeof(error))) {
-            error_beep();
-            char line[40];
-            snprintf(line, sizeof(line), "Can't use %.24s:", name);
-            const char *const lines[] = {line, error, "", "Use a non-interlaced PNG;",
-                                         "best at 250 x 122 pixels."};
-            if (show_message("Splash Image", lines, 5, "Exit:Back") == EDIT_POWER_OFF)
-                return EDIT_POWER_OFF;
-            continue;
-        }
-
-        edit_result_t r = preview_splash();
-        if (r == EDIT_POWER_OFF)
-            return r;
-        if (r == EDIT_OK) {
-            snprintf(px_settings.splash_image, sizeof(px_settings.splash_image), "%s", name != NULL ? name : "");
-            splash_preview_use();
-            settings_save();
-            return EDIT_OK;
-        }
+        int r = tab_key();
+        if (r >= 0)
+            return (edit_result_t) r;
     }
 }
 
 /* ===================== Printer ===================== */
-
-/* Indexed by printer_target_t. */
-static const char *const printer_names[] = {
-        "Off",
-        "USB Serial",
-        "HP 82240B (IR)",
-};
-#define PRINTER_CHOICES ((int) (sizeof(printer_names) / sizeof(printer_names[0])))
 
 /* Indexed by screen_print_t. */
 static const char *const screen_print_names[] = {
@@ -893,44 +989,65 @@ static const char *const screen_print_names[] = {
         "Landscape",
 };
 
-static edit_result_t do_printer(void) {
-    int selected = px_settings.printer < PRINTER_CHOICES ? px_settings.printer : 0;
-    int pick = run_list("Printer", printer_names, PRINTER_CHOICES, NULL, &selected, "Enter:Select  Exit:Back");
-    if (pick == LIST_POWER_OFF)
-        return EDIT_POWER_OFF;
-    if (pick == LIST_BACK)
-        return EDIT_CANCEL;
+/* Indexed by printer_target_t. */
+static const char *const printer_names[] = {
+        "Off",
+        "USB Serial",
+        "HP 82240B",
+        "USB Thermal",
+};
+#define PRINTER_CHOICES ((int) (sizeof(printer_names) / sizeof(printer_names[0])))
 
-    px_settings.printer = (uint8_t) pick;
-    settings_save();
+enum { PRINTER_FIELD, SCREEN_PRINT_FIELD, PRINTER_FIELDS };
+
+static int printer_pick, screen_print_pick;
+
+/* A pick counts at once (a settings page: no SAVE). A printer chosen says
+ * where the printing goes; Screen Print (PRLCD) is only the HP 82240B's. */
+static int printer_changed(px_ui_form_t *form, int field, void *ctx) {
+    (void) ctx;
+    if (field == SCREEN_PRINT_FIELD) {
+        px_settings.screen_print = (uint8_t) screen_print_pick;
+        return 0;
+    }
+    px_settings.printer = (uint8_t) printer_pick;
     /* Choosing a printer also turns Free42's printer on (PRON, flags 21, 55),
      * Off turns it off -- so the print commands just work. */
-    free42_set_printer(pick != PRINTER_OFF);
-
-    if (pick == PRINTER_USB_SERIAL) {
+    free42_set_printer(printer_pick != PRINTER_OFF);
+    form->fields[SCREEN_PRINT_FIELD].hidden = printer_pick != PRINTER_HP82240B;
+    edit_result_t r = EDIT_OK;
+    if (printer_pick == PRINTER_USB_SERIAL) {
         static const char *const lines[] = {"Printing to the USB serial", "port \"PX-42F Printer\".", "",
                                             "Open it in a terminal on the", "computer to see the output."};
-        edit_result_t r = show_message("Printer", lines, 5, "Exit:Back");
-        if (r == EDIT_POWER_OFF)
-            return r;
-    } else if (pick == PRINTER_HP82240B) {
-        /* PRLCD: Exit keeps the one set. */
-        int how = px_settings.screen_print;
-        int screen = run_list("Screen Print", screen_print_names, SCREEN_PRINTS, NULL, &how, "Enter:Select  Exit:Keep");
-        if (screen == LIST_POWER_OFF)
-            return EDIT_POWER_OFF;
-        if (screen != LIST_BACK) {
-            px_settings.screen_print = (uint8_t) screen;
-            settings_save();
-        }
+        r = show_message("Printer", lines, 5, TABS("ENTER"));
+    } else if (printer_pick == PRINTER_HP82240B) {
         static const char *const lines[] = {"Printing to an HP 82240B", "infrared printer.", "",
                                             "Aim the calculator at the", "printer's window. A line takes",
                                             "about 2 s to print."};
-        edit_result_t r = show_message("Printer", lines, 6, "Exit:Back");
-        if (r == EDIT_POWER_OFF)
-            return r;
+        r = show_message("Printer", lines, 6, TABS("ENTER"));
+    } else if (printer_pick == PRINTER_ESCPOS) {
+        static const char *const lines[] = {"A 58 mm ESC/POS thermal", "printer, by a USB-C cable.", "",
+                                            "While it prints, the USB port", "is the printer's: the computer",
+                                            "has it again 30 s after."};
+        r = show_message("Printer", lines, 6, TABS("ENTER"));
     }
-    return EDIT_OK;
+    return r == EDIT_POWER_OFF ? PX_UI_QUIT : 0;
+}
+
+/* Where printing goes, a form of pull-downs: Printer, and the HP 82240B's
+ * Screen Print. */
+static edit_result_t do_printer(void) {
+    printer_pick = px_settings.printer < PRINTER_CHOICES ? px_settings.printer : 0;
+    screen_print_pick = px_settings.screen_print < SCREEN_PRINTS ? px_settings.screen_print : 0;
+    px_ui_field_t fields[PRINTER_FIELDS] = {
+            [PRINTER_FIELD] = {"Printer", PX_UI_CHOICE, 0, &printer_pick, printer_names, PRINTER_CHOICES, NULL, 0, 0, 0, NULL},
+            [SCREEN_PRINT_FIELD] = {"Screen Print", PX_UI_CHOICE, printer_pick != PRINTER_HP82240B, &screen_print_pick,
+                                    screen_print_names, SCREEN_PRINTS, NULL, 0, 0, 0, NULL},
+    };
+    px_ui_form_t form = {"Printer", fields, PRINTER_FIELDS, {"ENTER"}, printer_changed, NULL, 0};
+    int r = ui_form(&menu_ui, &form);
+    settings_save(); /* once, on the way out */
+    return r == PX_UI_QUIT ? EDIT_POWER_OFF : EDIT_CANCEL;
 }
 
 /* ===================== Key Sound ===================== */
@@ -944,55 +1061,45 @@ static const char *key_sound_shown(void) {
     return px_settings.key_sound[0] ? px_settings.key_sound : "Off";
 }
 
-static void key_sound_mark(int item, char *buf, size_t size) {
-    snprintf(buf, size, "%s", strcasecmp(key_sound_rows[item], key_sound_shown()) == 0 ? "<" : "");
-}
-
-/* ENTER picks a sound and plays it, staying in the list, so they can be
- * tried one after another; EXIT goes back. The current one is marked.
- * (ENTER itself makes the current key sound as it goes down, so a newly
- * picked sound plays right after it -- and re-picking the same one adds
- * nothing.) A file that can't be used says why, and the choice stays. */
-static edit_result_t do_key_sound(void) {
+/* Fills key_sound_names[]: "Off", then every sound; the count, and which
+ * one is in use in *current. */
+static int key_sound_choices(int *current) {
     strcpy(key_sound_names[0], "Off");
     int count = 1 + sounds_key_list(&key_sound_names[1], KEY_SOUND_CHOICES - 1);
-    int selected = 0;
+    *current = 0;
     for (int i = 0; i < count; i++) {
         key_sound_rows[i] = key_sound_names[i];
         if (strcasecmp(key_sound_names[i], key_sound_shown()) == 0)
-            selected = i;
+            *current = i;
     }
-    while (true) {
-        int pick = run_list("Key Sound", key_sound_rows, count, key_sound_mark, &selected,
-                            "Enter:Choose+Play  Exit:Back");
-        if (pick == LIST_POWER_OFF || pick == LIST_BACK) {
-            settings_save(); /* once, on the way out: no flash write per try */
-            return pick == LIST_POWER_OFF ? EDIT_POWER_OFF : EDIT_OK;
-        }
-        const char *name = pick == 0 ? "" : key_sound_names[pick];
-        if (strcasecmp(name, px_settings.key_sound) == 0)
-            continue;
-        char error[40];
-        if (!sounds_key_select(name, error, sizeof(error))) {
-            const char *lines[] = {key_sound_names[pick], "can't be used:", error, "",
-                                   "Key sounds: WAV files in", "/SOUNDS/KEY on the drive."};
-            sounds_key_select(px_settings.key_sound, error, sizeof(error)); /* back to the current one */
-            if (show_message("Key Sound", lines, 6, "Exit:Back") == EDIT_POWER_OFF)
-                return EDIT_POWER_OFF;
-            continue;
-        }
-        snprintf(px_settings.key_sound, sizeof(px_settings.key_sound), "%s", name);
-        /* The whole set: typing, an operation, ENTER. */
-        for (int kind = 0; kind < KEY_SOUND_KINDS; kind++) {
-            if (kind > 0)
-                for (int i = 0; i < 15; i++) { /* 150ms apart */
-                    sleep_ms(10);
-                    watchdog_update();
-                }
-            sounds_key_play((key_sound_t) kind);
-            sounds_wait(); /* key sounds don't wait by themselves */
-        }
+    return count;
+}
+
+/* Takes key sound `pick` and plays its set (typing, an operation, ENTER),
+ * or says why it can't be used and keeps the one in use: false then. */
+static bool key_sound_try(int pick, bool *power_off) {
+    const char *name = pick == 0 ? "" : key_sound_names[pick];
+    if (strcasecmp(name, px_settings.key_sound) == 0)
+        return true;
+    char error[40];
+    if (!sounds_key_select(name, error, sizeof(error))) {
+        const char *lines[] = {key_sound_names[pick], "can't be used:", error, "",
+                               "Key sounds: WAV files in", "/SOUNDS/KEY on the drive."};
+        sounds_key_select(px_settings.key_sound, error, sizeof(error)); /* back to the current one */
+        *power_off = show_message("Key Sound", lines, 6, TABS("ENTER")) == EDIT_POWER_OFF;
+        return false;
     }
+    snprintf(px_settings.key_sound, sizeof(px_settings.key_sound), "%s", name);
+    for (int kind = 0; kind < KEY_SOUND_KINDS; kind++) {
+        if (kind > 0)
+            for (int i = 0; i < 15; i++) { /* 150ms apart */
+                sleep_ms(10);
+                watchdog_update();
+            }
+        sounds_key_play((key_sound_t) kind);
+        sounds_wait(); /* key sounds don't wait by themselves */
+    }
+    return true;
 }
 
 /* ===================== Sounds ===================== */
@@ -1014,73 +1121,71 @@ static const char *const sound_items[SOUND_COUNT] = {
         "Silence Plus42",
 };
 
-static void sound_value(int item, char *buf, size_t size) {
-    switch (item) {
-        case SOUND_KEY:
-            if (strlen(key_sound_shown()) <= 15)
-                snprintf(buf, size, "%s", key_sound_shown());
-            else
-                snprintf(buf, size, "%.13s..", key_sound_shown());
-            break;
+/* The fields' values, px_settings' as ints for the form. */
+static int sound_key, sound_on, sound_off, sound_error, sound_quiet;
+
+/* A box ticked: its setting at once, and the sound played. */
+static int sound_changed(px_ui_form_t *form, int field, void *ctx) {
+    (void) form, (void) ctx;
+    switch (field) {
+        case SOUND_KEY: {
+            bool power_off = false;
+            if (!key_sound_try(sound_key, &power_off))
+                key_sound_choices(&sound_key); /* back to the one in use */
+            return power_off ? PX_UI_QUIT : 0;
+        }
         case SOUND_ON:
-            snprintf(buf, size, "%s", px_settings.on_sound ? "On" : "Off");
+            px_settings.on_sound = sound_on != 0;
+            if (sound_on)
+                sounds_play_on();
             break;
         case SOUND_OFF:
-            snprintf(buf, size, "%s", px_settings.off_sound ? "On" : "Off");
+            px_settings.off_sound = sound_off != 0;
+            if (sound_off)
+                sounds_play_off();
             break;
         case SOUND_ERROR:
-            snprintf(buf, size, "%s", px_settings.error_sound ? "On" : "Off");
+            px_settings.error_sound = sound_error != 0;
+            if (sound_error)
+                error_beep();
             break;
         case SOUND_QUIET:
-            snprintf(buf, size, "%s", free42_quiet() ? "On" : "Off");
+            free42_set_quiet(sound_quiet != 0);
             break;
     }
+    return 0;
 }
 
-/* All the sound settings. On, Off and Calc Error Sound toggle with ENTER,
- * playing the sound when turned on; the files are in /SOUNDS on the drive.
- * Silence Plus42 is Plus42's own flag 26, not saved with these. The boot
- * sound has no setting: it always plays (its file can be replaced). */
+/* All the sound settings, a form: Key Sound a pull-down (the one picked
+ * plays), the others check boxes that ENTER ticks, playing the sound when
+ * turned on; each change counts at once (a settings page, not a record: no
+ * SAVE). The files are in /SOUNDS on the drive. Silence Plus42 is Plus42's
+ * own flag 26, not saved with these. The boot sound has no setting: it
+ * always plays (its file can be replaced). */
 static edit_result_t do_sounds(void) {
+    int count = key_sound_choices(&sound_key);
+    sound_on = px_settings.on_sound, sound_off = px_settings.off_sound;
+    sound_error = px_settings.error_sound, sound_quiet = free42_quiet();
+    px_ui_field_t fields[SOUND_COUNT] = {
+            [SOUND_KEY] = {sound_items[SOUND_KEY], PX_UI_CHOICE, 0, &sound_key, key_sound_rows, count, NULL, 0, 0, 0, NULL},
+            [SOUND_ON] = {sound_items[SOUND_ON], PX_UI_TOGGLE, 0, &sound_on, NULL, 0, NULL, 0, 0, 0, NULL},
+            [SOUND_OFF] = {sound_items[SOUND_OFF], PX_UI_TOGGLE, 0, &sound_off, NULL, 0, NULL, 0, 0, 0, NULL},
+            [SOUND_ERROR] = {sound_items[SOUND_ERROR], PX_UI_TOGGLE, 0, &sound_error, NULL, 0, NULL, 0, 0, 0, NULL},
+            [SOUND_QUIET] = {sound_items[SOUND_QUIET], PX_UI_TOGGLE, 0, &sound_quiet, NULL, 0, NULL, 0, 0, 0, NULL},
+    };
     static int selected = 0;
-    while (true) {
-        int pick = run_list("Sounds", sound_items, SOUND_COUNT, sound_value, &selected, "Enter:Select  Exit:Back");
-        if (pick == LIST_POWER_OFF || pick == LIST_BACK) {
-            settings_save(); /* once, on the way out */
-            return pick == LIST_POWER_OFF ? EDIT_POWER_OFF : EDIT_CANCEL;
-        }
-        switch (pick) {
-            case SOUND_KEY:
-                if (do_key_sound() == EDIT_POWER_OFF)
-                    return EDIT_POWER_OFF;
-                break;
-            case SOUND_ON:
-                px_settings.on_sound = !px_settings.on_sound;
-                if (px_settings.on_sound)
-                    sounds_play_on();
-                break;
-            case SOUND_OFF:
-                px_settings.off_sound = !px_settings.off_sound;
-                if (px_settings.off_sound)
-                    sounds_play_off();
-                break;
-            case SOUND_ERROR:
-                px_settings.error_sound = !px_settings.error_sound;
-                if (px_settings.error_sound)
-                    error_beep();
-                break;
-            case SOUND_QUIET:
-                free42_set_quiet(!free42_quiet());
-                break;
-        }
-    }
+    px_ui_form_t form = {"Sounds", fields, SOUND_COUNT, {"ENTER"}, sound_changed, NULL, selected};
+    int r = ui_form(&menu_ui, &form);
+    selected = form.selected;
+    settings_save(); /* once, on the way out: no flash write per try */
+    return r == PX_UI_QUIT ? EDIT_POWER_OFF : EDIT_CANCEL;
 }
 
 /* ===================== States, USB Drive ===================== */
 
 static edit_result_t no_disk(void) {
     static const char *const lines[] = {"The drive is not available."};
-    edit_result_t r = show_message("Drive", lines, 1, "Exit:Back");
+    edit_result_t r = show_message("Drive", lines, 1, TABS("ENTER"));
     return r == EDIT_POWER_OFF ? r : EDIT_CANCEL;
 }
 
@@ -1102,7 +1207,7 @@ static edit_result_t do_save_state(void) {
         char line[40];
         snprintf(line, sizeof(line), "%s already exists.", name);
         const char *const lines[] = {line, "Replace it?"};
-        r = show_message("Save State", lines, 2, "Enter:Replace  Exit:Cancel");
+        r = show_message("Save State", lines, 2, CONFIRM("REPLC"));
         if (r != EDIT_OK)
             return r;
     }
@@ -1122,37 +1227,8 @@ static edit_result_t do_save_state(void) {
     if (!ok)
         error_beep();
     const char *const lines[] = {line};
-    r = show_message("Save State", lines, 1, "Exit:Back");
+    r = show_message("Save State", lines, 1, TABS("ENTER"));
     return r == EDIT_POWER_OFF ? r : EDIT_OK;
-}
-
-/* Lets the user pick one of the saved states; its name goes to name[].
- * EDIT_OK once one is picked; EDIT_CANCEL for EXIT, or when there are none
- * (after saying so). */
-static edit_result_t pick_state(const char *title, const char *hint, char *name) {
-    if (!statefs_ready())
-        return no_disk();
-
-    static char names[MAX_STATES][STATEFS_NAME_MAX + 1];
-    int count = statefs_list_states(names, MAX_STATES);
-    if (count == 0) {
-        static const char *const lines[] = {"No saved states.", "", "Save one first, or copy .p42",
-                                            "files into the STATE folder", "with USB Drive."};
-        edit_result_t r = show_message(title, lines, 5, "Exit:Back");
-        return r == EDIT_POWER_OFF ? r : EDIT_CANCEL;
-    }
-
-    const char *items[MAX_STATES];
-    for (int i = 0; i < count; i++)
-        items[i] = names[i];
-    int selected = 0;
-    int pick = run_list(title, items, count, NULL, &selected, hint);
-    if (pick == LIST_POWER_OFF)
-        return EDIT_POWER_OFF;
-    if (pick == LIST_BACK)
-        return EDIT_CANCEL;
-    strcpy(name, names[pick]);
-    return EDIT_OK;
 }
 
 /* A one-line result ("Deleted X" / "Could not ..."), with the error beep
@@ -1161,21 +1237,16 @@ static edit_result_t show_result(const char *title, bool ok, const char *line) {
     if (!ok)
         error_beep();
     const char *const lines[] = {line};
-    edit_result_t r = show_message(title, lines, 1, "Exit:Back");
+    edit_result_t r = show_message(title, lines, 1, TABS("ENTER"));
     return r == EDIT_POWER_OFF ? r : EDIT_OK;
 }
 
 /* Returns EDIT_OK only once a state has actually been loaded. */
-static edit_result_t do_load_state(void) {
-    char name[STATEFS_NAME_MAX + 1];
-    edit_result_t r = pick_state("Load State", "Enter:Load  Exit:Back", name);
-    if (r != EDIT_OK)
-        return r;
-
+static edit_result_t do_load_state(const char *name) {
     char line[40];
     snprintf(line, sizeof(line), "Load %s?", name);
     const char *const lines[] = {line, "", "This replaces everything in", "the calculator's memory."};
-    r = show_message("Load State", lines, 4, "Enter:Load  Exit:Cancel");
+    edit_result_t r = show_message("Load State", lines, 4, CONFIRM("LOAD"));
     if (r != EDIT_OK)
         return r;
 
@@ -1188,15 +1259,10 @@ static edit_result_t do_load_state(void) {
     return EDIT_OK;
 }
 
-static edit_result_t do_rename_state(void) {
-    char old_name[STATEFS_NAME_MAX + 1];
-    edit_result_t r = pick_state("Rename State", "Enter:Rename  Exit:Back", old_name);
-    if (r != EDIT_OK)
-        return r;
-
+static edit_result_t do_rename_state(const char *old_name) {
     char new_name[STATEFS_NAME_MAX + 1];
     strcpy(new_name, old_name);
-    r = edit_name("Rename State", new_name);
+    edit_result_t r = edit_name("Rename State", new_name);
     if (r != EDIT_OK || strcmp(new_name, old_name) == 0)
         return r;
 
@@ -1210,16 +1276,11 @@ static edit_result_t do_rename_state(void) {
     return show_result("Rename State", ok, line);
 }
 
-static edit_result_t do_delete_state(void) {
-    char name[STATEFS_NAME_MAX + 1];
-    edit_result_t r = pick_state("Delete State", "Enter:Delete  Exit:Back", name);
-    if (r != EDIT_OK)
-        return r;
-
+static edit_result_t do_delete_state(const char *name) {
     char line[40];
     snprintf(line, sizeof(line), "Delete %s?", name);
     const char *const lines[] = {line, "", "This cannot be undone."};
-    r = show_message("Delete State", lines, 3, "Enter:Delete  Exit:Cancel");
+    edit_result_t r = show_message("Delete State", lines, 3, CONFIRM("DEL"));
     if (r != EDIT_OK)
         return r;
 
@@ -1248,99 +1309,296 @@ static void alarm_when(char *buf, size_t size, const alarm_t *a) {
     snprintf(buf, size, "%s %s", date, time);
 }
 
-static void alarm_sound_shown(char *buf, size_t size, const alarm_t *a) {
-    if (a->sound == ALARM_SOUND_PLUS42)
-        snprintf(buf, size, "Plus42");
-    else if (strlen(a->sound_name) <= 13)
-        snprintf(buf, size, "%s", a->sound_name);
-    else
-        snprintf(buf, size, "%.11s..", a->sound_name);
-}
-
 #define ALARM_SOUND_CHOICES 64
+#define TEXT_CHOICES        24
 
-static int alarm_sound_chosen;
+/* New Alarm and Edit: XYZALM's fields as a form -- X the time, Y the date,
+ * Z the repeat, ALPHA the message or (after ↑↑ or ↑) the program's label --
+ * and the sound, which XYZALM leaves at Plus42's. */
+enum { AF_TIME, AF_DATE, AF_REPEAT, AF_KIND, AF_TEXT, AF_SOUND, AF_COUNT };
 
-static void alarm_sound_mark(int item, char *buf, size_t size) {
-    snprintf(buf, size, "%s", item == alarm_sound_chosen ? "<" : "");
+static const char *const alarm_kind_names[] = {"Message", "Run program", "Run when off"};
+static const char *const repeat_names[] = {"None", "Every hour", "Every day", "Every week", "Other..."};
+static const uint64_t repeat_every[] = {0, 3600000, 86400000, 7 * 86400000ULL};
+#define REPEAT_OTHER 4
+
+static struct {
+    int time[3], date[3];
+    int repeat, kind, text_pick, sound; /* the pull-downs' choices */
+    uint64_t repeat_ms;
+    uint8_t length;                     /* the text: the message, or the label without its arrows */
+    char text[ALARM_TEXT_MAX + 1];
+    char date_shown[16], repeat_shown[16], text_shown[ALARM_TEXT_MAX + 1];
+    /* Message / Program: "Type...", then the other alarms' messages or the
+     * calculator's global labels. */
+    char text_found[TEXT_CHOICES][ALARM_TEXT_MAX + 1];
+    const char *text_items[TEXT_CHOICES + 1];
+    int text_count;
+    /* Sound: Plus42's tones, the WAVs in /SOUNDS, the songs in /MIDI. */
+    char sound_files[ALARM_SOUND_CHOICES][ALARM_SOUND_NAME_MAX + 1];
+    char sound_rows[ALARM_SOUND_CHOICES + 1][ALARM_SOUND_NAME_MAX + 5];
+    const char *sound_items[ALARM_SOUND_CHOICES + 1];
+    int wavs, songs;
+    px_ui_field_t fields[AF_COUNT];
+} af;
+
+/* A label XEQ can type: letters and digits, 7 at most. */
+static bool af_text_is_label(void) {
+    if (af.length > 7)
+        return false;
+    for (int i = 0; i < af.length; i++) {
+        char c = af.text[i];
+        if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')))
+            return false;
+    }
+    return true;
 }
 
-/* Plus42's tones, the WAVs in /SOUNDS, the songs in /MIDI. As with Key Sound,
- * ENTER chooses and plays, staying in the list; one that can't play isn't
- * chosen. */
-static edit_result_t do_alarm_sound(int alarm) {
-    char files[ALARM_SOUND_CHOICES][ALARM_SOUND_NAME_MAX + 1];
-    char shown[ALARM_SOUND_CHOICES + 1][ALARM_SOUND_NAME_MAX + 5];
-    const char *rows[ALARM_SOUND_CHOICES + 1];
-    int wavs = statefs_list_files(SOUNDS_DIR, ".wav", (char *) files, ALARM_SOUND_NAME_MAX + 1, ALARM_SOUND_CHOICES);
-    int songs = statefs_list_files(MIDI_DIR, ".mid", (char *) files[wavs], ALARM_SOUND_NAME_MAX + 1,
-                                   ALARM_SOUND_CHOICES - wavs);
-    const alarm_t *a = alarms_get(alarm);
-    alarm_sound_chosen = 0;
-    strcpy(shown[0], "Plus42 tones");
-    rows[0] = shown[0];
-    for (int i = 0; i < wavs + songs; i++) {
-        alarm_sound_t kind = i < wavs ? ALARM_SOUND_WAV : ALARM_SOUND_MIDI;
-        snprintf(shown[i + 1], sizeof(shown[i + 1]), "%s%s", files[i], i < wavs ? ".wav" : ".mid");
-        rows[i + 1] = shown[i + 1];
-        if (a->sound == kind && strcmp(a->sound_name, files[i]) == 0)
-            alarm_sound_chosen = i + 1;
-    }
-    int selected = alarm_sound_chosen;
-    while (true) {
-        int pick = run_list("Alarm Sound", rows, wavs + songs + 1, alarm_sound_mark, &selected,
-                            "Enter:Choose+Play  Exit:Back");
-        if (pick == LIST_POWER_OFF || pick == LIST_BACK) {
-            sounds_stop();
-            return pick == LIST_POWER_OFF ? EDIT_POWER_OFF : EDIT_OK;
+static void af_text_choices(void) {
+    int count = 0;
+    af.text_items[count++] = "Type...";
+    if (af.kind == ALARM_MESSAGE) {
+        for (int i = 0; i < alarms_count() && count <= TEXT_CHOICES; i++) {
+            const alarm_t *a = alarms_get(i);
+            if (alarm_kind(a) != ALARM_MESSAGE || a->length == 0 || a->length > 24)
+                continue;
+            alarm_text(af.text_found[count - 1], sizeof(af.text_found[0]), a);
+            bool again = false;
+            for (int j = 1; j < count; j++)
+                again = again || strcmp(af.text_items[j], af.text_found[count - 1]) == 0;
+            if (!again)
+                af.text_items[count] = af.text_found[count - 1], count++;
         }
-        if (pick == 0) {
-            alarms_set_sound(alarm, ALARM_SOUND_PLUS42, "");
+    } else {
+        static char programs[16][PROGRAM_LABEL_MAX + 1];
+        int n = free42_list_programs(programs, 16);
+        for (int p = 0; p < n && count <= TEXT_CHOICES; p++) {
+            /* "ABC" "DEF": each label between quotes */
+            for (const char *q = strchr(programs[p], '"'); q != NULL && count <= TEXT_CHOICES;) {
+                const char *end = strchr(q + 1, '"');
+                if (end == NULL)
+                    break;
+                int len = (int) (end - q - 1);
+                bool ok = len >= 1 && len <= 7;
+                for (int k = 0; ok && k < len; k++)
+                    ok = q[1 + k] >= ' ' && q[1 + k] <= '~';
+                if (ok) {
+                    memcpy(af.text_found[count - 1], q + 1, (size_t) len);
+                    af.text_found[count - 1][len] = 0;
+                    af.text_items[count] = af.text_found[count - 1], count++;
+                }
+                q = strchr(end + 1, '"');
+            }
+        }
+    }
+    af.text_count = count;
+    af.text_pick = 0;
+    for (int i = 1; i < count; i++)
+        if ((int) strlen(af.text_items[i]) == af.length && memcmp(af.text_items[i], af.text, af.length) == 0)
+            af.text_pick = i;
+    af.fields[AF_TEXT].items = af.text_items;
+    af.fields[AF_TEXT].count = count;
+}
+
+static void af_sound_choices(uint8_t sound, const char *name) {
+    af.wavs = statefs_list_files(SOUNDS_DIR, ".wav", (char *) af.sound_files, ALARM_SOUND_NAME_MAX + 1,
+                                 ALARM_SOUND_CHOICES);
+    af.songs = statefs_list_files(MIDI_DIR, ".mid", (char *) af.sound_files[af.wavs], ALARM_SOUND_NAME_MAX + 1,
+                                  ALARM_SOUND_CHOICES - af.wavs);
+    strcpy(af.sound_rows[0], "Plus42 tones");
+    af.sound_items[0] = af.sound_rows[0];
+    af.sound = 0;
+    for (int i = 0; i < af.wavs + af.songs; i++) {
+        alarm_sound_t kind = i < af.wavs ? ALARM_SOUND_WAV : ALARM_SOUND_MIDI;
+        snprintf(af.sound_rows[i + 1], sizeof(af.sound_rows[0]), "%s%s", af.sound_files[i],
+                 i < af.wavs ? ".wav" : ".mid");
+        af.sound_items[i + 1] = af.sound_rows[i + 1];
+        if (sound == kind && strcmp(name, af.sound_files[i]) == 0)
+            af.sound = i + 1;
+    }
+    af.fields[AF_SOUND].items = af.sound_items;
+    af.fields[AF_SOUND].count = af.wavs + af.songs + 1;
+}
+
+/* What the rows show, and which there are, from the values. */
+static void af_refresh(void) {
+    rtc_datetime_t dt;
+    time_ms_to_datetime((uint64_t) time_days_from_civil(af.date[0], af.date[1], af.date[2]) * 86400000, &dt);
+    rtc_format_date(af.date_shown, sizeof(af.date_shown), &dt);
+    af.repeat = REPEAT_OTHER;
+    for (int i = 0; i < REPEAT_OTHER; i++)
+        if (af.repeat_ms == repeat_every[i])
+            af.repeat = i;
+    snprintf(af.repeat_shown, sizeof(af.repeat_shown), "%d:%02d:%02d", (int) (af.repeat_ms / 3600000),
+             (int) (af.repeat_ms / 60000 % 60), (int) (af.repeat_ms / 1000 % 60));
+    af.fields[AF_REPEAT].shown = af.repeat == REPEAT_OTHER ? af.repeat_shown : NULL;
+    alarm_t a;
+    a.length = af.length;
+    memcpy(a.text, af.text, af.length);
+    alarm_text(af.text_shown, sizeof(af.text_shown), &a);
+    af.fields[AF_TEXT].label = af.kind == ALARM_MESSAGE ? "Message" : "Program";
+    af.fields[AF_SOUND].hidden = af.kind == ALARM_CONTROL; /* it only runs its program: it never sounds */
+    af.fields[AF_TIME].flags = time_flags() | PX_UI_TIME_SECONDS;
+}
+
+static int af_changed(px_ui_form_t *form, int field, void *ctx) {
+    (void) form, (void) ctx;
+    int r = PX_UI_ENTER;
+    if (field == AF_REPEAT && af.repeat < REPEAT_OTHER) {
+        af.repeat_ms = repeat_every[af.repeat];
+    } else if (field == AF_REPEAT) {
+        /* Z: any HHHH:MM:SS from a second to 9999 hours. */
+        int h = (int) (af.repeat_ms / 3600000), m = (int) (af.repeat_ms / 60000 % 60), sc = (int) (af.repeat_ms / 1000 % 60);
+        r = ui_time(&menu_ui, "Repeat", "Every hours:minutes:seconds", &h, &m, &sc,
+                    PX_UI_TIME_DURATION | PX_UI_TIME_SECONDS);
+        uint64_t ms = ((uint64_t) h * 3600 + (uint64_t) m * 60 + (uint64_t) sc) * 1000;
+        if (r == PX_UI_ENTER && ms >= 1000)
+            af.repeat_ms = ms;
+        else if (r == PX_UI_ENTER)
+            error_beep();
+    } else if (field == AF_KIND) {
+        /* What isn't a label is typed again rather than run as something else. */
+        if (af.kind != ALARM_MESSAGE && !af_text_is_label())
+            af.length = 0;
+        af_text_choices();
+    } else if (field == AF_TEXT && af.text_pick == 0) {
+        char text[ALARM_TEXT_MAX + 1];
+        memcpy(text, af.text, af.length);
+        text[af.length] = 0;
+        bool message = af.kind == ALARM_MESSAGE;
+        r = ui_text(&menu_ui, message ? "Alarm Message" : "Alarm Program", message ? "Message:" : "Program label:",
+                    text, message ? 24 : 7, message ? PX_UI_CHARS_TEXT : PX_UI_CHARS_LABEL);
+        if (r == PX_UI_ENTER) {
+            af.length = (uint8_t) strlen(text);
+            memcpy(af.text, text, af.length);
+        }
+    } else if (field == AF_TEXT) {
+        af.length = (uint8_t) strlen(af.text_items[af.text_pick]);
+        memcpy(af.text, af.text_items[af.text_pick], af.length);
+    } else if (field == AF_SOUND) {
+        /* The one chosen plays; one that can't play isn't chosen. */
+        sounds_stop();
+        if (af.sound == 0) {
             sounds_play_tone(8, true);
             sounds_play_tone(9, false);
-            alarm_sound_chosen = 0;
-            continue;
-        }
-        alarm_sound_t kind = pick - 1 < wavs ? ALARM_SOUND_WAV : ALARM_SOUND_MIDI;
-        alarm_t candidate = *a;
-        candidate.sound = (uint8_t) kind;
-        snprintf(candidate.sound_name, sizeof(candidate.sound_name), "%s", files[pick - 1]);
-        char path[ALARM_SOUND_PATH_MAX];
-        if (alarm_sound_path(&candidate, path, sizeof(path))
-            && (kind == ALARM_SOUND_WAV ? sounds_play_file(path, false) : sounds_midi_play(path) == 0)) {
-            alarms_set_sound(alarm, kind, files[pick - 1]);
-            alarm_sound_chosen = pick;
         } else {
-            const char *lines[] = {rows[pick], "can't be played."};
-            if (show_message("Alarm Sound", lines, 2, "Exit:Back") == EDIT_POWER_OFF)
-                return EDIT_POWER_OFF;
+            alarm_t candidate;
+            candidate.sound = af.sound - 1 < af.wavs ? ALARM_SOUND_WAV : ALARM_SOUND_MIDI;
+            snprintf(candidate.sound_name, sizeof(candidate.sound_name), "%s", af.sound_files[af.sound - 1]);
+            char path[ALARM_SOUND_PATH_MAX];
+            if (!alarm_sound_path(&candidate, path, sizeof(path))
+                || !(candidate.sound == ALARM_SOUND_WAV ? sounds_play_file(path, false) : sounds_midi_play(path) == 0)) {
+                const char *lines[] = {af.sound_items[af.sound], "can't be played."};
+                af.sound = 0;
+                r = ui_message(&menu_ui, "Alarm Sound", lines, 2, TABS("ENTER"));
+            }
         }
+    }
+    af_text_choices(); /* the pick follows the text */
+    af_refresh();
+    return r == PX_UI_QUIT ? PX_UI_QUIT : 0;
+}
+
+/* SAVE: the alarm from the form, in place of `replacing` (-1 for a new one).
+ * A time already past isn't taken. */
+static edit_result_t af_save(const char *title, int replacing) {
+    uint64_t now = rtc_now_ms();
+    uint64_t at = (uint64_t) time_days_from_civil(af.date[0], af.date[1], af.date[2]) * 86400000
+                  + (uint64_t) ((af.time[0] * 60 + af.time[1]) * 60 + af.time[2]) * 1000;
+    if (at <= now) {
+        const char *const lines[] = {"That time has passed:", "change the time or the date."};
+        return show_message(title, lines, 2, TABS("ENTER")) == EDIT_POWER_OFF ? EDIT_POWER_OFF : EDIT_CANCEL;
+    }
+    char text[ALARM_TEXT_MAX + 2];
+    int length = af.kind == ALARM_CONTROL ? 2 : af.kind == ALARM_CONDITIONAL ? 1 : 0;
+    memset(text, ALARM_ARROW, (size_t) length); /* ↑↑LABEL, ↑LABEL */
+    int n = af.length + length > ALARM_TEXT_MAX ? ALARM_TEXT_MAX - length : af.length;
+    memcpy(text + length, af.text, (size_t) n);
+    length += n;
+    if (replacing >= 0)
+        alarms_remove(replacing);
+    if (!alarms_add(at, af.repeat_ms, text, length, now)) {
+        const char *const lines[] = {"The alarms are full:", "delete one first."};
+        return show_message(title, lines, 2, TABS("ENTER")) == EDIT_POWER_OFF ? EDIT_POWER_OFF : EDIT_CANCEL;
+    }
+    /* Ours is the last of any the same: alarms of a time keep the order they
+     * were set in. */
+    if (af.kind != ALARM_CONTROL) {
+        for (int i = alarms_count() - 1; i >= 0; i--) {
+            const alarm_t *a = alarms_get(i);
+            if (a->at_ms == at && a->repeat_ms == af.repeat_ms && a->length == length
+                && memcmp(a->text, text, (size_t) length) == 0) {
+                alarm_sound_t kind = af.sound == 0 ? ALARM_SOUND_PLUS42
+                                     : af.sound - 1 < af.wavs ? ALARM_SOUND_WAV : ALARM_SOUND_MIDI;
+                alarms_set_sound(i, kind, af.sound == 0 ? "" : af.sound_files[af.sound - 1]);
+                break;
+            }
+        }
+    }
+    return EDIT_OK;
+}
+
+/* The form, for a new alarm (editing -1) or alarm `editing`. */
+static edit_result_t alarm_form(int editing) {
+    const char *title = editing < 0 ? "New Alarm" : "Edit Alarm";
+    memset(&af, 0, sizeof(af));
+    uint64_t at;
+    uint8_t sound = ALARM_SOUND_PLUS42;
+    const char *sound_name = "";
+    if (editing < 0) {
+        at = (rtc_now_ms() / 3600000 + 1) * 3600000; /* the next whole hour, today or tomorrow */
+    } else {
+        const alarm_t *a = alarms_get(editing);
+        at = a->at_ms;
+        af.repeat_ms = a->repeat_ms;
+        af.kind = alarm_kind(a);
+        int length;
+        const char *label = af.kind == ALARM_MESSAGE ? (length = a->length, a->text) : alarm_label(a, &length);
+        af.length = (uint8_t) length;
+        memcpy(af.text, label, (size_t) length);
+        sound = a->sound;
+        sound_name = a->sound_name;
+    }
+    rtc_datetime_t dt;
+    time_ms_to_datetime(at, &dt);
+    af.date[0] = dt.year, af.date[1] = dt.month, af.date[2] = dt.day;
+    af.time[0] = dt.hour, af.time[1] = dt.min, af.time[2] = dt.sec;
+
+    af.fields[AF_TIME] = (px_ui_field_t){"Time", PX_UI_TIME, 0, af.time, NULL, 0, NULL, 0, 0, 0, NULL};
+    af.fields[AF_DATE] = (px_ui_field_t){"Date", PX_UI_DATE, 0, af.date, NULL, 0, NULL, 0, 0, 0, af.date_shown};
+    af.fields[AF_REPEAT] = (px_ui_field_t){"Repeat", PX_UI_CHOICE, 0, &af.repeat, repeat_names, 5, NULL, 0, 0, 0, NULL};
+    af.fields[AF_KIND] = (px_ui_field_t){"Kind", PX_UI_CHOICE, 0, &af.kind, alarm_kind_names, 3, NULL, 0, 0, 0, NULL};
+    af.fields[AF_TEXT] = (px_ui_field_t){"Message", PX_UI_CHOICE, 0, &af.text_pick, NULL, 0, NULL, 0, 0, 0, af.text_shown};
+    af.fields[AF_SOUND] = (px_ui_field_t){"Sound", PX_UI_CHOICE, 0, &af.sound, NULL, 0, NULL, 0, 0, 0, NULL};
+    af_text_choices();
+    af_sound_choices(sound, sound_name);
+    af_refresh();
+
+    px_ui_form_t form = {title, af.fields, AF_COUNT, {"SAVE"}, af_changed, NULL, 0};
+    while (true) {
+        int r = ui_form(&menu_ui, &form);
+        sounds_stop();
+        if (r == PX_UI_QUIT)
+            return EDIT_POWER_OFF;
+        if (r != 0) /* EXIT, back */
+            return EDIT_CANCEL;
+        edit_result_t saved = af_save(title, editing);
+        if (saved != EDIT_CANCEL)
+            return saved;
     }
 }
 
-static const alarm_t *alarm_opened;
-static int alarm_opened_sound_row;
-
-static void alarm_row_value(int item, char *buf, size_t size) {
-    if (item == alarm_opened_sound_row)
-        alarm_sound_shown(buf, size, alarm_opened);
-    else
-        buf[0] = 0;
-}
-
-/* The list set by XYZALM, earliest first; ! = past due. */
+/* Every alarm, earliest first; ! = past due. NEW and EDIT (or ENTER) open
+ * the form, DEL asks first; only the keys that do something: nothing to
+ * edit with no alarms. An app's alarm (px->alarm_set()) can only be deleted:
+ * the app takes back its own. */
 static edit_result_t do_alarms(void) {
     static char rows[ALARMS_MAX][48];
     static const char *names[ALARMS_MAX];
-    int selected = 0;
+    px_ui_list_t l = {"Alarms", names, 0, NULL, NULL, "No alarms. NEW sets one.", {"NEW", "", "", "", "", "BACK"}, 0, -1, 0};
     while (true) {
-        int count = alarms_count();
-        if (count == 0) {
-            const char *const lines[] = {"No alarms set.", "", "XYZALM sets them."};
-            edit_result_t r = show_message("Alarms", lines, 3, "Exit:Back");
-            return r == EDIT_POWER_OFF ? r : EDIT_OK;
-        }
-        for (int i = 0; i < count; i++) {
+        l.count = alarms_count();
+        for (int i = 0; i < l.count; i++) {
             const alarm_t *a = alarms_get(i);
             char when[32], text[ALARM_TEXT_MAX + 1];
             alarm_when(when, sizeof(when), a);
@@ -1348,52 +1606,39 @@ static edit_result_t do_alarms(void) {
             snprintf(rows[i], sizeof(rows[i]), "%s%s %s", a->past_due ? "!" : "", when, text);
             names[i] = rows[i];
         }
-        int pick = run_list("Alarms", names, count, NULL, &selected, "Enter:Open  Exit:Back");
-        if (pick == LIST_POWER_OFF)
+        l.tabs[1] = l.count > 0 ? "EDIT" : "";
+        l.tabs[2] = l.count > 0 ? "DEL" : "";
+        int key = ui_list(&menu_ui, &l);
+        if (key == PX_UI_QUIT)
             return EDIT_POWER_OFF;
-        if (pick == LIST_BACK)
+        if (key == PX_UI_BACK)
             return EDIT_OK;
-
-        const alarm_t *a = alarms_get(pick);
-        char when[32], text[ALARM_TEXT_MAX + 1], repeat[40];
-        alarm_when(when, sizeof(when), a);
-        alarm_text(text, sizeof(text), a);
-        const char *state = a->past_due ? ", past due" : "";
-        if (a->repeat_ms == 0)
-            snprintf(repeat, sizeof(repeat), "Once%s", state);
-        else
-            snprintf(repeat, sizeof(repeat), "Every %d:%02d:%02d%s", (int) (a->repeat_ms / 3600000),
-                     (int) (a->repeat_ms / 60000 % 60), (int) (a->repeat_ms / 1000 % 60), state);
-
-        /* A control alarm only runs its program: it never sounds. */
-        bool sounds = alarm_kind(a) != ALARM_CONTROL;
-        const char *rows_open[5] = {when, repeat, text};
-        int count_open = 3;
-        alarm_opened = a;
-        alarm_opened_sound_row = sounds ? count_open : -1;
-        if (sounds)
-            rows_open[count_open++] = "Sound";
-        int delete_row = count_open;
-        rows_open[count_open++] = "Delete";
-        int row = sounds ? alarm_opened_sound_row : delete_row;
-        while (true) {
-            int choice = run_list("Alarm", rows_open, count_open, alarm_row_value, &row,
-                                  "Enter:Select  Exit:Back");
-            if (choice == LIST_POWER_OFF)
-                return EDIT_POWER_OFF;
-            if (choice == LIST_BACK)
-                break;
-            if (choice == delete_row) {
-                alarms_remove(pick);
-                break;
-            }
-            if (choice == alarm_opened_sound_row && do_alarm_sound(pick) == EDIT_POWER_OFF)
-                return EDIT_POWER_OFF;
+        edit_result_t r = EDIT_OK;
+        if (key == 0) {
+            r = alarm_form(-1);
+        } else if (key == 2) {
+            char line[40], text[ALARM_TEXT_MAX + 1], when[32];
+            alarm_when(when, sizeof(when), alarms_get(l.selected));
+            alarm_text(text, sizeof(text), alarms_get(l.selected));
+            snprintf(line, sizeof(line), "%.24s", text);
+            const char *const lines[] = {"Delete the alarm", when, line};
+            r = show_message("Delete Alarm", lines, 3, CONFIRM("DEL"));
+            if (r == EDIT_OK)
+                alarms_remove(l.selected);
+        } else if (alarms_get(l.selected)->owner[0] != 0) { /* EDIT or ENTER */
+            char line[40];
+            snprintf(line, sizeof(line), "%.28s set it.", alarms_get(l.selected)->owner);
+            const char *const lines[] = {line, "It can only be deleted."};
+            r = show_message("Edit Alarm", lines, 2, TABS("ENTER"));
+        } else {
+            r = alarm_form(l.selected);
         }
+        if (r == EDIT_POWER_OFF)
+            return r;
     }
 }
 
-/* Connect to Computer -- like the DM42's USB disk mode: the computer gets
+/* Connect to PC -- like the DM42's USB disk mode: the computer gets
  * the drive, the calculator stays out of it, until the drive is ejected or
  * EXIT. */
 static edit_result_t do_usb_connect(void) {
@@ -1401,6 +1646,7 @@ static edit_result_t do_usb_connect(void) {
         return no_disk();
 
     debug_checkpoint(CKPT_USB_DISK, 0);
+    usbprint_release(); /* the port back from the thermal printer, if it has it */
     sounds_stop(); /* one playing from a file: closed before the computer gets the drive */
     statefs_usb_begin();
     edit_result_t result = EDIT_OK;
@@ -1415,13 +1661,13 @@ static edit_result_t do_usb_connect(void) {
             was_mounted = host;
             redraw = false;
             display_clear();
-            draw_title("Connect to Computer");
+            ui_title(&menu_ui, "Connect to PC", NULL);
             draw_line(0, host ? "Connected: drive \"PX-42F\"" : "Waiting for a computer...");
             draw_line(2, "States: STATE/<name>.p42");
             draw_line(3, "Splash images: SPLASH/*.png");
             draw_line(4, "Programs: PROGRAMS/*.raw");
-            draw_line(6, "Eject the drive when done.");
-            draw_hint("Exit:Back (Eject First!)");
+            draw_line(5, "Eject the drive, then EXIT.");
+            ui_tabs(&menu_ui, TABS("", "", "", "", "", "EXIT"));
             display_flush();
         }
 
@@ -1433,7 +1679,7 @@ static edit_result_t do_usb_connect(void) {
             result = EDIT_POWER_OFF;
             break;
         }
-        if (is_back(key))
+        if (is_back(key) || key == SOFT_EXIT) /* EXIT, <-, the EXIT tab */
             break;
         if (key == K_TICK || key == K_SHIFT)
             redraw = true;
@@ -1441,7 +1687,7 @@ static edit_result_t do_usb_connect(void) {
         idle_since = get_absolute_time();
     }
 
-    show_busy("Connect to Computer", "Writing to flash...");
+    show_busy("Connect to PC", "Writing to flash...");
     statefs_usb_end();
     splash_reload(); /* the chosen splash image may have been replaced */
     sounds_init(true); /* likewise the sounds -- and /SOUNDS made again if it was deleted */
@@ -1457,11 +1703,11 @@ static edit_result_t do_format_drive(void) {
         return no_disk();
     static const char *const warning[] = {"Erase every file on the drive?", "", "States, programs, screenshots,",
                                           "your sounds, fonts and splash", "images. Settings stay."};
-    edit_result_t r = show_message("Format Drive", warning, 5, "Enter:Format  Exit:Cancel");
+    edit_result_t r = show_message("Format Drive", warning, 5, CONFIRM("FORMT"));
     if (r != EDIT_OK)
         return r;
     static const char *const sure[] = {"Are you sure?", "", "This cannot be undone."};
-    r = show_message("Format Drive", sure, 3, "Enter:Format  Exit:Cancel");
+    r = show_message("Format Drive", sure, 3, CONFIRM("FORMT"));
     if (r != EDIT_OK)
         return r;
 
@@ -1488,13 +1734,13 @@ static edit_result_t do_update_firmware(void) {
     static const char *const how[] = {"The calculator becomes a drive", "named RP2350. Copy",
                                       "PX-42F-Plus.uf2 onto it: the", "new firmware then starts,",
                                       "with the memory cleared."};
-    edit_result_t r = show_message("Update Firmware", how, 5, "Enter:Start  Exit:Cancel");
+    edit_result_t r = show_message("Update Firmware", how, 5, CONFIRM("START"));
     if (r != EDIT_OK)
         return r;
     settings_save_pending();
 
     display_clear();
-    draw_title("Update Firmware");
+    ui_title(&menu_ui, "Update Firmware", NULL);
     draw_line(0, "Copy PX-42F-Plus.uf2 onto");
     draw_line(1, "the RP2350 drive.");
     draw_line(3, "To cancel, press RESET.");
@@ -1502,67 +1748,54 @@ static edit_result_t do_update_firmware(void) {
     power_update_mode();
 }
 
-enum { USB_CONNECT, USB_FORMAT, USB_UPDATE, USB_COUNT };
-static const char *const usb_items[USB_COUNT] = {"Connect to Computer", "Format Drive", "Update Firmware"};
+static const page_item_t usb_page[] = {
+        {"Connect to PC", MENU_ICON_USB_CONNECT, do_usb_connect, false},
+        {"Format Drive", MENU_ICON_USB_FORMAT, do_format_drive, false},
+        {"Update Firmware", MENU_ICON_USB_UPDATE, do_update_firmware, false},
+};
 
 static edit_result_t do_usb_drive(void) {
     static int selected = 0;
-    while (true) {
-        int pick = run_list("USB Drive", usb_items, USB_COUNT, NULL, &selected, "Enter:Select  Exit:Back");
-        if (pick == LIST_POWER_OFF)
-            return EDIT_POWER_OFF;
-        if (pick == LIST_BACK)
-            return EDIT_CANCEL;
-        edit_result_t r = pick == USB_CONNECT  ? do_usb_connect()
-                          : pick == USB_FORMAT ? do_format_drive()
-                                               : do_update_firmware();
-        if (r == EDIT_POWER_OFF)
-            return r;
-    }
+    edit_result_t r = run_page("USB Drive", usb_page, sizeof(usb_page) / sizeof(usb_page[0]), &selected, "BACK");
+    return r == EDIT_POWER_OFF ? r : EDIT_CANCEL;
 }
 
-enum {
-    STATE_SAVE,
-    STATE_LOAD,
-    STATE_RENAME,
-    STATE_DELETE,
-    STATE_COUNT
-};
-
-static const char *const state_items[STATE_COUNT] = {
-        "Save State",
-        "Load State",
-        "Rename State",
-        "Delete State",
-};
-
-/* Returns EDIT_POWER_OFF to power off, EDIT_OK when a state was loaded
+/* The saved states, a list: SAVE makes one; LOAD (or ENTER), RENAM and
+ * DEL act on the one picked, so with none only SAVE and EXIT show.
+ * Returns EDIT_POWER_OFF to power off, EDIT_OK when a state was loaded
  * (back to the calculator, to show it), EDIT_CANCEL to go back. */
 static edit_result_t do_states(void) {
+    if (!statefs_ready())
+        return no_disk();
+    static char names[MAX_STATES][STATEFS_NAME_MAX + 1];
+    static const char *items[MAX_STATES];
     static int selected = 0;
+    px_ui_list_t l = {"States", items, 0, NULL, NULL, "No saved states yet.", {"SAVE", "", "", "", "", "BACK"}, 0, -1,
+                      selected};
     while (true) {
-        int pick = run_list("States", state_items, STATE_COUNT, NULL, &selected, "Enter:Select  Exit:Back");
-        if (pick == LIST_POWER_OFF)
+        l.count = statefs_list_states(names, MAX_STATES);
+        for (int i = 0; i < l.count; i++)
+            items[i] = names[i];
+        l.tabs[1] = l.count > 0 ? "LOAD" : "";
+        l.tabs[2] = l.count > 0 ? "RENAM" : "";
+        l.tabs[3] = l.count > 0 ? "DEL" : "";
+        int key = ui_list(&menu_ui, &l);
+        selected = l.selected;
+        if (key == PX_UI_QUIT)
             return EDIT_POWER_OFF;
-        if (pick == LIST_BACK)
+        if (key == PX_UI_BACK)
             return EDIT_CANCEL;
-
-        edit_result_t r = EDIT_CANCEL;
-        switch (pick) {
-            case STATE_SAVE:
-                r = do_save_state();
-                break;
-            case STATE_LOAD:
-                r = do_load_state();
-                if (r == EDIT_OK)
-                    return EDIT_OK;
-                break;
-            case STATE_RENAME:
-                r = do_rename_state();
-                break;
-            case STATE_DELETE:
-                r = do_delete_state();
-                break;
+        edit_result_t r;
+        if (key == 0) {
+            r = do_save_state();
+        } else if (key == 2) {
+            r = do_rename_state(names[l.selected]);
+        } else if (key == 3) {
+            r = do_delete_state(names[l.selected]);
+        } else { /* LOAD or ENTER */
+            r = do_load_state(names[l.selected]);
+            if (r == EDIT_OK)
+                return EDIT_OK;
         }
         if (r == EDIT_POWER_OFF)
             return r;
@@ -1605,7 +1838,7 @@ static edit_result_t do_export_programs(void) {
     for (int i = 0; i <= count; i++)
         items[i] = labels[i];
     int selected = 0;
-    int pick = run_list("Export Programs", items, count + 1, NULL, &selected, "Enter:Export  Exit:Back");
+    int pick = run_list("Export Programs", items, count + 1, NULL, &selected, "EXPRT");
     if (pick == LIST_POWER_OFF)
         return EDIT_POWER_OFF;
     if (pick == LIST_BACK)
@@ -1626,7 +1859,7 @@ static edit_result_t do_export_programs(void) {
     if (statefs_file_exists(path)) {
         snprintf(line, sizeof(line), "%s.raw already exists.", name);
         const char *const lines[] = {line, "Replace it?"};
-        r = show_message("Export Programs", lines, 2, "Enter:Replace  Exit:Cancel");
+        r = show_message("Export Programs", lines, 2, CONFIRM("REPLC"));
         if (r != EDIT_OK)
             return r;
     }
@@ -1641,43 +1874,9 @@ static edit_result_t do_export_programs(void) {
     return show_result("Export Programs", ok, line);
 }
 
-/* Lets the user pick a .raw file in PROGRAMS_DIR; its name (without .raw)
- * goes to name[]. EDIT_OK once one is picked; EDIT_CANCEL for EXIT, or
- * when there are none (after saying so). */
-static edit_result_t pick_program_file(const char *title, const char *hint, char *name) {
-    if (!statefs_ready())
-        return no_disk();
-
-    static char names[MAX_PROGRAM_FILES][PROGRAM_FILE_MAX + 1];
-    int count = statefs_list_files(PROGRAMS_DIR, ".raw", (char *) names, PROGRAM_FILE_MAX + 1, MAX_PROGRAM_FILES);
-    if (count == 0) {
-        static const char *const lines[] = {"No .raw files.", "", "Export some first, or copy", ".raw files into the PROGRAMS",
-                                            "folder with USB Drive."};
-        edit_result_t r = show_message(title, lines, 5, "Exit:Back");
-        return r == EDIT_POWER_OFF ? r : EDIT_CANCEL;
-    }
-
-    const char *items[MAX_PROGRAM_FILES];
-    for (int i = 0; i < count; i++)
-        items[i] = names[i];
-    int selected = 0;
-    int pick = run_list(title, items, count, NULL, &selected, hint);
-    if (pick == LIST_POWER_OFF)
-        return EDIT_POWER_OFF;
-    if (pick == LIST_BACK)
-        return EDIT_CANCEL;
-    strcpy(name, names[pick]);
-    return EDIT_OK;
-}
-
 /* Adds the file's programs to the calculator's -- nothing in it is
  * replaced, so no question first. */
-static edit_result_t do_import_programs(void) {
-    char name[PROGRAM_FILE_MAX + 1];
-    edit_result_t r = pick_program_file("Import Programs", "Enter:Import  Exit:Back", name);
-    if (r != EDIT_OK)
-        return r;
-
+static edit_result_t do_import_programs(const char *name) {
     show_busy("Import Programs", "Loading...");
     char path[48];
     program_path(name, path, sizeof(path));
@@ -1690,16 +1889,34 @@ static edit_result_t do_import_programs(void) {
     return show_result("Import Programs", added >= 0, line);
 }
 
-static edit_result_t do_delete_program_file(void) {
-    char name[PROGRAM_FILE_MAX + 1];
-    edit_result_t r = pick_program_file("Delete File", "Enter:Delete  Exit:Back", name);
-    if (r != EDIT_OK)
+static edit_result_t do_rename_program_file(const char *old_name) {
+    char new_name[STATEFS_NAME_MAX + 1]; /* a longer name (copied in) is cut to what can be typed */
+    snprintf(new_name, sizeof(new_name), "%s", old_name);
+    edit_result_t r = edit_name("Rename File", new_name);
+    if (r != EDIT_OK || strcmp(new_name, old_name) == 0)
         return r;
 
+    char old_path[48], new_path[48], line[40];
+    program_path(old_name, old_path, sizeof(old_path));
+    program_path(new_name, new_path, sizeof(new_path));
+    if (statefs_file_exists(new_path)) {
+        snprintf(line, sizeof(line), "%s.raw already exists", new_name);
+        return show_result("Rename File", false, line);
+    }
+    bool ok = statefs_rename(old_path, new_path) == 0;
+    statefs_sync();
+    if (ok)
+        snprintf(line, sizeof(line), "Renamed to %s.raw", new_name);
+    else
+        snprintf(line, sizeof(line), "Could not rename %.20s", old_name);
+    return show_result("Rename File", ok, line);
+}
+
+static edit_result_t do_delete_program_file(const char *name) {
     char line[40];
-    snprintf(line, sizeof(line), "Delete %s.raw?", name);
+    snprintf(line, sizeof(line), "Delete %.24s.raw?", name);
     const char *const lines[] = {line, "", "The programs in the calculator", "stay. This cannot be undone."};
-    r = show_message("Delete File", lines, 4, "Enter:Delete  Exit:Cancel");
+    edit_result_t r = show_message("Delete File", lines, 4, CONFIRM("DEL"));
     if (r != EDIT_OK)
         return r;
 
@@ -1711,21 +1928,35 @@ static edit_result_t do_delete_program_file(void) {
     return show_result("Delete File", ok, line);
 }
 
-enum { PROGRAMS_IMPORT, PROGRAMS_EXPORT, PROGRAMS_DELETE, PROGRAMS_COUNT };
-static const char *const program_items[PROGRAMS_COUNT] = {"Import Programs", "Export Programs", "Delete File"};
-
+/* The .raw files in PROGRAMS_DIR, a list: IMPRT (or ENTER) adds the picked
+ * file's programs to the calculator's, EXPRT writes the calculator's to a
+ * file, RENAM and DEL act on the one picked: with none, only EXPRT and
+ * EXIT show. */
 static edit_result_t do_programs(void) {
+    if (!statefs_ready())
+        return no_disk();
+    static char names[MAX_PROGRAM_FILES][PROGRAM_FILE_MAX + 1];
+    static const char *items[MAX_PROGRAM_FILES];
     static int selected = 0;
+    px_ui_list_t l = {"Programs", items, 0, NULL, NULL, "No .raw files yet.", {""}, 0, -1, selected};
     while (true) {
-        int pick = run_list("Programs", program_items, PROGRAMS_COUNT, NULL, &selected, "Enter:Select  Exit:Back");
-        if (pick == LIST_POWER_OFF)
+        l.count = statefs_list_files(PROGRAMS_DIR, ".raw", (char *) names, PROGRAM_FILE_MAX + 1, MAX_PROGRAM_FILES);
+        for (int i = 0; i < l.count; i++)
+            items[i] = names[i];
+        l.tabs[0] = l.count > 0 ? "IMPRT" : "";
+        l.tabs[1] = "EXPRT";
+        l.tabs[2] = l.count > 0 ? "RENAM" : "";
+        l.tabs[3] = l.count > 0 ? "DEL" : "";
+        int key = ui_list(&menu_ui, &l);
+        selected = l.selected;
+        if (key == PX_UI_QUIT)
             return EDIT_POWER_OFF;
-        if (pick == LIST_BACK)
+        if (key == PX_UI_BACK)
             return EDIT_CANCEL;
-
-        edit_result_t r = pick == PROGRAMS_IMPORT   ? do_import_programs()
-                          : pick == PROGRAMS_EXPORT ? do_export_programs()
-                                                    : do_delete_program_file();
+        edit_result_t r = key == 1   ? do_export_programs()
+                          : key == 2 ? do_rename_program_file(names[l.selected])
+                          : key == 3 ? do_delete_program_file(names[l.selected])
+                                     : do_import_programs(names[l.selected]); /* IMPRT or ENTER */
         if (r == EDIT_POWER_OFF)
             return r;
     }
@@ -1734,34 +1965,69 @@ static edit_result_t do_programs(void) {
 /* ===================== Splash ===================== */
 
 enum { SPLASH_TIMER, SPLASH_IMAGE, SPLASH_COUNT };
-static const char *const splash_items[SPLASH_COUNT] = {"Timer", "Image"};
 
-static void splash_value(int item, char *buf, size_t size) {
-    if (item == SPLASH_TIMER)
-        format_minutes(buf, size, px_settings.splash_minutes);
-    else if (px_settings.splash_image[0] == 0)
-        snprintf(buf, size, "Built-In");
-    else if (strlen(px_settings.splash_image) <= 20)
-        snprintf(buf, size, "%s", px_settings.splash_image);
-    else
-        snprintf(buf, size, "%.18s..", px_settings.splash_image);
+static char splash_names[MAX_SPLASHES][SPLASH_NAME_MAX + 1];
+static const char *splash_rows[MAX_SPLASHES + 1];
+static int splash_pick, splash_in_use;
+
+/* Image picked from the pull-down: loaded and shown full screen; USE keeps
+ * it, EXIT goes back to the one in use. */
+static int splash_changed(px_ui_form_t *form, int field, void *ctx) {
+    (void) form, (void) ctx;
+    if (field != SPLASH_IMAGE || splash_pick == splash_in_use)
+        return 0;
+    const char *name = splash_pick == 0 ? NULL : splash_names[splash_pick - 1];
+    char error[48];
+    show_busy("Splash Image", "Loading...");
+    edit_result_t r;
+    if (!splash_preview_load(name, error, sizeof(error))) {
+        error_beep();
+        char line[40];
+        snprintf(line, sizeof(line), "Can't use %.24s:", name);
+        const char *const lines[] = {line, error, "", "Use a non-interlaced PNG;", "best at 250 x 122 pixels."};
+        r = show_message("Splash Image", lines, 5, TABS("ENTER")) == EDIT_POWER_OFF ? EDIT_POWER_OFF : EDIT_CANCEL;
+    } else {
+        r = preview_splash();
+    }
+    if (r == EDIT_OK) {
+        snprintf(px_settings.splash_image, sizeof(px_settings.splash_image), "%s", name != NULL ? name : "");
+        splash_preview_use();
+        settings_save();
+        splash_in_use = splash_pick;
+    } else {
+        splash_pick = splash_in_use;
+    }
+    return r == EDIT_POWER_OFF ? PX_UI_QUIT : 0;
 }
 
-/* The picture shown while off: for how long, and which. */
+/* The picture shown while off, a form: Timer opens the minutes, Image is a
+ * pull-down of Built-In and the PNGs in /SPLASH. */
 static edit_result_t do_splash(void) {
+    int count = statefs_list_files(STATEFS_SPLASH_DIR, ".png", (char *) splash_names, SPLASH_NAME_MAX + 1,
+                                   MAX_SPLASHES);
+    splash_rows[0] = "Built-In";
+    splash_in_use = 0;
+    for (int i = 0; i < count; i++) {
+        splash_rows[i + 1] = splash_names[i];
+        if (strcmp(splash_names[i], px_settings.splash_image) == 0)
+            splash_in_use = i + 1;
+    }
+    splash_pick = splash_in_use;
+    char timer[16];
+    px_ui_field_t fields[SPLASH_COUNT] = {
+            [SPLASH_TIMER] = {"Timer", PX_UI_BUTTON, 0, NULL, NULL, 0, NULL, 0, 0, 0, timer},
+            [SPLASH_IMAGE] = {"Image", PX_UI_CHOICE, 0, &splash_pick, splash_rows, count + 1, NULL, 0, 0, 0, NULL},
+    };
     static int selected = 0;
+    px_ui_form_t form = {"Splash Image", fields, SPLASH_COUNT, {"ENTER"}, splash_changed, NULL, selected};
     while (true) {
-        int pick = run_list("Splash Image", splash_items, SPLASH_COUNT, splash_value, &selected,
-                            "Enter:Select  Exit:Back");
-        if (pick == LIST_POWER_OFF)
+        format_minutes(timer, sizeof(timer), px_settings.splash_minutes);
+        int r = ui_form(&menu_ui, &form);
+        selected = form.selected;
+        if (r != PX_UI_ENTER) /* the only button: Timer */
+            return r == PX_UI_QUIT ? EDIT_POWER_OFF : EDIT_CANCEL;
+        if (do_minutes("Splash Timer", "Shown for", &px_settings.splash_minutes) == EDIT_POWER_OFF)
             return EDIT_POWER_OFF;
-        if (pick == LIST_BACK)
-            return EDIT_CANCEL;
-        edit_result_t r = pick == SPLASH_TIMER
-                                  ? do_minutes("Splash Timer", "Shown for", &px_settings.splash_minutes)
-                                  : do_splash_image();
-        if (r == EDIT_POWER_OFF)
-            return r;
     }
 }
 
@@ -1783,17 +2049,6 @@ static display_font_t *font_of(font_kind_t kind) {
     return kind == FONT_SMALL ? &font_small : kind == FONT_LARGE ? &font_large : &font_mini;
 }
 
-static void font_value(int item, char *buf, size_t size) {
-    /* 11 characters: what's left of the row beside "Large Font (10x16)". */
-    const char *name = font_setting(font_item_kind[item]);
-    if (name[0] == 0)
-        snprintf(buf, size, "Built-In");
-    else if (strlen(name) <= 11)
-        snprintf(buf, size, "%s", name);
-    else
-        snprintf(buf, size, "%.9s..", name);
-}
-
 /* Every character of the font, as the calculator will draw it, with a hint
  * bar (in the menu's own font) over the bottom; ENTER = use it. */
 static edit_result_t preview_font(const display_font_t *font) {
@@ -1809,277 +2064,445 @@ static edit_result_t preview_font(const display_font_t *font) {
             }
             display_draw_chars(font, row, n, 1, (uint8_t) (code / per_row * (font->height + 1)), 0x00);
         }
-        display_fill_rect(0, HINT_Y - 2, DISPLAY_WIDTH - 1, DISPLAY_HEIGHT - 1, true);
-        display_draw_string(&font_8x12, "Enter:Use  Exit:Back", 2, HINT_Y, 0xFF);
+        ui_tabs(&menu_ui, CONFIRM("USE"));
         display_flush();
-
-        int key = wait_key();
-        if (key == K_POWEROFF || key == K_SLEEP)
-            return EDIT_POWER_OFF;
-        if (key == K_ENTER)
-            return EDIT_OK;
-        if (is_back(key))
-            return EDIT_CANCEL;
+        int r = tab_key();
+        if (r >= 0)
+            return (edit_result_t) r;
     }
 }
 
-/* "Built-In", then the sheets in /FONTS/LARGE, SMALL or MINI. ENTER loads
- * one and shows it; it's only kept if accepted there. */
-static edit_result_t do_font(font_kind_t kind) {
-    static char names[MAX_FONTS][FONT_NAME_MAX + 1];
-    const char *title = font_items[kind == FONT_LARGE ? FONT_ITEM_LARGE : kind == FONT_SMALL ? FONT_ITEM_SMALL
-                                                                                             : FONT_ITEM_MINI];
+static char font_names[FONT_ITEM_COUNT][MAX_FONTS][FONT_NAME_MAX + 1];
+static const char *font_rows[FONT_ITEM_COUNT][MAX_FONTS + 1];
+static int font_pick[FONT_ITEM_COUNT], font_in_use[FONT_ITEM_COUNT];
+
+/* A font picked from its pull-down: loaded and shown, every character;
+ * USE keeps it, EXIT goes back to the one in use. */
+static int font_changed(px_ui_form_t *form, int field, void *ctx) {
+    (void) form, (void) ctx;
+    if (font_pick[field] == font_in_use[field])
+        return 0;
+    font_kind_t kind = font_item_kind[field];
+    const char *title = font_items[field];
     char *setting = font_setting(kind);
-    int count = fonts_list(kind, names, MAX_FONTS);
-
-    const char *items[MAX_FONTS + 1];
-    items[0] = "Built-In";
-    int selected = 0;
-    for (int i = 0; i < count; i++) {
-        items[i + 1] = names[i];
-        if (strcmp(names[i], setting) == 0)
-            selected = i + 1;
+    const char *name = font_pick[field] == 0 ? "" : font_names[field][font_pick[field] - 1];
+    char error[40];
+    edit_result_t r;
+    show_busy(title, "Loading...");
+    if (!fonts_select(kind, name, error, sizeof(error))) {
+        error_beep();
+        char line[40];
+        snprintf(line, sizeof(line), "Can't use %.20s:", name);
+        const char *const small[] = {line, error, "", "A small font is a PNG of",
+                                     "128 x 96 pixels: 16 x 8", "glyphs of 8 x 12, no gaps."};
+        const char *const large[] = {line, error, "", "A large font is a PNG of",
+                                     "175 x 135 pixels: 16 x 8", "glyphs of 10 x 16, 1 apart."};
+        const char *const mini[] = {line, error, "", "A mini font is a PNG of",
+                                    "96 x 64 pixels: 16 x 8", "glyphs of 6 x 8, no gaps."};
+        const char *const *help = kind == FONT_SMALL ? small : kind == FONT_LARGE ? large : mini;
+        r = show_message(title, help, 6, TABS("ENTER")) == EDIT_POWER_OFF ? EDIT_POWER_OFF : EDIT_CANCEL;
+    } else {
+        r = preview_font(font_of(kind));
     }
-
-    while (true) {
-        int pick = run_list(title, items, count + 1, NULL, &selected, "Enter:Preview  Exit:Back");
-        if (pick == LIST_POWER_OFF)
-            return EDIT_POWER_OFF;
-        if (pick == LIST_BACK)
-            return EDIT_CANCEL;
-
-        const char *name = pick == 0 ? "" : names[pick - 1];
-        char error[40];
-        show_busy(title, "Loading...");
-        if (!fonts_select(kind, name, error, sizeof(error))) {
-            error_beep();
-            char line[40];
-            snprintf(line, sizeof(line), "Can't use %.20s:", name);
-            const char *const small[] = {line, error, "", "A small font is a PNG of",
-                                         "128 x 96 pixels: 16 x 8", "glyphs of 8 x 12, no gaps."};
-            const char *const large[] = {line, error, "", "A large font is a PNG of",
-                                         "175 x 135 pixels: 16 x 8", "glyphs of 10 x 16, 1 apart."};
-            const char *const mini[] = {line, error, "", "A mini font is a PNG of",
-                                        "96 x 64 pixels: 16 x 8", "glyphs of 6 x 8, no gaps."};
-            const char *const *help = kind == FONT_SMALL ? small : kind == FONT_LARGE ? large : mini;
-            if (show_message(title, help, 6, "Exit:Back") == EDIT_POWER_OFF)
-                return EDIT_POWER_OFF;
-            continue;
-        }
-
-        edit_result_t r = preview_font(font_of(kind));
-        if (r == EDIT_OK) {
-            snprintf(setting, FONT_SETTING_MAX + 1, "%s", name);
-            settings_save();
-            return EDIT_OK;
-        }
-        /* Not taken: back to the current one (the built-in font, should its
+    if (r == EDIT_OK) {
+        snprintf(setting, FONT_SETTING_MAX + 1, "%s", name);
+        settings_save();
+        font_in_use[field] = font_pick[field];
+    } else {
+        /* Not taken: back to the one in use (the built-in font, should its
          * file have gone). */
         if (!fonts_select(kind, setting, error, sizeof(error)))
             fonts_select(kind, "", error, sizeof(error));
-        if (r == EDIT_POWER_OFF)
-            return r;
+        font_pick[field] = font_in_use[field];
     }
+    return r == EDIT_POWER_OFF ? PX_UI_QUIT : 0;
 }
 
-/* The calculator screen's fonts (fonts.h); this menu keeps its own. */
+/* The calculator screen's fonts (fonts.h), a form of three pull-downs:
+ * Built-In, then the sheets in /FONTS/LARGE, SMALL or MINI. This menu keeps
+ * its own fonts. */
 static edit_result_t do_fonts(void) {
-    static int selected = 0;
-    while (true) {
-        int pick = run_list("Fonts", font_items, FONT_ITEM_COUNT, font_value, &selected, "Enter:Select  Exit:Back");
-        if (pick == LIST_POWER_OFF)
-            return EDIT_POWER_OFF;
-        if (pick == LIST_BACK)
-            return EDIT_CANCEL;
-        if (do_font(font_item_kind[pick]) == EDIT_POWER_OFF)
-            return EDIT_POWER_OFF;
+    px_ui_field_t fields[FONT_ITEM_COUNT];
+    for (int f = 0; f < FONT_ITEM_COUNT; f++) {
+        int count = fonts_list(font_item_kind[f], font_names[f], MAX_FONTS);
+        const char *setting = font_setting(font_item_kind[f]);
+        font_rows[f][0] = "Built-In";
+        font_in_use[f] = 0;
+        for (int i = 0; i < count; i++) {
+            font_rows[f][i + 1] = font_names[f][i];
+            if (strcmp(font_names[f][i], setting) == 0)
+                font_in_use[f] = i + 1;
+        }
+        font_pick[f] = font_in_use[f];
+        fields[f] = (px_ui_field_t){font_items[f], PX_UI_CHOICE, 0, &font_pick[f], font_rows[f], count + 1,
+                                    NULL, 0, 0, 0, NULL};
     }
+    static int selected = 0;
+    px_ui_form_t form = {"Fonts", fields, FONT_ITEM_COUNT, {"ENTER"}, font_changed, NULL, selected};
+    int r = ui_form(&menu_ui, &form);
+    selected = form.selected;
+    return r == PX_UI_QUIT ? EDIT_POWER_OFF : EDIT_CANCEL;
 }
 
 /* ===================== Games & Apps ===================== */
 
-#define MAX_APPS 64 /* the listing stops at this many, in directory order */
+/* ===================== the gear and Plus42 ===================== */
 
-/* The .bin files in dir: one runs (app.h), and this list comes back after
- * it -- unless it was ended to turn off. */
-static edit_result_t do_app_list(const char *title, const char *dir, const char *none) {
-    static char names[MAX_APPS][APP_NAME_MAX + 1];
-    int count = statefs_list_files(dir, ".bin", (char *) names, APP_NAME_MAX + 1, MAX_APPS);
-    if (count == 0) {
-        const char *const lines[] = {none, "", "Copy .bin files to the", dir + 1, "folder in USB Drive mode."};
-        return show_message(title, lines, 5, "Exit:Back") == EDIT_POWER_OFF ? EDIT_POWER_OFF : EDIT_CANCEL;
+static edit_result_t do_sleep(void) {
+    return do_minutes("Sleep Timer", "Off after", &px_settings.sleep_minutes);
+}
+
+static const char *const menu_style_names[MENU_STYLES] = {"Icons", "List"};
+
+static edit_result_t do_menu_style(void) {
+    int pick = choose("Menu Style", menu_style_names, MENU_STYLES, px_settings.menu_style);
+    if (pick == LIST_POWER_OFF)
+        return EDIT_POWER_OFF;
+    if (pick == LIST_BACK)
+        return EDIT_CANCEL;
+    if (pick != px_settings.menu_style) {
+        px_settings.menu_style = (uint8_t) pick;
+        settings_save();
+        style_changed = true;
     }
-    const char *items[MAX_APPS];
-    for (int i = 0; i < count; i++)
-        items[i] = names[i];
+    return EDIT_OK;
+}
 
+/* Reset: Plus42's Memory Clear, asked twice as Format Drive, then a
+ * restart. Only Plus42's memory (the user's choice): the RESET button also
+ * clears the alarms and the stopwatch, this keeps them. */
+static edit_result_t do_reset(void) {
+    static const char *const what[] = {"Clear Plus42's memory and", "restart?", "",
+                                       "Programs, variables, stack.", "Alarms, settings, files stay."};
+    edit_result_t r = show_message("Reset", what, 5, CONFIRM("RESET"));
+    if (r != EDIT_OK)
+        return r;
+    static const char *const sure[] = {"Are you sure?", "", "This cannot be undone."};
+    r = show_message("Reset", sure, 3, CONFIRM("RESET"));
+    if (r != EDIT_OK)
+        return r;
+    show_busy("Reset", "Restarting...");
+    free42_memory_clear_restart();
+}
+
+static const page_item_t settings_page[] = {
+        {"Date & Time", MENU_ICON_DATE_TIME, do_date_time, false},
+        {"Fonts", MENU_ICON_FONTS, do_fonts, false},
+        {"Sounds", MENU_ICON_SOUNDS, do_sounds, false},
+        {"Printer", MENU_ICON_PRINTER, do_printer, false},
+        {"Splash Image", MENU_ICON_SPLASH, do_splash, false},
+        {"Sleep Timer", MENU_ICON_SLEEP, do_sleep, false},
+        {"Menu Style", MENU_ICON_STYLE, do_menu_style, false},
+        {"Reset", MENU_ICON_RESET, do_reset, false},
+};
+
+static const page_item_t plus42_page[] = {
+        {"States", MENU_ICON_STATES, do_states, true},
+        {"Programs", MENU_ICON_PROGRAMS, do_programs, false},
+};
+
+static edit_result_t do_settings(void) {
     static int selected = 0;
-    if (selected >= count)
-        selected = 0;
+    return run_page("Settings", settings_page, sizeof(settings_page) / sizeof(settings_page[0]), &selected, "BACK");
+}
+
+static edit_result_t do_plus42(void) {
+    static int selected = 0;
+    return run_page("Plus42", plus42_page, sizeof(plus42_page) / sizeof(plus42_page[0]), &selected, "BACK");
+}
+
+/* ===================== the home screen ===================== */
+
+/* An app's own icon, or the frame with its first letter. */
+static void app_icon_bits(int app, uint8_t bits[MENU_ICON_BYTES], char *letter) {
+    if (app_icon(app_dirs[app], app_names[app], bits))
+        return;
+    menu_icon_bits(MENU_ICON_FRAME, bits);
+    char c = app_names[app][0];
+    *letter = c >= 'a' && c <= 'z' ? (char) (c - 'a' + 'A') : c;
+}
+
+static void home_icon(int item, uint8_t bits[MENU_ICON_BYTES], char *letter) {
+    int id = home_order[item];
+    if (id < HOME_FIXED)
+        menu_icon_bits(home_fixed[id].icon, bits);
+    else
+        app_icon_bits(id - HOME_FIXED, bits, letter);
+}
+
+/* UNFAV on a favourite: back to its folder. */
+static const char *home_tab(int item) {
+    return home_order[item] >= HOME_FIXED ? "UNFAV" : NULL;
+}
+
+/* ----- the Apps and Games folders ----- */
+
+static void folder_icon(int item, uint8_t bits[MENU_ICON_BYTES], char *letter) {
+    app_icon_bits(folder_order[item], bits, letter);
+}
+
+static const char *folder_tab(int item) {
+    return "FAV";
+}
+
+static edit_result_t do_help(void) {
+    static const char text[] =
+            "THE ICONS\n"
+            "The tabs: ENTER \x10 ^ \x0e \x0f and EXIT (BACK on the pages the home screen opens). "
+            "\x10 \x0f, 4 6 and the arrow keys go to the icon before or after; ^ \x0e and 8 2 a row up "
+            "or down. ENTER, or 5, opens the one picked. EXIT or BACK goes back; EXIT on the home "
+            "screen goes back to the calculator, and on Off turns the calculator off.\n\n"
+            "SHIFT\n"
+            "On the home screen and in Apps and Games, SHIFT shows MOVE, FAV or UNFAV, and BACK, "
+            "which puts the plain tabs back. On an icon that can't move or be a favourite, SHIFT "
+            "changes nothing.\n\n"
+            "MOVING ICONS\n"
+            "SHIFT then MOVE picks up the icon picked: the arrows carry it over the others, which stay "
+            "where they are. DONE (or ENTER) puts it down there; CANCL (or EXIT) puts it back where "
+            "it was. Its old place is left empty; put down on another icon, the two change places. "
+            "Off stays first.\n\n"
+            "FAVOURITES\n"
+            "In Apps and Games, SHIFT then FAV puts the app picked on the home screen, in its first "
+            "empty place. On the home screen, SHIFT then UNFAV on a favourite sends it back to its "
+            "folder.\n\n"
+            "LISTS AND FORMS\n"
+            "^ \x0e move, ENTER opens or chooses, EXIT or BACK goes back. A setting changes as soon "
+            "as it's chosen; a font or a picture shows first, and USE keeps it.\n\n"
+            "TURNING OFF\n"
+            "Off, the first icon, SHIFT then EXIT, or hold EXIT for 2 seconds. From the calculator, "
+            "SHIFT then EXIT opens this menu.";
+    return ui_view_leave(&menu_ui, "Help", text, "BACK") == PX_UI_QUIT ? EDIT_POWER_OFF : EDIT_CANCEL;
+}
+
+/* Runs one; EDIT_POWER_OFF if it was ended to turn off. */
+static edit_result_t run_app(int app) {
+    bool power_off;
+    const char *error = app_run(app_dirs[app], app_names[app], &power_off);
+    idle_since = get_absolute_time();
+    if (power_off)
+        return EDIT_POWER_OFF;
+    if (error == NULL)
+        return EDIT_OK;
+    error_beep();
+    char head[40];
+    snprintf(head, sizeof(head), "Can't start %.18s:", app_names[app]);
+    const char *const lines[] = {head, error};
+    return show_message(app_names[app], lines, 2, TABS("ENTER")) == EDIT_POWER_OFF ? EDIT_POWER_OFF : EDIT_CANCEL;
+}
+
+/* A folder's apps as icons, in their places; ENTER starts one, MOVE moves
+ * it, FAV moves it to the home screen's first empty place (UNFAV there
+ * brings it back). */
+static edit_result_t do_folder(const char *title, const char *dir, const char *none) {
+    static const grid_moves_t moves = {0, FOLDER_SLOTS, folder_move, folder_save};
+    static int selected[2];
+    int *sel = &selected[strcmp(dir, GAMES_DIR) == 0];
     while (true) {
-        int pick = run_list(title, items, count, NULL, &selected, "Enter:Start  Exit:Back");
+        if (!statefs_ready())
+            return no_disk();
+        home_list(); /* again after each app: it may have been the drive's last look */
+        int in_dir = folder_list(dir);
+        if (folder_count == 0) {
+            const char *const empty[] = {none, "", "Copy .bin files to the", dir + 1, "folder in USB Drive mode."};
+            const char *const all_home[] = {"All of them are favourites,", "on the home screen. There, SHIFT",
+                                            "then UNFAV puts one back here.", ""};
+            edit_result_t r = in_dir == 0 ? show_message(title, empty, 5, TABS("ENTER"))
+                                          : show_message(title, all_home, 3, TABS("ENTER"));
+            return r == EDIT_POWER_OFF ? EDIT_POWER_OFF : EDIT_CANCEL;
+        }
+        int pick = run_grid(folder_names, folder_count, folder_icon, sel, &moves, folder_tab, "BACK");
         if (pick == LIST_POWER_OFF)
             return EDIT_POWER_OFF;
         if (pick == LIST_BACK)
             return EDIT_CANCEL;
-        bool power_off;
-        const char *error = app_run(dir, names[pick], &power_off);
-        idle_since = get_absolute_time();
-        if (power_off)
-            return EDIT_POWER_OFF;
-        if (error != NULL) {
-            error_beep();
-            char head[40];
-            snprintf(head, sizeof(head), "Can't start %.18s:", names[pick]);
-            const char *const lines[] = {head, error};
-            if (show_message(title, lines, 2, "Exit:Back") == EDIT_POWER_OFF)
-                return EDIT_POWER_OFF;
+        if (pick == GRID_SECOND) {
+            if (!places_fav(*sel))
+                error_beep(); /* the home screen is full */
+            continue;
         }
+        if (run_app(folder_order[pick]) == EDIT_POWER_OFF)
+            return EDIT_POWER_OFF;
     }
 }
 
-enum { APPS_GAMES, APPS_APPS, APPS_COUNT };
-static const char *const apps_items[APPS_COUNT] = {"Games", "Apps"};
+/* ===================== the list style ===================== */
 
-static edit_result_t do_games_apps(void) {
+/* The apps or the games of dir, by name, as a list. */
+static edit_result_t do_app_list(const char *title, const char *dir, const char *none) {
     if (!statefs_ready())
         return no_disk();
+    home_list();
+    static const char *items[2 * MAX_APPS];
+    static int apps[2 * MAX_APPS];
+    int count = 0;
+    for (int app = 0; app < app_count; app++)
+        if (strcmp(app_dirs[app], dir) == 0) {
+            items[count] = app_names[app];
+            apps[count++] = app;
+        }
+    if (count == 0) {
+        const char *const lines[] = {none, "", "Copy .bin files to the", dir + 1, "folder in USB Drive mode."};
+        return show_message(title, lines, 5, TABS("ENTER")) == EDIT_POWER_OFF ? EDIT_POWER_OFF : EDIT_CANCEL;
+    }
     static int selected = 0;
     while (true) {
-        int pick = run_list("Games & Apps", apps_items, APPS_COUNT, NULL, &selected, "Enter:Select  Exit:Back");
+        int pick = run_list(title, items, count, NULL, &selected, "START");
         if (pick == LIST_POWER_OFF)
             return EDIT_POWER_OFF;
         if (pick == LIST_BACK)
             return EDIT_CANCEL;
-        edit_result_t r = pick == APPS_GAMES ? do_app_list("Games", GAMES_DIR, "No games yet.")
-                                             : do_app_list("Apps", APPS_DIR, "No apps yet.");
-        if (r == EDIT_POWER_OFF)
-            return r;
+        if (run_app(apps[pick]) == EDIT_POWER_OFF)
+            return EDIT_POWER_OFF;
     }
 }
-
-/* ===================== the main list ===================== */
 
 enum {
-    ITEM_OFF,
-    ITEM_APPS,
-    ITEM_DATE_TIME,
-    ITEM_ALARMS,
-    ITEM_SOUNDS,
-    ITEM_FONTS,
-    ITEM_SLEEP,
-    ITEM_SPLASH,
-    ITEM_PRINTER,
-    ITEM_STATES,
-    ITEM_PROGRAMS,
-    ITEM_USB,
-    ITEM_INFO,
-    ITEM_COUNT
+    TEXT_OFF,
+    TEXT_APPS,
+    TEXT_GAMES,
+    TEXT_DATE_TIME,
+    TEXT_ALARMS,
+    TEXT_SOUNDS,
+    TEXT_FONTS,
+    TEXT_SLEEP,
+    TEXT_SPLASH,
+    TEXT_PRINTER,
+    TEXT_STATES,
+    TEXT_PROGRAMS,
+    TEXT_USB,
+    TEXT_STYLE,
+    TEXT_INFO,
+    TEXT_RESET,
+    TEXT_COUNT
 };
 
-static const char *const item_names[ITEM_COUNT] = {
-        "Off",
-        "Games & Apps",
-        "Date & Time",
-        "Alarms",
-        "Sounds",
-        "Fonts",
-        "Sleep Timer",
-        "Splash Image",
-        "Printer",
-        "States",
-        "Programs",
-        "USB Drive",
-        "Info",
+static const char *const text_names[TEXT_COUNT] = {
+        "Off",         "Apps",    "Games",  "Date & Time", "Alarms",    "Sounds",     "Fonts", "Sleep Timer",
+        "Splash Image", "Printer", "States", "Programs",    "USB Drive", "Menu Style", "Info", "Reset",
 };
 
-static void item_value(int item, char *buf, size_t size) {
-    buf[0] = 0;
+static void text_value(int item, char *buf, size_t size) {
     switch (item) {
-        case ITEM_DATE_TIME:
-            snprintf(buf, size, ">");
+        case TEXT_OFF:
+        case TEXT_ALARMS:
+        case TEXT_INFO:
+        case TEXT_RESET:
+            buf[0] = 0;
             break;
-        case ITEM_APPS:
-        case ITEM_SOUNDS:
-        case ITEM_FONTS:
-            snprintf(buf, size, ">");
-            break;
-        case ITEM_SLEEP:
+        case TEXT_SLEEP:
             format_minutes(buf, size, px_settings.sleep_minutes);
             break;
-        case ITEM_SPLASH:
-        case ITEM_STATES:
-        case ITEM_PROGRAMS:
-        case ITEM_USB:
-            snprintf(buf, size, ">");
-            break;
-        case ITEM_PRINTER:
+        case TEXT_PRINTER:
             snprintf(buf, size, "%s", px_settings.printer < PRINTER_CHOICES ? printer_names[px_settings.printer] : "?");
+            break;
+        case TEXT_STYLE:
+            snprintf(buf, size, "%s", menu_style_names[px_settings.menu_style]);
+            break;
+        default:
+            snprintf(buf, size, ">");
             break;
     }
 }
 
-settings_menu_result_t settings_menu_run(void) {
-    int selected = ITEM_OFF;
-    shift_on = false;
-    idle_since = get_absolute_time();
+/* The menu as it was first: one list of everything. */
+static settings_menu_result_t run_text_menu(void) {
+    int selected = TEXT_OFF;
+    while (true) {
+        debug_checkpoint(CKPT_MENU, 0);
+        int pick = run_list("Settings", text_names, TEXT_COUNT, text_value, &selected, "ENTER");
+        if (pick == LIST_POWER_OFF)
+            return SETTINGS_MENU_POWER_OFF;
+        if (pick == LIST_BACK) /* EXIT on Off turns off, as on the icons */
+            return selected == TEXT_OFF && last_key == K_EXIT ? SETTINGS_MENU_POWER_OFF : SETTINGS_MENU_EXIT;
+        edit_result_t r = EDIT_CANCEL;
+        switch (pick) {
+            case TEXT_OFF: return SETTINGS_MENU_POWER_OFF;
+            case TEXT_APPS: r = do_app_list("Apps", APPS_DIR, "No apps yet."); break;
+            case TEXT_GAMES: r = do_app_list("Games", GAMES_DIR, "No games yet."); break;
+            case TEXT_DATE_TIME: r = do_date_time(); break;
+            case TEXT_ALARMS: r = do_alarms(); break;
+            case TEXT_SOUNDS: r = do_sounds(); break;
+            case TEXT_FONTS: r = do_fonts(); break;
+            case TEXT_SLEEP: r = do_sleep(); break;
+            case TEXT_SPLASH: r = do_splash(); break;
+            case TEXT_PRINTER: r = do_printer(); break;
+            case TEXT_STATES:
+                if (do_states() == EDIT_OK)
+                    return SETTINGS_MENU_EXIT; /* a state was loaded: show it */
+                break;
+            case TEXT_PROGRAMS: r = do_programs(); break;
+            case TEXT_USB: r = do_usb_drive(); break;
+            case TEXT_STYLE: r = do_menu_style(); break;
+            case TEXT_INFO: r = do_info(); break;
+            case TEXT_RESET: r = do_reset(); break;
+        }
+        if (r == EDIT_POWER_OFF)
+            return SETTINGS_MENU_POWER_OFF;
+        if (style_changed)
+            return SETTINGS_MENU_EXIT;
+    }
+}
+
+/* ===================== the icon style ===================== */
+
+static settings_menu_result_t run_icon_menu(void) {
+    static const grid_moves_t moves = {1, HOME_SLOTS, home_move, home_save};
+    int selected = HOME_OFF;
     while (true) {
         debug_checkpoint(CKPT_MENU, 0); /* again after each item: what it did is over */
-        int pick = run_list("Settings", item_names, ITEM_COUNT, item_value, &selected, "Enter:Select  Exit:Back");
+        home_list();
+        int pick = run_grid(home_names, home_count, home_icon, &selected, &moves, home_tab, "EXIT");
         if (pick == LIST_POWER_OFF)
             return SETTINGS_MENU_POWER_OFF;
         if (pick == LIST_BACK) {
             /* EXIT is also the OFF key: on "Off" it turns the calculator
              * off, like ENTER. The backspace arrow still just leaves. */
-            if (selected == ITEM_OFF && last_key == K_EXIT)
+            if (selected == HOME_OFF && last_key == K_EXIT)
                 return SETTINGS_MENU_POWER_OFF;
             return SETTINGS_MENU_EXIT;
         }
+        if (pick == GRID_SECOND) { /* UNFAV: its place goes blank, the others stay put */
+            places_unfav(selected);
+            continue;
+        }
 
-        edit_result_t r = EDIT_OK;
-        switch (pick) {
-            case ITEM_OFF:
+        edit_result_t r = EDIT_CANCEL;
+        int id = home_order[pick];
+        switch (id) {
+            case HOME_OFF:
                 return SETTINGS_MENU_POWER_OFF;
-            case ITEM_APPS:
-                r = do_games_apps();
-                break;
-            case ITEM_DATE_TIME:
-                r = do_date_time();
-                break;
-            case ITEM_ALARMS:
-                r = do_alarms();
-                break;
-            case ITEM_SOUNDS:
-                r = do_sounds();
-                break;
-            case ITEM_FONTS:
-                r = do_fonts();
-                break;
-            case ITEM_SLEEP:
-                r = do_minutes("Sleep Timer", "Off after", &px_settings.sleep_minutes);
-                break;
-            case ITEM_SPLASH:
-                r = do_splash();
-                break;
-            case ITEM_PRINTER:
-                r = do_printer();
-                break;
-            case ITEM_STATES:
-                r = do_states();
+            case HOME_SETTINGS:
+                r = do_settings();
                 if (r == EDIT_OK)
                     return SETTINGS_MENU_EXIT; /* a state was loaded: show it */
                 break;
-            case ITEM_PROGRAMS:
-                r = do_programs();
+            case HOME_PLUS42:
+                r = do_plus42();
+                if (r == EDIT_OK)
+                    return SETTINGS_MENU_EXIT; /* a state was loaded: show it */
                 break;
-            case ITEM_USB:
-                r = do_usb_drive();
-                break;
-            case ITEM_INFO:
-                r = do_info();
-                break;
+            case HOME_APPS: r = do_folder("Apps", APPS_DIR, "No apps yet."); break;
+            case HOME_GAMES: r = do_folder("Games", GAMES_DIR, "No games yet."); break;
+            case HOME_USB: r = do_usb_drive(); break;
+            case HOME_INFO: r = do_info(); break;
+            case HOME_ALARMS: r = do_alarms(); break;
+            case HOME_HELP: r = do_help(); break;
+            default: r = run_app(id - HOME_FIXED); break;
         }
         if (r == EDIT_POWER_OFF)
             return SETTINGS_MENU_POWER_OFF;
+        if (style_changed)
+            return SETTINGS_MENU_EXIT;
+    }
+}
+
+settings_menu_result_t settings_menu_run(void) {
+    shift_on = false;
+    idle_since = get_absolute_time();
+    while (true) {
+        style_changed = false;
+        settings_menu_result_t r = px_settings.menu_style == MENU_STYLE_LIST ? run_text_menu() : run_icon_menu();
+        if (!style_changed || r == SETTINGS_MENU_POWER_OFF)
+            return r;
     }
 }

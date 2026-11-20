@@ -125,7 +125,10 @@ static BID_UINT128 BID128_10PM40 =
 // as that order, and you want accuracy of that order). But I may well
 // be able to get away with 5 chunks. Probably not 4?
 
-static BID_UINT384 bid_decimal128_moduli[] =
+/* PX-42F: the table is bid128_sin.c's (identical, 295 KB). */
+extern const BID_UINT384 bid_decimal128_moduli[];
+#if 0
+static BID_UINT384 bid_decimal128_moduli_unused[] =
 { {{ 0x4abfd0d644dca156ull, 0xe9cf4c5596df69ecull, 0xd5ccdc56a81e2464ull,
      0x9382546d1dfa1e2aull, 0x000000000000021dull, 0x0000000000000000ull }},
   {{ 0xeb7e285eb09e4d57ull, 0x2218fb57e4ba233aull, 0x5a009b62912d6bf1ull,
@@ -12421,6 +12424,7 @@ static BID_UINT384 bid_decimal128_moduli[] =
   {{ 0xca94904e528f30eaull, 0x2f793b7af1f48786ull, 0xb273461a96eb952dull,
      0xd3f8bbe932bd1bc3ull, 0xf8d898dd7a207b17ull, 0x70c3ca2117e9a6c1ull }}
 };
+#endif
 
 BID_F128_CONST_DEF( c_pi_ov_2, 3fff921fb54442d1, 8469898cc51701b8); // pi/2
 

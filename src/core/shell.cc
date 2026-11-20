@@ -16,6 +16,8 @@
 #include "statefs.h"
 #include "printer.h"
 #include "hp82240.h"
+#include "core_display.h"
+#include "px_app.h"
 #include "shell_spool.h"
 #include "core_globals.h"
 #include "pico/time.h"
@@ -132,7 +134,8 @@ bool shell_clk24() {
     return px_settings.clock_24h;
 }
 
-/* Printer emulation (see printer.h). To the HP 82240B, printer.c sends
+/* Printer emulation (see printer.h). To the USB thermal printer, as to the
+ * HP 82240B: a line with its bitmap, PRLCD the screen. To the HP 82240B, printer.c sends
  * each line (hp82240.c makes its bytes), and PRLCD (text NULL) prints the
  * screen redrawn upright, or as it is, turned (Settings -> Printer). To the USB serial port, a text line goes out as
  * UTF-8 -- hp2ascii() translates the HP-42S characters (divide sign, Sigma,
@@ -162,6 +165,18 @@ void shell_print(const char *text, int length,
         }
         return;
     }
+    if (px_settings.printer == PRINTER_ESCPOS) {
+        if (text != NULL) {
+            printer_escpos_text(text, length, (const uint8_t *) bits, bytesperline, flags.f.double_wide_print);
+        } else { /* the screen as it is: it fits the paper upright */
+            free42_print_stop_begin();
+            free42_draw_screen(false); /* no printer icon on the paper */
+            printer_escpos_screen(free42_print_stop);
+            free42_draw_screen(true);
+            free42_print_stop_end();
+        }
+        return;
+    }
     if (text == NULL) {
         printer_write_bitmap((const uint8_t *) bits, bytesperline, width, height);
         return;
@@ -175,6 +190,39 @@ void shell_print(const char *text, int length,
     utf8[n++] = '\r';
     utf8[n++] = '\n';
     printer_write(utf8, n);
+}
+
+void free42_print_app_text(const char *text, int length) {
+    if (px_settings.printer == PRINTER_HP82240B || px_settings.printer == PRINTER_ESCPOS) {
+        do {
+            int n = length < PX_PRINT_COLUMNS ? length : PX_PRINT_COLUMNS;
+            /* print_text()'s bitmap, for the characters the printer lacks:
+             * Plus42's own 5 x 8 shapes, character i at dot column 6i. */
+            uint8_t bits[8 * 18] = {0};
+            for (int i = 0; i < n; i++) {
+                const unsigned char *shape = get_char(text[i]);
+                for (int j = 0; j < 5; j++)
+                    for (int r = 0; r < 8; r++)
+                        if (shape[j] >> r & 1)
+                            bits[r * 18 + (i * 6 + j) / 8] |= (uint8_t) (1u << ((i * 6 + j) % 8));
+            }
+            if (px_settings.printer == PRINTER_HP82240B)
+                printer_hp82240b_text(text, n, bits, 18, false);
+            else
+                printer_escpos_text(text, n, bits, 18, false);
+            text += n;
+            length -= n;
+        } while (length > 0);
+        return;
+    }
+    char utf8[48 * 5 + 2]; /* hp2ascii(): up to 5 bytes a character */
+    while (length > 0) {
+        int n = length < 48 ? length : 48;
+        printer_write(utf8, hp2ascii(utf8, text, n));
+        text += n;
+        length -= n;
+    }
+    printer_write("\r\n", 2);
 }
 
 void shell_get_time_date(uint4 *time, uint4 *date, int *weekday) {
@@ -198,6 +246,14 @@ bool shell_set_date(int4 year, int4 month, int4 day) {
 
 void shell_set_time(int4 hour, int4 min, int4 sec) {
     rtc_set_hms(hour, min, sec);
+}
+
+void shell_set_print_delay(int ms) {
+    /* Programs set it, maybe in a loop: saved at OFF, not each time. */
+    if (px_settings.print_delay_ms != ms) {
+        px_settings.print_delay_ms = (uint16_t) ms;
+        settings_save_later();
+    }
 }
 
 void shell_message(const char *message) {

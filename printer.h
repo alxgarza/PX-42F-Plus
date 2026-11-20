@@ -25,18 +25,30 @@ extern "C" {
  * keeps its 200-byte buffer from overflowing. What's printing waits for
  * room in free42_service() (printer_ready()), reading the keys meanwhile;
  * PRLCD, a single print, holds the calculator up until it's sent or EXIT or
- * R/S stops it (free42_print_stop()). */
+ * R/S stops it (free42_print_stop()).
+ *
+ * USB thermal: a 58 mm ESC/POS receipt printer on the USB port, the PX its
+ * host while printing (usbprint.c). Text in the printer's own font, the
+ * characters it lacks drawn from Plus42's shapes, the screen as a picture
+ * (escpos.c); it all waits in the ring below for core 0 to send. */
 
 typedef enum {
     PRINTER_OFF = 0,
     PRINTER_USB_SERIAL = 1,
     PRINTER_HP82240B = 2,
+    PRINTER_ESCPOS = 3,
 } printer_target_t;
 
 /* PRLCD on the HP 82240B (px_settings.screen_print): the screen redrawn
  * upright for the paper (free42_draw_paper()), or the panel's own dots,
  * turned a quarter -- also when the screen is too wide to redraw. */
 typedef enum { SCREEN_PRINT_UPRIGHT, SCREEN_PRINT_AS_IS, SCREEN_PRINTS } screen_print_t;
+
+/* DELAY (px_settings.print_delay_ms): the time the HP 82240B is reckoned to
+ * take per line. 1.8 s is the HP-42S's own default, and HP's interfacing
+ * guide's slowest printer (batteries nearly flat); DELAY takes 0 to 1.9 s. */
+#define PRINT_DELAY_DEFAULT_MS 1800
+#define PRINT_DELAY_MAX_MS     1949
 
 /* Prints to the HP 82240B (core 1) a text line, text and bits from
  * Plus42's print_text(); the screen as it is in the framebuffer (PRLCD:
@@ -46,11 +58,33 @@ typedef enum { SCREEN_PRINT_UPRIGHT, SCREEN_PRINT_AS_IS, SCREEN_PRINTS } screen_
  * it's been sent, after waiting for room in the printer's buffer, or for a
  * picture, once stop() says to, at the end of a line. */
 void printer_hp82240b_text(const char *text, int length, const uint8_t *bits, int bytesperline, bool double_wide);
-void printer_hp82240b_screen(bool (*stop)(void));
+bool printer_hp82240b_screen(bool (*stop)(void)); /* false: stopped */
 void printer_hp82240b_paper(int height, bool (*stop)(void));
 
+/* To the USB thermal printer (core 1): a text line, as for the HP 82240B;
+ * the screen as it is in the framebuffer, upright. Each waits for room in
+ * the ring, unless the printer is unavailable (dropped). The screen returns
+ * false if stop said so between rows. */
+void printer_escpos_text(const char *text, int length, const uint8_t *bits, int bytesperline, bool double_wide);
+bool printer_escpos_screen(bool (*stop)(void));
+
+/* Core 0 (usbprint.c): the bytes waiting, from the oldest, as many as lie
+ * together (0: none); taking n of them once sent; dropping them all. */
+uint32_t printer_ring_peek(const uint8_t **data);
+void printer_ring_take(uint32_t n);
+void printer_ring_drop(void);
+
+/* Where a print goes now: PRINTER_OFF too when the USB port has no
+ * terminal open (its output would be dropped). */
+printer_target_t printer_target(void);
+
+/* The screen to the USB port, as Unicode blocks (an app's print_screen()):
+ * display_fb as it is, 2 x 2 pixels a character (core 1). */
+void printer_write_screen(void);
+
 /* False while the HP 82240B's buffer has no room for a text line: sending
- * one now would wait for it, up to 1.8 s (core 1). */
+ * one now would wait for it, up to 1.8 s -- or the USB thermal printer's
+ * ring has none, while it's being found or is busy (core 1). */
 bool printer_ready(void);
 
 /* The status bar's printer icon. printer_will_print(), before a print: true if
