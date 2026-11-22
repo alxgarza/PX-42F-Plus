@@ -6,7 +6,14 @@
 #include "pico/stdlib.h"
 #include "hardware/watchdog.h"
 #include "display.h"
+#include "display_fb.h"
 #include "font_8x12.h"
+#include "keyboard.h"
+#include "printer.h"
+#include "px_app.h"
+#include "settings.h"
+#include "settings_menu.h"
+#include "usbprint.h"
 #include "pngwrite.h"
 #include "rtc.h"
 #include "sounds.h"
@@ -61,7 +68,7 @@ void screenshot_remember(void) {
     display_copy(shot);
 }
 
-void screenshot_save(void) {
+static void save_and_say(void) {
     char name[32], line[40];
     const char *error = save(name, sizeof(name));
     if (error == NULL)
@@ -77,6 +84,50 @@ void screenshot_save(void) {
         watchdog_update();
         sleep_ms(10);
     }
+}
+
+/* The printers that put it on paper (the user's choice): not Off, and not
+ * the USB serial port, a terminal's text. */
+static bool real_printer(void) {
+    return px_settings.printer == PRINTER_HP82240B ||
+           (px_settings.printer == PRINTER_ESCPOS && !usbprint_unavailable());
+}
+
+static bool key_down(void) {
+    return keyboard_held() != 0;
+}
+
+static void restore(void) {
+    memcpy(&display_fb[0][0], shot, sizeof(shot));
+}
+
+void screenshot_take(void) {
+    /* Asked at once, while the keys are still down (the user's choice):
+     * SAVE first, the default; PRINT only with a printer that puts it on
+     * paper; CANCEL last, as EXIT and <-. */
+    static const char *const with_print[] = {"SAVE", "PRINT", "CANCEL"};
+    static const char *const without[] = {"SAVE", "CANCEL"};
+    bool paper = real_printer();
+    int choice = paper ? settings_menu_dialog(PX_UI_ICON_NOTE, "Save the screenshot,\nor print it?", with_print, 3)
+                       : settings_menu_dialog(PX_UI_ICON_NOTE, "Save the screenshot?", without, 2);
+    const char *picked = choice >= 0 ? (paper ? with_print : without)[choice] : "CANCEL";
+    restore(); /* the dialog's gone; the screen as it was is also what prints */
+    if (strcmp(picked, "PRINT") == 0) {
+        display_fill_rect(0, 0, DISPLAY_WIDTH - 1, 12, true);
+        display_draw_string(&font_8x12, "Printing... (a key stops)", 2, 0, 0xFF);
+        display_flush();
+        restore(); /* the picture without that line */
+        if (px_settings.printer == PRINTER_HP82240B)
+            printer_hp82240b_screen(key_down); /* the HP's turned picture */
+        else
+            printer_escpos_screen(true, key_down);
+        while (key_down()) /* the key that stopped it isn't for the caller */
+            watchdog_update();
+    } else if (strcmp(picked, "SAVE") == 0) {
+        save_and_say();
+    }
+    restore();
+    display_flush();
 }
 
 /* Base64, a line of 76 characters at a time. */

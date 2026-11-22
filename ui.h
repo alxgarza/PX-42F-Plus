@@ -8,6 +8,8 @@
  * keys it reads come through a port, so the same code runs in the firmware,
  * in the app simulator and in tests/test_ui.c. */
 
+#include <stdbool.h>
+
 #include "px_app.h"
 
 /* What the port's key() returns besides a key's place, PX_KEY(row, col). */
@@ -56,6 +58,11 @@ int ui_view_leave(const ui_port_t *p, const char *title, const char *text, const
 /* An alert over the screen, dimmed: icon (PX_UI_ICON_*), text, the left
  * button (the default: ENTER, F1) and the right (EXIT, <-, F6; NULL none). */
 int ui_dialog(const ui_port_t *p, int icon, const char *text, const char *left, const char *right);
+/* The same with 1-3 buttons, left to right, the ring first on buttons[ring]
+ * (ENTER presses the ringed one, F1 the first, F6 EXIT <- the last): the
+ * button's index, or PX_UI_QUIT. Not in the app API. */
+int ui_dialog_buttons(const ui_port_t *p, int icon, const char *text, const char *const *buttons, int count,
+                      int ring);
 int ui_date(const ui_port_t *p, const char *title, int *year, int *month, int *day);
 int ui_time(const ui_port_t *p, const char *title, const char *prompt, int *hours, int *minutes, int *seconds,
             int flags);

@@ -534,12 +534,21 @@ static void dialog_button(const ui_port_t *p, int x, int y, int w, const char *l
 }
 
 int ui_dialog(const ui_port_t *p, int icon, const char *text, const char *left, const char *right) {
+    const char *buttons[] = {left != NULL ? left : "ENTER", right};
+    int r = ui_dialog_buttons(p, icon, text, buttons, right != NULL ? 2 : 1, 0);
+    return r == 0 ? PX_UI_ENTER : r == 1 ? PX_UI_BACK : r;
+}
+
+int ui_dialog_buttons(const ui_port_t *p, int icon, const char *text, const char *const *buttons, int count,
+                      int ring) {
     static const char *const *const icons[] = {NULL, icon_stop, icon_note, icon_caution};
     const char *const *picture_rows = icon > 0 && icon < (int) (sizeof(icons) / sizeof(icons[0])) ? icons[icon] : NULL;
     if (text == NULL)
         text = "";
-    if (left == NULL)
-        left = "ENTER";
+    if (count < 1)
+        count = 1;
+    if (count > 3)
+        count = 3;
     int x = (PX_SCREEN_W - DIALOG_W) / 2;
     int text_x = x + DIALOG_PAD + (picture_rows != NULL ? 32 + 10 : 0);
     int cols = (x + DIALOG_W - DIALOG_PAD - text_x) / UI_CHAR_W;
@@ -574,35 +583,40 @@ int ui_dialog(const ui_port_t *p, int icon, const char *text, const char *left, 
         p->text(text_x, y + DIALOG_PAD + row * UI_ROW_H, line, PX_FONT_SMALL, 0);
         s = next;
     }
-    /* The buttons the same width, the right one at the box's right. */
-    int bw = p->text_width(left, PX_FONT_SMALL);
-    if (right != NULL && p->text_width(right, PX_FONT_SMALL) > bw)
-        bw = p->text_width(right, PX_FONT_SMALL);
-    bw += 2 * 10;
+    /* The buttons the same width, the last at the box's right; three only
+     * fit with less room around their words (PRINT SAVE CANCEL). */
+    int pad = count == 3 ? 6 : 10, gap = count == 3 ? 12 : 16;
+    int bw = 0;
+    for (int i = 0; i < count; i++)
+        if (p->text_width(buttons[i], PX_FONT_SMALL) > bw)
+            bw = p->text_width(buttons[i], PX_FONT_SMALL);
+    bw += 2 * pad;
     if (bw < 56)
         bw = 56;
     int rx = x + DIALOG_W - DIALOG_PAD - 3 - bw, by = y + h - 8 - 3 - BUTTON_H;
-    int lx = right != NULL ? rx - bw - 16 : rx;
-    /* The arrows move the ring to the other button, and ENTER presses the
-     * ringed one; F1 and F6 press theirs straight away. */
-    bool on_right = false;
+    int lx = rx - (count - 1) * (bw + gap);
+    if (ring < 0 || ring >= count)
+        ring = 0;
+    /* The arrows move the ring, and ENTER presses the ringed button; F1
+     * presses the first straight away, and F6, EXIT and <- the last (with
+     * one button they answer PX_UI_BACK). */
     while (true) {
         p->fill(lx - 3, by - 3, rx + bw + 3 - (lx - 3), BUTTON_H + 6, 0);
-        dialog_button(p, lx, by, bw, left, !on_right);
-        if (right != NULL)
-            dialog_button(p, rx, by, bw, right, on_right);
+        for (int i = 0; i < count; i++)
+            dialog_button(p, lx + i * (bw + gap), by, bw, buttons[i], i == ring);
         p->show();
         int k = p->key();
         if (k == PX_UI_QUIT)
             return PX_UI_QUIT;
         if (is_enter(k))
-            return on_right ? PX_UI_BACK : PX_UI_ENTER;
+            return ring;
         if (soft_key(k) == 0)
-            return PX_UI_ENTER;
+            return 0;
         if (is_back(k) || soft_key(k) == 5)
-            return PX_UI_BACK;
-        if (right != NULL && (up_down(k, NULL) != 0 || left_right(k, NULL) != 0))
-            on_right = !on_right;
+            return count > 1 ? count - 1 : PX_UI_BACK;
+        int d = up_down(k, NULL) + left_right(k, NULL);
+        if (count > 1 && d != 0)
+            ring = (ring + d + count) % count;
         else if (k >= 0 && p->beep)
             p->beep();
     }

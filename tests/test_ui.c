@@ -319,6 +319,22 @@ static void dialog(void) {
     int keys7[] = {D(6), D(4), ENTER, END}; /* there and back */
     run(keys7);
     CHECK(ui_dialog(&port, PX_UI_ICON_STOP, "Delete?", "DELETE", "KEEP") == PX_UI_ENTER, "dialog: 6 4 ENTER");
+    static const char *const shot[] = {"SAVE", "PRINT", "CANCEL"}; /* the screenshot's */
+    int keys9[] = {ENTER, END};
+    run(keys9);
+    CHECK(ui_dialog_buttons(&port, PX_UI_ICON_NOTE, "Print?", shot, 3, 0) == 0, "three: ENTER is the ringed");
+    int keys10[] = {SOFT(0), END};
+    run(keys10);
+    CHECK(ui_dialog_buttons(&port, PX_UI_ICON_NOTE, "Print?", shot, 3, 0) == 0, "three: F1 is the first");
+    int keys11[] = {DOWN, ENTER, END};
+    run(keys11);
+    CHECK(ui_dialog_buttons(&port, PX_UI_ICON_NOTE, "Print?", shot, 3, 0) == 1, "three: arrow, ENTER");
+    int keys12[] = {BSP, END};
+    run(keys12);
+    CHECK(ui_dialog_buttons(&port, PX_UI_ICON_NOTE, "Print?", shot, 3, 0) == 2, "three: <- is the last");
+    int keys13[] = {UP, ENTER, END};
+    run(keys13);
+    CHECK(ui_dialog_buttons(&port, PX_UI_ICON_NOTE, "Print?", shot, 3, 0) == 2, "three: the ring wraps");
     int keys8[] = {UP, SOFT(0), END}; /* F1 is still the left one */
     run(keys8);
     CHECK(ui_dialog(&port, PX_UI_ICON_STOP, "Delete?", "DELETE", "KEEP") == PX_UI_ENTER, "dialog: arrow, F1");

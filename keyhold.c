@@ -63,6 +63,17 @@ static bool shift_arrow(void) {
     return true;
 }
 
+static bool taking; /* the screenshot's own dialog reads keys through here too */
+
+/* The dialog at once, the keys still down (it waits for them to come up
+ * before reading one): nothing showed while they were held before. */
+static void take_screenshot(void) {
+    together = false;
+    taking = true;
+    screenshot_take();
+    taking = false;
+}
+
 void key_hold_begin(uint8_t row, uint8_t col) {
     code = free42_key_code(row, col);
     key_row = row;
@@ -79,7 +90,7 @@ void key_hold_begin(uint8_t row, uint8_t col) {
  * SHIFT cancel (free42_key_cancel()) and no BST/SST. True when it has
  * taken the screenshot, and waited for both keys to come up. */
 bool key_hold_app_screenshot(void) {
-    if (code != FREE42_KEY_SHIFT || !keyboard_is_held(key_row, key_col) || !minus_held()) {
+    if (taking || code != FREE42_KEY_SHIFT || !keyboard_is_held(key_row, key_col) || !minus_held()) {
         together = false;
         return false;
     }
@@ -89,19 +100,32 @@ bool key_hold_app_screenshot(void) {
     }
     if (ms_since(together_since) < SCREENSHOT_HOLD_MS)
         return false;
-    screenshot_save();
-    for (int i = 0; i < KEY_STUCK_MS / 10 && (keyboard_is_held(key_row, key_col) || minus_held()); i++) {
+    take_screenshot();
+    return true;
+}
+
+bool key_hold_app_minus(uint8_t row, uint8_t col) {
+    if (taking || code != FREE42_KEY_SHIFT || free42_key_code(row, col) != FREE42_KEY_MINUS ||
+        !keyboard_is_held(key_row, key_col))
+        return false;
+    together = true;
+    together_since = get_absolute_time();
+    while (keyboard_is_held(key_row, key_col) && keyboard_is_held(row, col)) {
         watchdog_update();
-        sleep_ms(10);
+        if (ms_since(together_since) >= SCREENSHOT_HOLD_MS) {
+            take_screenshot();
+            return true;
+        }
+        sleep_ms(5);
     }
     together = false;
-    return true;
+    return false;
 }
 
 key_hold_t key_hold_poll(void) {
     if (code == FREE42_KEY_EXIT)
         return ms_since(down_since) >= EXIT_HOLD_OFF_MS ? KEY_HOLD_OFF : KEY_HOLD_NONE;
-    if (code != FREE42_KEY_SHIFT)
+    if (code != FREE42_KEY_SHIFT || taking)
         return KEY_HOLD_NONE;
     if (shift_arrow())
         return KEY_HOLD_NONE;
@@ -118,11 +142,6 @@ key_hold_t key_hold_poll(void) {
         return KEY_HOLD_NONE;
 
     free42_key_cancel();
-    screenshot_save();
-    for (int i = 0; i < KEY_STUCK_MS / 10 && (keyboard_is_held(key_row, key_col) || minus_held()); i++) {
-        watchdog_update();
-        sleep_ms(10);
-    }
-    together = false;
+    take_screenshot();
     return KEY_HOLD_SCREENSHOT;
 }

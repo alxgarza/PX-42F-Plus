@@ -113,14 +113,19 @@ void printer_escpos_text(const char *text, int length, const uint8_t *bits, int 
     escpos_put(line, (uint32_t) n, NULL);
 }
 
-bool printer_escpos_screen(bool (*stop)(void)) {
-    uint8_t bytes[ESCPOS_ROW_BYTES(DISPLAY_WIDTH)];
-    if (!escpos_put(bytes, (uint32_t) escpos_picture_header(bytes, DISPLAY_WIDTH, DISPLAY_HEIGHT), stop))
+/* Portrait, as it is (it fits the paper), or turned: Landscape, a quarter
+ * and 3 times bigger. */
+bool printer_escpos_screen(bool turned, bool (*stop)(void)) {
+    int across = turned ? DISPLAY_HEIGHT * ESCPOS_TURNED_SCALE : DISPLAY_WIDTH;
+    int rows = turned ? DISPLAY_WIDTH * ESCPOS_TURNED_SCALE : DISPLAY_HEIGHT;
+    uint8_t bytes[ESCPOS_ROW_BYTES(DISPLAY_HEIGHT * ESCPOS_TURNED_SCALE)]; /* the wider of the two */
+    if (!escpos_put(bytes, (uint32_t) escpos_picture_header(bytes, across, rows), stop))
         return false;
-    for (int y = 0; y < DISPLAY_HEIGHT; y++) {
+    for (int y = 0; y < rows; y++) {
         /* A picture cut short would take the next bytes as its dots: once
          * begun, it goes out whole. */
-        int n = escpos_picture_row(bytes, display_fb[y], DISPLAY_WIDTH);
+        int n = turned ? escpos_turned_row(bytes, &display_fb[0][0], DISPLAY_STRIDE, DISPLAY_WIDTH, DISPLAY_HEIGHT, y)
+                       : escpos_picture_row(bytes, display_fb[y], DISPLAY_WIDTH);
         if (!escpos_put(bytes, (uint32_t) n, NULL))
             return false;
     }

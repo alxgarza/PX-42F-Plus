@@ -202,7 +202,16 @@ static void error_beep(void) {
 
 /* wait_key() as ui.c takes keys: by place, SHIFT before it folded in; the
  * minute changing, SHIFT itself and a screenshot redraw. */
+/* Set by settings_menu_dialog(): the keys that opened it (the screenshot's
+ * SHIFT and "-") let go before one is read, or they'd answer it. */
+static bool release_first;
+
 static int menu_ui_key(void) {
+    for (int i = 0; release_first && i < KEY_STUCK_MS / 10 && keyboard_held() != 0; i++) {
+        watchdog_update();
+        sleep_ms(10);
+    }
+    release_first = false;
     int key = wait_key();
     if (key == K_POWEROFF || key == K_SLEEP)
         return PX_UI_QUIT;
@@ -228,6 +237,12 @@ static void menu_ui_show(void) {
 
 static const ui_port_t menu_ui = {screen_fill,    screen_text,     screen_text_width, menu_ui_show,
                                   menu_ui_key,    menu_ui_shifted, menu_ui_clock,     error_beep};
+
+int settings_menu_dialog(int icon, const char *text, const char *const *buttons, int count) {
+    release_first = true;
+    shift_on = false;
+    return ui_dialog_buttons(&menu_ui, icon, text, buttons, count, 0);
+}
 
 /* The soft keys' tabs, left to right; those not named are none. */
 #define TABS(...) ((const char *const[6]){__VA_ARGS__})
@@ -994,54 +1009,63 @@ static const char *const printer_names[] = {
         "Off",
         "USB Serial",
         "HP 82240B",
-        "USB Thermal",
+        "USB ESC/POS",
 };
 #define PRINTER_CHOICES ((int) (sizeof(printer_names) / sizeof(printer_names[0])))
 
 enum { PRINTER_FIELD, SCREEN_PRINT_FIELD, PRINTER_FIELDS };
 
 static int printer_pick, screen_print_pick;
+static int printer_kept; /* the printer before the pick being confirmed */
 
-/* A pick counts at once (a settings page: no SAVE). A printer chosen says
- * where the printing goes; Screen Print (PRLCD) is only the HP 82240B's. */
+/* Screen Print (PRLCD's Portrait or Landscape) is the HP 82240B's and the
+ * ESC/POS printer's. */
+static bool has_screen_print(int printer) {
+    return printer == PRINTER_HP82240B || printer == PRINTER_ESCPOS;
+}
+
+static void printer_use(px_ui_form_t *form, int printer) {
+    printer_pick = printer;
+    px_settings.printer = (uint8_t) printer;
+    /* Choosing a printer also turns Free42's printer on (PRON, flags 21, 55),
+     * Off turns it off -- so the print commands just work. */
+    free42_set_printer(printer != PRINTER_OFF);
+    form->fields[SCREEN_PRINT_FIELD].hidden = !has_screen_print(printer);
+}
+
+/* A pick counts at once (a settings page: no SAVE), once confirmed in an
+ * alert that says what it means (the user's choice: OK, CANCEL); CANCEL
+ * puts the one before back. Off needs no question. */
 static int printer_changed(px_ui_form_t *form, int field, void *ctx) {
     (void) ctx;
     if (field == SCREEN_PRINT_FIELD) {
         px_settings.screen_print = (uint8_t) screen_print_pick;
         return 0;
     }
-    px_settings.printer = (uint8_t) printer_pick;
-    /* Choosing a printer also turns Free42's printer on (PRON, flags 21, 55),
-     * Off turns it off -- so the print commands just work. */
-    free42_set_printer(printer_pick != PRINTER_OFF);
-    form->fields[SCREEN_PRINT_FIELD].hidden = printer_pick != PRINTER_HP82240B;
-    edit_result_t r = EDIT_OK;
-    if (printer_pick == PRINTER_USB_SERIAL) {
-        static const char *const lines[] = {"Printing to the USB serial", "port \"PX-42F Printer\".", "",
-                                            "Open it in a terminal on the", "computer to see the output."};
-        r = show_message("Printer", lines, 5, TABS("ENTER"));
-    } else if (printer_pick == PRINTER_HP82240B) {
-        static const char *const lines[] = {"Printing to an HP 82240B", "infrared printer.", "",
-                                            "Aim the calculator at the", "printer's window. A line takes",
-                                            "about 2 s to print."};
-        r = show_message("Printer", lines, 6, TABS("ENTER"));
-    } else if (printer_pick == PRINTER_ESCPOS) {
-        static const char *const lines[] = {"A 58 mm ESC/POS thermal", "printer, by a USB-C cable.", "",
-                                            "While it prints, the USB port", "is the printer's: the computer",
-                                            "has it again 30 s after."};
-        r = show_message("Printer", lines, 6, TABS("ENTER"));
-    }
-    return r == EDIT_POWER_OFF ? PX_UI_QUIT : 0;
+    static const char *const about[] = {
+            [PRINTER_USB_SERIAL] = "Printing to the USB\nserial port PX-42F\nPrinter. Open it in a\nterminal.",
+            [PRINTER_HP82240B] = "Printing by infrared\nto an HP 82240B. Aim\nat its window.",
+            [PRINTER_ESCPOS] = "58 mm ESC/POS printer\non USB-C. While it\nprints, the computer\nloses the USB port.",
+    };
+    int r = PX_UI_ENTER;
+    if (printer_pick != PRINTER_OFF && printer_pick < (int) (sizeof(about) / sizeof(about[0])))
+        r = ui_dialog(&menu_ui, PX_UI_ICON_NOTE, about[printer_pick], "OK", "CANCEL");
+    if (r == PX_UI_QUIT)
+        return PX_UI_QUIT;
+    printer_use(form, r == PX_UI_ENTER ? printer_pick : printer_kept);
+    printer_kept = printer_pick;
+    return 0;
 }
 
 /* Where printing goes, a form of pull-downs: Printer, and the HP 82240B's
- * Screen Print. */
+ * and the ESC/POS printer's Screen Print. */
 static edit_result_t do_printer(void) {
     printer_pick = px_settings.printer < PRINTER_CHOICES ? px_settings.printer : 0;
+    printer_kept = printer_pick;
     screen_print_pick = px_settings.screen_print < SCREEN_PRINTS ? px_settings.screen_print : 0;
     px_ui_field_t fields[PRINTER_FIELDS] = {
             [PRINTER_FIELD] = {"Printer", PX_UI_CHOICE, 0, &printer_pick, printer_names, PRINTER_CHOICES, NULL, 0, 0, 0, NULL},
-            [SCREEN_PRINT_FIELD] = {"Screen Print", PX_UI_CHOICE, printer_pick != PRINTER_HP82240B, &screen_print_pick,
+            [SCREEN_PRINT_FIELD] = {"Screen Print", PX_UI_CHOICE, !has_screen_print(printer_pick), &screen_print_pick,
                                     screen_print_names, SCREEN_PRINTS, NULL, 0, 0, 0, NULL},
     };
     px_ui_form_t form = {"Printer", fields, PRINTER_FIELDS, {"ENTER"}, printer_changed, NULL, 0};

@@ -124,6 +124,10 @@ bool keyboard_is_held(uint8_t row, uint8_t col) {
     return false;
 }
 
+uint64_t keyboard_held(void) {
+    return 0;
+}
+
 void key_hold_begin(uint8_t row, uint8_t col) {
 }
 

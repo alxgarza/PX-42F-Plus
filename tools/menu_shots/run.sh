@@ -56,7 +56,9 @@ PX_DRIVE="$TMP/drive" "$TMP/menu_shots" "$OUT" \
       DOWN DOWN ENTER DOWN ENTER shot:font_mini_preview EXIT \
     EXIT \
     6 ENTER shot:sounds ENTER shot:key_sound EXIT EXIT \
-    6 ENTER shot:printer ENTER shot:printer_pick DOWN DOWN ENTER shot:printer_ir ENTER DOWN ENTER shot:screen_print EXIT shot:printer_form EXIT \
+    6 ENTER shot:printer ENTER shot:printer_pick DOWN DOWN ENTER shot:printer_ir ENTER DOWN ENTER shot:screen_print EXIT shot:printer_form \
+      UP ENTER DOWN ENTER shot:printer_escpos ENTER shot:printer_escpos_form \
+      ENTER UP ENTER EXIT shot:printer_cancelled EXIT \
     6 ENTER shot:splash \
       ENTER shot:splash_timer EXIT \
       DOWN ENTER shot:splash_image DOWN ENTER shot:splash_preview EXIT \

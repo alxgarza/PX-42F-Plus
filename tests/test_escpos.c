@@ -168,6 +168,21 @@ static void test_picture(void) {
             fprintf(stderr, "picture byte %d: %02x\n", i, out[8 + i]);
             failures++;
         }
+    /* Turned (Landscape), 3 times bigger: the top right pixel of an 8 x 2
+     * screen is the paper's first 3 rows, dots 189-191 ((384 - 6) / 2 in),
+     * byte 23's 0x07; rows of (189 + 6 + 7) / 8 = 25 bytes; nothing else. */
+    uint8_t corner[2] = {0x01, 0x00};
+    uint8_t turned[25];
+    for (int row = 0; row < 8 * 3; row++) {
+        int got = escpos_turned_row(turned, corner, 1, 8, 2, row);
+        for (int i = 0; i < 25; i++)
+            if (got != 25 || turned[i] != (row < 3 && i == 23 ? 0x07 : 0)) {
+                fprintf(stderr, "turned row %d byte %d: %02x (%d bytes)\n", row, i, turned[i], got);
+                failures++;
+                break;
+            }
+    }
+
     /* The screen, 250 wide: 67 dots in, rows of 40 bytes. */
     if (ESCPOS_ROW_BYTES(250) != 40) {
         fprintf(stderr, "screen rows of %d bytes\n", ESCPOS_ROW_BYTES(250));

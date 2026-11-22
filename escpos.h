@@ -55,6 +55,16 @@ int escpos_text_line(uint8_t *out, const char *text, int length, const uint8_t *
 int escpos_picture_header(uint8_t *out, int width, int height);
 int escpos_picture_row(uint8_t *out, const uint8_t *row, int width);
 
+/* The screen turned a quarter and ESCPOS_TURNED_SCALE times bigger (Screen
+ * Print: Landscape), as the HP 82240B turns it: the paper's rows run down
+ * the screen from its right edge, the top at the left -- turn the paper a
+ * quarter clockwise to read it. A picture of escpos_picture_header(out,
+ * height * scale, width * scale), then rows 0 to width * scale - 1, each
+ * ESCPOS_ROW_BYTES(height * scale) bytes. fb: width x height pixels, stride
+ * bytes a row, the leftmost in the most significant bit. */
+#define ESCPOS_TURNED_SCALE 3 /* the screen's 122 rows are 366 of the 384 dots */
+int escpos_turned_row(uint8_t *out, const uint8_t *fb, int stride, int width, int height, int row);
+
 #ifdef __cplusplus
 }
 #endif

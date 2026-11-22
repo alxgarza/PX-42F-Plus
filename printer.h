@@ -39,9 +39,11 @@ typedef enum {
     PRINTER_ESCPOS = 3,
 } printer_target_t;
 
-/* PRLCD on the HP 82240B (px_settings.screen_print): the screen redrawn
+/* PRLCD (px_settings.screen_print), on the HP 82240B: the screen redrawn
  * upright for the paper (free42_draw_paper()), or the panel's own dots,
- * turned a quarter -- also when the screen is too wide to redraw. */
+ * turned a quarter -- also when the screen is too wide to redraw. On the
+ * USB ESC/POS printer: the panel's dots upright (they fit), or turned a
+ * quarter and 3 times bigger. */
 typedef enum { SCREEN_PRINT_UPRIGHT, SCREEN_PRINT_AS_IS, SCREEN_PRINTS } screen_print_t;
 
 /* DELAY (px_settings.print_delay_ms): the time the HP 82240B is reckoned to
@@ -66,7 +68,7 @@ void printer_hp82240b_paper(int height, bool (*stop)(void));
  * the ring, unless the printer is unavailable (dropped). The screen returns
  * false if stop said so between rows. */
 void printer_escpos_text(const char *text, int length, const uint8_t *bits, int bytesperline, bool double_wide);
-bool printer_escpos_screen(bool (*stop)(void));
+bool printer_escpos_screen(bool turned, bool (*stop)(void));
 
 /* Core 0 (usbprint.c): the bytes waiting, from the oldest, as many as lie
  * together (0: none); taking n of them once sent; dropping them all. */

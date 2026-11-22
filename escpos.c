@@ -121,3 +121,19 @@ int escpos_picture_row(uint8_t *out, const uint8_t *row, int width) {
         }
     return row_bytes;
 }
+
+int escpos_turned_row(uint8_t *out, const uint8_t *fb, int stride, int width, int height, int row) {
+    int across = height * ESCPOS_TURNED_SCALE;
+    int margin = (ESCPOS_DOTS - across) / 2;
+    int row_bytes = ESCPOS_ROW_BYTES(across);
+    int x = width - 1 - row / ESCPOS_TURNED_SCALE;
+    for (int b = 0; b < row_bytes; b++)
+        out[b] = 0;
+    for (int y = 0; y < height; y++)
+        if (fb[y * stride + (x >> 3)] >> (7 - (x & 7)) & 1)
+            for (int k = 0; k < ESCPOS_TURNED_SCALE; k++) {
+                int d = margin + y * ESCPOS_TURNED_SCALE + k;
+                out[d >> 3] |= (uint8_t) (0x80u >> (d & 7));
+            }
+    return row_bytes;
+}

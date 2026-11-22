@@ -171,7 +171,7 @@ void shell_print(const char *text, int length,
         } else { /* the screen as it is: it fits the paper upright */
             free42_print_stop_begin();
             free42_draw_screen(false); /* no printer icon on the paper */
-            printer_escpos_screen(free42_print_stop);
+            printer_escpos_screen(px_settings.screen_print == SCREEN_PRINT_AS_IS, free42_print_stop);
             free42_draw_screen(true);
             free42_print_stop_end();
         }

@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-/* The USB thermal printer (Settings -> Printer -> USB Thermal): the
+/* The USB thermal printer (Settings -> Printer -> USB ESC/POS): the
  * RP2350's one USB port taken from the computer (console, drive) and made
  * the printer's host only while printing. What core 1 prints waits in
  * printer.c's ring; the first bytes switch the port to host, the printer is

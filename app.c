@@ -172,6 +172,11 @@ static int api_key(int wait_ms) {
                 result |= PX_KEY_RELEASED;
             } else {
                 run.idle_since = get_absolute_time();
+                if (key_hold_app_minus((uint8_t) row, (uint8_t) col)) { /* the screenshot gesture's "-" */
+                    run.held = keyboard_held();
+                    result = PX_KEY_SHIFT; /* as above */
+                    break;
+                }
                 if (result == PX_KEY_SHIFT)
                     key_hold_begin((uint8_t) row, (uint8_t) col); /* the screenshot gesture starts here */
                 if (result == PX_KEY_ON) {
@@ -698,7 +703,7 @@ static int api_print_screen(int (*stop)(void)) {
         }
         case PRINTER_ESCPOS: {
             print_stop = stop;
-            bool printed = printer_escpos_screen(print_stop_asked);
+            bool printed = printer_escpos_screen(px_settings.screen_print == SCREEN_PRINT_AS_IS, print_stop_asked);
             print_stop = NULL;
             return printed ? 0 : 1;
         }

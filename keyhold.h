@@ -44,6 +44,13 @@ key_hold_t key_hold_poll(void);
 /* Apps: the screenshot gesture, after key_hold_begin() on SHIFT. True when
  * a screenshot was taken (both keys are up then). */
 bool key_hold_app_screenshot(void);
+/* Apps: a key just went down, row, col. If it's "-" with the SHIFT the
+ * gesture began with still held, waits here while both stay down, up to
+ * SCREENSHOT_HOLD_MS: true if that made a screenshot (then the "-" is the
+ * gesture's, not the app's; both keys are up). An app busy after each key
+ * -- a graph replotted -- only looked at the gesture between keys, and
+ * missed it. False: the "-" is the app's, a moment late. */
+bool key_hold_app_minus(uint8_t row, uint8_t col);
 
 #ifdef __cplusplus
 }
