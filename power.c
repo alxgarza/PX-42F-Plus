@@ -253,8 +253,9 @@ static uint64_t next_wake(uint64_t now_ms, uint64_t until_ms) {
     if (NEXT_ALARM != 0 && NEXT_ALARM < wake)
         wake = NEXT_ALARM > now_ms + 100 ? NEXT_ALARM : now_ms + 100; /* one already due: a moment from now */
     if (until_ms != 0) {
+        /* The splash's clock each minute (Show Time), and its end. */
         uint64_t next_minute = (now_ms / 60000 + 1) * 60000;
-        uint64_t splash = until_ms < next_minute ? until_ms : next_minute;
+        uint64_t splash = until_ms < next_minute || !px_settings.splash_clock ? until_ms : next_minute;
         if (splash < wake)
             wake = splash;
     }

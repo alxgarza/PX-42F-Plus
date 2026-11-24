@@ -97,11 +97,12 @@ static void draw_bar(const rtc_datetime_t *now) {
     display_draw_string(&font_10x16, buf, (uint8_t) ((DISPLAY_WIDTH - text_width) / 2), BAR_TEXT_Y, 0xFF);
 }
 
-/* The image plus the date/time bar, into the framebuffer. */
+/* The image plus the date/time bar (Show Time), into the framebuffer. */
 static void draw_screen(bool custom, const uint8_t *bits, const rtc_datetime_t *now) {
     display_clear();
     draw_image(custom, bits);
-    draw_bar(now);
+    if (px_settings.splash_clock)
+        draw_bar(now);
 }
 
 void splash_preview_draw(void) {
@@ -121,6 +122,8 @@ static void splash_draw(const rtc_datetime_t *now) {
 #define FAST_SETTLE_MS 300
 
 void splash_update_clock(void) {
+    if (!px_settings.splash_clock)
+        return; /* the image alone: nothing changes */
     rtc_datetime_t now;
     rtc_get_datetime(&now);
     draw_bar(&now);

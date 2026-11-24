@@ -15,7 +15,7 @@ extern "C" {
  * free of hardware for tests/run.sh (tests/test_settings.c). */
 
 #define SETTINGS_MAGIC   0x32345850u /* "PX42" */
-#define SETTINGS_VERSION 14          /* bump when px_settings_t changes, and add the old one to older[] */
+#define SETTINGS_VERSION 15          /* bump when px_settings_t changes, and add the old one to older[] */
 
 typedef struct {
     uint32_t magic;

@@ -62,6 +62,11 @@ static bool is_exit(int k, const char *const *tabs) {
     return is_back(k) || tab_is(tabs, k, "EXIT") || tab_is(tabs, k, "BACK");
 }
 
+/* The port's word for F6 (ui_port_t.leave). */
+static const char *leave_word(const ui_port_t *p) {
+    return p->leave != NULL ? p->leave : "EXIT";
+}
+
 static bool tab_live(const char *const *tabs, int k) {
     int s = soft_key(k);
     return s >= 0 && tabs != NULL && tabs[s] != NULL && tabs[s][0] != 0;
@@ -187,14 +192,15 @@ static const char *const box_tick[] = {".........", ".##...##.", ".###.###.", ".
                                        "..#####..", ".###.###.", ".##...##.", ".........", NULL};
 
 /* A list's tabs as shown: its own, ▲ ▼ on F4 F5 when there's more than one
- * row to move between (and the list left them free), EXIT on F6. */
-static void list_tabs(const char *const *given, int count, const char *out[6]) {
+ * row to move between (and the list left them free), the port's EXIT (or
+ * BACK) on F6. */
+static void list_tabs(const ui_port_t *p, const char *const *given, int count, const char *out[6]) {
     for (int i = 0; i < 6; i++)
         out[i] = given != NULL && given[i] != NULL ? given[i] : "";
     if (count > 1 && out[3][0] == 0 && out[4][0] == 0)
         out[3] = "^", out[4] = "\x0e";
     if (out[5][0] == 0)
-        out[5] = "EXIT";
+        out[5] = leave_word(p);
 }
 
 static int list_first(const px_ui_list_t *l) {
@@ -244,7 +250,7 @@ void ui_list_draw(const ui_port_t *p, const px_ui_list_t *l) {
         p->fill(PX_SCREEN_W - 2, top, 2, bottom - top, 1);
     }
     const char *tabs[6];
-    list_tabs(l->tabs, l->count, tabs);
+    list_tabs(p, l->tabs, l->count, tabs);
     ui_tabs(p, tabs);
 }
 
@@ -280,7 +286,7 @@ int ui_list(const ui_port_t *p, px_ui_list_t *l) {
         ui_list_draw(p, l);
         p->show();
         const char *tabs[6];
-        list_tabs(l->tabs, l->count, tabs);
+        list_tabs(p, l->tabs, l->count, tabs);
         int k = p->key();
         if (k == PX_UI_QUIT)
             return PX_UI_QUIT;
@@ -332,7 +338,7 @@ static const char *view_line(const char *s, int *len, int cols) {
 }
 
 int ui_view(const ui_port_t *p, const char *title, const char *text) {
-    return ui_view_leave(p, title, text, "EXIT");
+    return ui_view_leave(p, title, text, leave_word(p));
 }
 
 int ui_view_leave(const ui_port_t *p, const char *title, const char *text, const char *leave) {
@@ -759,9 +765,10 @@ int ui_text(const ui_port_t *p, const char *title, const char *prompt, char *tex
     }
 }
 
-static const char *const step_tabs[6] = {"ENTER", "", "", "^", "\x0e", "EXIT"};
+
 
 int ui_number(const ui_port_t *p, const char *title, const char *prompt, int *value, int min, int max) {
+    const char *const step_tabs[6] = {"ENTER", "", "", "^", "\x0e", leave_word(p)};
     int v = *value < min ? min : *value > max ? max : *value;
     bool typing = false;
     const char *error = NULL;
@@ -795,7 +802,7 @@ int ui_number(const ui_port_t *p, const char *title, const char *prompt, int *va
             typing = false;
             v += move;
             v = v < min ? min : v > max ? max : v;
-        } else if (tab_is(step_tabs, k, "EXIT") || (is_back(k) && !typing)) {
+        } else if (tab_is(step_tabs, k, step_tabs[5]) || (is_back(k) && !typing)) {
             return PX_UI_BACK;
         } else if (PLACE(k) == PX_KEY_BACKSPACE) {
             v /= 10;
@@ -862,7 +869,7 @@ static void add_months(int *y, int *m, int *d, int n) {
 }
 
 int ui_date(const ui_port_t *p, const char *title, int *year, int *month, int *day) {
-    static const char *const tabs[6] = {"ENTER", "\x10MON", "MON\x0f", "\x10YR", "YR\x0f", "EXIT"};
+    const char *const tabs[6] = {"ENTER", "\x10MON", "MON\x0f", "\x10YR", "YR\x0f", leave_word(p)};
     static const char *const names[12] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
                                           "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
     int y = *year, m = *month, d = *day;
@@ -926,7 +933,7 @@ int ui_date(const ui_port_t *p, const char *title, int *year, int *month, int *d
 
 int ui_time(const ui_port_t *p, const char *title, const char *prompt, int *hours, int *minutes, int *seconds,
             int flags) {
-    static const char *const tabs[6] = {"ENTER", "\x10", "\x0f", "^", "\x0e", "EXIT"};
+    const char *const tabs[6] = {"ENTER", "\x10", "\x0f", "^", "\x0e", leave_word(p)};
     bool duration = flags & PX_UI_TIME_DURATION, h12 = !duration && (flags & PX_UI_TIME_12H);
     int nfields = 2 + ((flags & PX_UI_TIME_SECONDS) != 0) + h12;
     int v[4] = {*hours, *minutes, seconds != NULL ? *seconds : 0, 0};
@@ -1110,7 +1117,7 @@ int ui_form(const ui_port_t *p, px_ui_form_t *form) {
         if (k == UI_REDRAW || count == 0)
             continue;
         const char *tabs[6];
-        list_tabs(form->tabs, count, tabs);
+        list_tabs(p, form->tabs, count, tabs);
         if (tab_is(tabs, k, "ENTER")) /* a settings form's F1: does what the key does */
             k = PX_KEY_ENTER;
         int move = up_down(k, tabs);

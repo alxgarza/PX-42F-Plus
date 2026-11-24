@@ -24,6 +24,7 @@ static const struct {
     uint32_t version;
     size_t cut;
 } history[] = {
+    {14, offsetof(px_settings_t, splash_clock)},
     {13, offsetof(px_settings_t, print_delay_ms)},
     {12, offsetof(px_settings_t, menu_style)},
     {11, offsetof(px_settings_t, error_sound)},
@@ -62,7 +63,7 @@ static void old_record(settings_record_t *r, uint32_t version, size_t cut, const
 }
 
 int main(void) {
-    CHECK(SETTINGS_VERSION == 14,
+    CHECK(SETTINGS_VERSION == 15,
           "SETTINGS_VERSION is %d: add the version before it to older[] (settings_record.c) and to history[] here",
           SETTINGS_VERSION);
 

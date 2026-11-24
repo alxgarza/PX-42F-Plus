@@ -62,14 +62,14 @@ img.shot { display: block; width: 100%; max-width: 500px; height: auto; image-re
 <h2 id="principles">1. The four rules</h2>
 <ol>
   <li><strong>Only standard elements.</strong> Every setting is set with one of the screens in <a href="#elements">section 3</a>: a radio list, a check box, a pull-down, a number, a time, a date, text, a list, a form, an icon page or a message. No screen invents its own way.</li>
-  <li><strong>Tabs have fixed places.</strong> F1 is what <kbd>ENTER</kbd> does, F4 and F5 are the arrows (&#9650; &#9660; in lists, &larr; &rarr; on icons), F6 is EXIT. The same thing is always under the same key.</li>
+  <li><strong>Tabs have fixed places.</strong> F1 is what <kbd>ENTER</kbd> does, F4 and F5 are the arrows (&#9650; &#9660; in lists, &larr; &rarr; on icons), F6 is EXIT in apps and BACK on the settings screens (the same key, the same thing). The same thing is always under the same key.</li>
   <li><strong>Only live tabs show.</strong> A tab that does nothing on this screen isn't drawn, and its place stays empty: the others don't move into it.</li>
-  <li><strong>EXIT never changes anything.</strong> It goes back, or leaves an editor as it was. The EXIT tab and the <kbd>EXIT</kbd> key do the same.</li>
+  <li><strong>EXIT never changes anything.</strong> It goes back, or leaves an editor as it was. The EXIT tab (BACK in the settings) and the <kbd>EXIT</kbd> key do the same.</li>
 </ol>
 
 <h2 id="screen">2. The screen</h2>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:states}}" alt="States: a title bar, three saved states, tabs SAVE LOAD RENAM DEL and EXIT"><figcaption>Title bar, rows, tabs.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:states}}" alt="States: a title bar, three saved states, tabs SAVE LOAD RENAM DEL and BACK"><figcaption>Title bar, rows, tabs.</figcaption></figure>
 </div>
 <ul>
   <li><strong>Title bar</strong> (13 px, black): the screen's name at the left, the time at the right, the shift sign while <kbd>SHIFT</kbd> is down. The name is the one on the row or icon that opened it.</li>
@@ -81,22 +81,22 @@ img.shot { display: block; width: 100%; max-width: 500px; height: auto; image-re
 <div class="table-wrap"><table>
 <thead><tr><th>To set or do</th><th>Use</th><th>Its tabs</th><th>Examples</th></tr></thead>
 <tbody>
-<tr><td>One of a fixed few, on its own screen</td><td><strong>Radio list</strong>: the filled button is the one in use; <kbd>ENTER</kbd> or its tab moves it.</td><td>ENTER &middot; &#9650; &#9660; EXIT</td><td>Date Format, Time Format, Menu Style, Correction</td></tr>
+<tr><td>One of a fixed few, on its own screen</td><td><strong>Radio list</strong>: the filled button is the one in use; <kbd>ENTER</kbd> or its tab moves it.</td><td>ENTER &middot; &#9650; &#9660; BACK</td><td>Date Format, Time Format, Menu Style, Correction</td></tr>
 <tr><td>A file, among other settings</td><td><strong>Pull-down</strong> in a settings form. A sound plays when picked; a font or picture is shown first, and only USE takes it (EXIT keeps the one in use).</td><td>(the form's)</td><td>Key Sound, Fonts (all three), Splash Image's Image</td></tr>
 <tr><td>On or off</td><td><strong>Check box</strong> in a form: <kbd>ENTER</kbd> ticks it.</td><td>(the form's)</td><td>On Sound, Off Sound, Calc Error Sound, Silence Plus42</td></tr>
 <tr><td>One of many, inside a form</td><td><strong>Pull-down</strong>: opens under the field; <kbd>ENTER</kbd> picks, <kbd>EXIT</kbd> keeps.</td><td>none</td><td>An alarm's Repeat, Kind, Message, Sound</td></tr>
-<tr><td>A number</td><td><strong>Number</strong>: type it, or &#9650; &#9660; step; its range shown.</td><td>ENTER &middot; &middot; &#9650; &#9660; EXIT</td><td>Sleep Timer, Splash Timer</td></tr>
-<tr><td>A time or a duration</td><td><strong>Time picker</strong>: &larr; &rarr; pick the field, &#9650; &#9660; or digits set it.</td><td>ENTER &larr; &rarr; &#9650; &#9660; EXIT</td><td>Set Time, Exact Time, an alarm's time and repeat</td></tr>
-<tr><td>A date</td><td><strong>Calendar</strong>: 4 6 a day, 8 2 a week, the tabs a month or a year.</td><td>ENTER &larr;MON MON&rarr; &larr;YR YR&rarr; EXIT</td><td>Set Date, an alarm's date</td></tr>
+<tr><td>A number</td><td><strong>Number</strong>: type it, or &#9650; &#9660; step; its range shown.</td><td>ENTER &middot; &middot; &#9650; &#9660; BACK</td><td>Sleep Timer, Splash Timer</td></tr>
+<tr><td>A time or a duration</td><td><strong>Time picker</strong>: &larr; &rarr; pick the field, &#9650; &#9660; or digits set it.</td><td>ENTER &larr; &rarr; &#9650; &#9660; BACK</td><td>Set Time, Exact Time, an alarm's time and repeat</td></tr>
+<tr><td>A date</td><td><strong>Calendar</strong>: 4 6 a day, 8 2 a week, the tabs a month or a year.</td><td>ENTER &larr;MON MON&rarr; &larr;YR YR&rarr; BACK</td><td>Set Date, an alarm's date</td></tr>
 <tr><td>A name or a message</td><td><strong>Text</strong>: the keys type their letters. No tabs: the top row types A&ndash;F. A hint line says <kbd>ENTER</kbd> done, <kbd>&larr;</kbd> delete, <kbd>EXIT</kbd> back.</td><td>none</td><td>Save State, RENAM, an alarm's message</td></tr>
-<tr><td>Several settings of one page</td><td><strong>Settings form</strong>: a row each, the value at the right; each change counts at once.</td><td>ENTER &middot; &middot; &#9650; &#9660; EXIT</td><td>Sounds, Fonts, Splash Image, Printer</td></tr>
-<tr><td>A record: create or edit</td><td><strong>Record form</strong>: fields change nothing until SAVE.</td><td>SAVE &middot; &middot; &#9650; &#9660; EXIT</td><td>New Alarm, Edit Alarm</td></tr>
-<tr><td>Things you keep (files, alarms)</td><td><strong>List with actions</strong>: the tabs act on the picked row.</td><td>e.g. NEW EDIT DEL &#9650; &#9660; EXIT</td><td>States, Programs, Alarms</td></tr>
-<tr><td>Settings that open their own screens</td><td><strong>List</strong>, the current value at the right of each row.</td><td>ENTER &middot; &middot; &#9650; &#9660; EXIT</td><td>Date &amp; Time, Time Calibration</td></tr>
-<tr><td>Going somewhere</td><td><strong>Icon page</strong> (a list in the List style). The arrows as a cursor cluster: &larr; &rarr; (and <kbd>4</kbd> <kbd>6</kbd>, the keypad's arrows) to the icon before and after, &#9650; &#9660; (and <kbd>8</kbd> <kbd>2</kbd>) a row up and down. With SHIFT: MOVE, FAV or UNFAV (only where it applies), BACK (to the plain tabs).</td><td>ENTER &larr; &#9650; &#9660; &rarr; EXIT</td><td>Home, Apps, Games, Settings, Plus42, USB Drive</td></tr>
-<tr><td>A question</td><td><strong>Message</strong> whose F1 names the answer.</td><td>DEL (LOAD, FORMT...) &middot; &middot; &middot; &middot; EXIT</td><td>Delete State, Load State, Format Drive</td></tr>
+<tr><td>Several settings of one page</td><td><strong>Settings form</strong>: a row each, the value at the right; each change counts at once.</td><td>ENTER &middot; &middot; &#9650; &#9660; BACK</td><td>Sounds, Fonts, Splash Image, Printer</td></tr>
+<tr><td>A record: create or edit</td><td><strong>Record form</strong>: fields change nothing until SAVE.</td><td>SAVE &middot; &middot; &#9650; &#9660; BACK</td><td>New Alarm, Edit Alarm</td></tr>
+<tr><td>Things you keep (files, alarms)</td><td><strong>List with actions</strong>: the tabs act on the picked row.</td><td>e.g. NEW EDIT DEL &#9650; &#9660; BACK</td><td>States, Programs, Alarms</td></tr>
+<tr><td>Settings that open their own screens</td><td><strong>List</strong>, the current value at the right of each row.</td><td>ENTER &middot; &middot; &#9650; &#9660; BACK</td><td>Date &amp; Time, Time Calibration</td></tr>
+<tr><td>Going somewhere</td><td><strong>Icon page</strong> (a list in the List style). The arrows as a cursor cluster: &larr; &rarr; (and <kbd>4</kbd> <kbd>6</kbd>, the keypad's arrows) to the icon before and after, &#9650; &#9660; (and <kbd>8</kbd> <kbd>2</kbd>) a row up and down. With SHIFT: MOVE, FAV or UNFAV (only where it applies), BACK (to the plain tabs).</td><td>ENTER &larr; &#9650; &#9660; &rarr; EXIT (BACK on the pages and in the folders)</td><td>Home, Apps, Games, Settings, Plus42, USB Drive</td></tr>
+<tr><td>A question</td><td><strong>Message</strong> whose F1 names the answer.</td><td>DEL (LOAD, FORMT...) &middot; &middot; &middot; &middot; BACK</td><td>Delete State, Load State, Format Drive</td></tr>
 <tr><td>A yes-or-no question over a screen</td><td><strong>Dialog box</strong>, a classic alert: the screen dimmed (a checkerboard), a square box with a double border (1 px, a 1 px gap, 2 px), a stop, note or caution icon, the text, and two buttons at the bottom right drawn as the Hello screen's, named for what they do. The left is the default, ringed at first; the arrows move the ring and ENTER presses the ringed one. F1 is the left, F6, EXIT and &larr; the right.</td><td>none (its own buttons)</td><td>Settings &rarr; Reset (OK, CANCEL), apps (<code>ui_dialog()</code>)</td></tr>
-<tr><td>Long text to read</td><td><strong>Text viewer</strong>: wrapped lines, a page at a time, the page in the title bar.</td><td>&middot; &middot; &middot; &#9650; &#9660; EXIT</td><td>Help, Info, apps (<code>ui_view()</code>)</td></tr>
+<tr><td>Long text to read</td><td><strong>Text viewer</strong>: wrapped lines, a page at a time, the page in the title bar.</td><td>&middot; &middot; &middot; &#9650; &#9660; EXIT (BACK in Help, Info)</td><td>Help, Info, apps (<code>ui_view()</code>)</td></tr>
 <tr><td>A result or information</td><td><strong>Message</strong>.</td><td>ENTER</td><td>"Saved X", errors</td></tr>
 </tbody>
 </table></div>
@@ -104,15 +104,15 @@ img.shot { display: block; width: 100%; max-width: 500px; height: auto; image-re
 <figure><img class="shot" src="{{SHOT:time_format}}" alt="Time Format radio list"><figcaption>Radio list.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:font_large}}" alt="Fonts form with the Large Font list pulled down"><figcaption>A file pulled down in a settings form.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:sounds}}" alt="Sounds form with check boxes"><figcaption>Settings form with check boxes.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:alarm_edit}}" alt="Edit Alarm form, tabs SAVE and EXIT"><figcaption>Record form: SAVE.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:alarm_edit}}" alt="Edit Alarm form, tabs SAVE and BACK"><figcaption>Record form: SAVE.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:alarm_repeat}}" alt="A pull-down under Repeat"><figcaption>Pull-down.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:sleep_timer}}" alt="Sleep Timer number entry"><figcaption>Number.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:set_time}}" alt="Set Time picker"><figcaption>Time picker.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:set_date}}" alt="Set Date calendar"><figcaption>Calendar.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:save_state}}" alt="Save State text entry"><figcaption>Text.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:usb_menu}}" alt="USB Drive icon page"><figcaption>Icon page.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:load_state}}" alt="Load State question, tabs LOAD and EXIT"><figcaption>Question.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:font_large_preview}}" alt="Font preview, tabs USE and EXIT"><figcaption>Preview: USE or EXIT.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:load_state}}" alt="Load State question, tabs LOAD and BACK"><figcaption>Question.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:font_large_preview}}" alt="Font preview, tabs USE and BACK"><figcaption>Preview: USE or BACK.</figcaption></figure>
 </div>
 
 <h2 id="tabs">4. The tabs</h2>

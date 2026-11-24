@@ -345,7 +345,7 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
   <li>Past the end of a row, right goes on at the start of the next one, and left at the end of the one before. Past the bottom, down goes on at the top, and up past the top at the bottom.</li>
   <li>The picked icon is drawn grey (its black is dithered) inside a thin frame with rounded corners. Its name is in the bar at the top. With more than three rows, the screen scrolls, and a bar at the right edge shows where you are.</li>
   <li>In a list, <kbd>&uarr;</kbd> <kbd>&darr;</kbd> move (and <kbd>8</kbd> <kbd>2</kbd>). Items show their current value at the right.</li>
-  <li>The tabs along the bottom of every screen are for the top row of keys, as on the icons. A screen shows only the tabs that do something there: the first names what <kbd>ENTER</kbd> does (<strong>ENTER</strong>, <strong>SAVE</strong>, <strong>USE</strong>...), <strong>&uarr;</strong> <strong>&darr;</strong> on the fourth and fifth move, when there's more than one row, and <strong>EXIT</strong> on the sixth goes back or leaves without a change, as the <kbd>EXIT</kbd> key does. Each tab always has the same place.</li>
+  <li>The tabs along the bottom of every screen are for the top row of keys, as on the icons. A screen shows only the tabs that do something there: the first names what <kbd>ENTER</kbd> does (<strong>ENTER</strong>, <strong>SAVE</strong>, <strong>USE</strong>...), <strong>&uarr;</strong> <strong>&darr;</strong> on the fourth and fifth move, when there's more than one row, and <strong>BACK</strong> on the sixth goes back or leaves without a change, as the <kbd>EXIT</kbd> key does. Each tab always has the same place.</li>
   <li>Where you choose one of several (Time Format, Date Format, Menu Style...), each has a round button, and the one in use is filled. <kbd>ENTER</kbd> (or its tab) chooses. Settings that are on or off have a check box; <kbd>ENTER</kbd> ticks it.</li>
   <li>In a form (a new alarm, say), <kbd>ENTER</kbd> changes the picked field. A choice opens a list under it: <kbd>&uarr;</kbd> <kbd>&darr;</kbd> pick, <kbd>ENTER</kbd> chooses, <kbd>EXIT</kbd> closes it.</li>
   <li><kbd>ENTER</kbd> opens the picked icon or item.</li>
@@ -453,7 +453,7 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 </tbody>
 </table></div>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:set_time}}" alt="Set Time: 11:42 AM, the hours highlighted, and the tabs ENTER, left, right, up, down and EXIT"><figcaption>Set Time.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:set_time}}" alt="Set Time: 11:42 AM, the hours highlighted, and the tabs ENTER, left, right, up, down and BACK"><figcaption>Set Time.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:set_date}}" alt="Set Date: the calendar for October 2026, the 21st highlighted"><figcaption>Set Date.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:time_format}}" alt="Time Format: 24-Hour or 12-Hour"><figcaption>Time Format.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:date_format}}" alt="Date Format: four formats"><figcaption>Date Format.</figcaption></figure>
@@ -492,8 +492,8 @@ footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule);
 </ul>
 <p><strong>SAVE</strong> sets the alarm. A time that has already passed isn't taken: change the time or the date.</p>
 <p>When an alarm comes due, a short sound plays again once a second after the first few seconds, as the tones do. A sound longer than the alarm's 20 seconds plays to its end. Any key stops it, along with the alarm. An alarm that repeats keeps its sound. If the file has gone from the drive when the alarm comes due, you hear the Plus42 tones instead. Clearing flag 26 silences all of them. The two tones that remind you of past-due alarms at power on, or that warn of an alarm set for a time already past, don't change.</p>
-<figure><img class="shot" src="{{SHOT:alarms}}" alt="The Alarms list with two alarms, and the tabs NEW, EDIT, DEL, up, down and EXIT"><figcaption>Two alarms. The second runs the program BACKUP.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:alarm_edit}}" alt="Edit Alarm: Time, Date, Repeat, Kind, Message and Sound, with the tabs SAVE, up, down and EXIT"><figcaption>An alarm, opened with EDIT.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:alarms}}" alt="The Alarms list with two alarms, and the tabs NEW, EDIT, DEL, up, down and BACK"><figcaption>Two alarms. The second runs the program BACKUP.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:alarm_edit}}" alt="Edit Alarm: Time, Date, Repeat, Kind, Message and Sound, with the tabs SAVE, up, down and BACK"><figcaption>An alarm, opened with EDIT.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:alarm_repeat}}" alt="The Repeat list open under the field: None, Every hour, Every day, Every week, Other..."><figcaption>Choosing how often it repeats.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:alarm_sound}}" alt="The Sound list open over the form: Plus42 tones, then WAV files"><figcaption>Choosing the alarm's sound.</figcaption></figure>
 
@@ -617,16 +617,17 @@ PLAYMID</code></pre>
 <p>Turns the calculator off after this many minutes without a key press: 0 to 999, where 0 means never. The default is 10 minutes, the HP-42S's own. The timer doesn't run while a program runs, while Plus42's "continuous on" (flag 44) is set, or while a computer is connected over USB.</p>
 
 <h3 id="set-splash">Splash Image</h3>
-<p>The picture the screen shows while the calculator is off, with the date and time across the top, updated every minute.</p>
+<p>The picture the screen shows while the calculator is off, with the date and time across the top, updated every minute, if you want them.</p>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:splash}}" alt="Splash Image: Timer 10 min, Image Built-In"><figcaption>The two splash settings.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:splash}}" alt="Splash Image: Timer 10 min, Image Built-In, Show Time ticked"><figcaption>The three splash settings.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:splash_timer}}" alt="Splash Timer: Shown for 10 min. 0 = Off"><figcaption>Timer.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:splash_image}}" alt="Splash Image with the Image list pulled down: Built-In (picked), a screenshot, Mountains"><figcaption>Image pulled down: Built-In, then the PNGs in <code>/SPLASH</code>.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:splash_preview}}" alt="Preview of a screenshot as the splash image, under a bar with the date and time; tabs USE and EXIT"><figcaption>A preview, as it looks while off.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:splash_preview}}" alt="Preview of a screenshot as the splash image, under a bar with the date and time; tabs USE and BACK"><figcaption>A preview, as it looks while off.</figcaption></figure>
 </div>
 <ul>
   <li><strong>Timer:</strong> how many minutes the picture stays up after turning off, 0 to 999. After that the screen goes blank. With 0, it's blank straight away. The default is 10.</li>
   <li><strong>Image:</strong> <strong>Built-In</strong>, or a PNG from <code>/SPLASH</code> on the drive. <kbd>ENTER</kbd> pulls down the list; choosing another image shows it full screen, as it will look. Press <kbd>ENTER</kbd> (<strong>USE</strong>) to use it, or <kbd>EXIT</kbd> to keep the one you had. The best size is 250 &times; 122 pixels, and the PNG must not be interlaced. A screenshot works as is.</li>
+  <li><strong>Show Time:</strong> a check box, ticked at first. Ticked, the date and time run across the top of the picture, updated every minute; <kbd>ENTER</kbd> unticks it, and the picture shows whole, with no clock. Without the clock the calculator doesn't wake each minute to update it, so the picture costs less battery.</li>
 </ul>
 <p>Showing the picture costs a little battery while off: about 200 &micro;A against 135 &micro;A blank.</p>
 
@@ -655,11 +656,11 @@ PLAYMID</code></pre>
 <h3 id="set-states">States</h3>
 <p>A state is a complete copy of the calculator's memory (stack, variables, programs, settings) in a file. States are kept on the drive in <code>/STATE</code> as <code>&lt;name&gt;.p42</code> files, the same format the desktop Plus42 uses.</p>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:states}}" alt="States: the saved states 20261020-174205, Finance, Physics; tabs SAVE, LOAD, RENAM, DEL and EXIT"><figcaption>States: the saved ones.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:states}}" alt="States: the saved states 20261020-174205, Finance, Physics; tabs SAVE, LOAD, RENAM, DEL and BACK"><figcaption>States: the saved ones.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:save_state}}" alt="Save State: a name prompt with the suggested name 20261021-114205"><figcaption>SAVE, with the suggested name.</figcaption></figure>
-<figure><img class="shot" src="{{SHOT:load_state}}" alt="Load State: Load 20261020-174205? This replaces everything in the calculator's memory. Tabs LOAD and EXIT"><figcaption>LOAD asks first.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:load_state}}" alt="Load State: Load 20261020-174205? This replaces everything in the calculator's memory. Tabs LOAD and BACK"><figcaption>LOAD asks first.</figcaption></figure>
 </div>
-<p>States lists the saved states. The tabs act on the one picked; with none saved, only <strong>SAVE</strong> and <strong>EXIT</strong> show.</p>
+<p>States lists the saved states. The tabs act on the one picked; with none saved, only <strong>SAVE</strong> and <strong>BACK</strong> show.</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Tab</th><th>What it does</th></tr></thead>
 <tbody>
@@ -674,10 +675,10 @@ PLAYMID</code></pre>
 <h3 id="set-programs">Programs</h3>
 <p>Programs can be kept on the drive as <code>.raw</code> files, in <code>/PROGRAMS</code>. This is the program file format of Plus42 and Free42 on computers and phones, and of the program libraries online. A <code>.raw</code> file holds one or more programs; it doesn't hold variables or the stack (use <a href="#set-states">States</a> for those).</p>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:programs}}" alt="Programs: the .raw files ALL, Calendar, QUAD, Rocket-Science; tabs IMPRT, EXPRT, RENAM, DEL and EXIT"><figcaption>Programs: the <code>.raw</code> files.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:programs}}" alt="Programs: the .raw files ALL, Calendar, QUAD, Rocket-Science; tabs IMPRT, EXPRT, RENAM, DEL and BACK"><figcaption>Programs: the <code>.raw</code> files.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:export_programs}}" alt="Export Programs: All Programs, then each program by its labels"><figcaption>EXPRT: the calculator's programs.</figcaption></figure>
 </div>
-<p>Programs lists the <code>.raw</code> files. <strong>IMPRT</strong>, <strong>RENAM</strong> and <strong>DEL</strong> act on the one picked; with none, only <strong>EXPRT</strong> and <strong>EXIT</strong> show.</p>
+<p>Programs lists the <code>.raw</code> files. <strong>IMPRT</strong>, <strong>RENAM</strong> and <strong>DEL</strong> act on the one picked; with none, only <strong>EXPRT</strong> and <strong>BACK</strong> show.</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Tab</th><th>What it does</th></tr></thead>
 <tbody>
@@ -691,7 +692,7 @@ PLAYMID</code></pre>
 
 <h3 id="set-usb">USB Drive</h3>
 <div class="shots">
-<figure><img class="shot" src="{{SHOT:usb_menu}}" alt="USB Drive: three icons, Connect to PC (picked), Format Drive, Update Firmware; tabs ENTER, left, up, down, right and EXIT"><figcaption>USB Drive.</figcaption></figure>
+<figure><img class="shot" src="{{SHOT:usb_menu}}" alt="USB Drive: three icons, Connect to PC (picked), Format Drive, Update Firmware; tabs ENTER, left, up, down, right and BACK"><figcaption>USB Drive.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:usb_drive}}" alt="Connect to PC: Connected: drive PX-42F"><figcaption>Connect to PC, with a computer connected.</figcaption></figure>
 <figure><img class="shot" src="{{SHOT:format_drive}}" alt="Format Drive: Erase every file on the drive?"><figcaption>Format Drive asks first, then once more.</figcaption></figure>
 </div>

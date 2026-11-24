@@ -53,6 +53,7 @@ typedef struct {
     bool error_sound;        /* /SOUNDS/ERROR.wav when Plus42 shows an error message (free42_app.cc) */
     uint8_t menu_style;      /* menu_style_t */
     uint16_t print_delay_ms; /* DELAY: how long the HP 82240B takes per line (printer.c) */
+    bool splash_clock;       /* the date and time across the splash (splash.c), and the minute wakes for it */
 } px_settings_t;
 
 extern px_settings_t px_settings;

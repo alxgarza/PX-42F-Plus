@@ -502,6 +502,7 @@ int main(int argc, char **argv) {
             .on_sound = true,
             .off_sound = true,
             .error_sound = true,
+            .splash_clock = true,
             .date_format = RTC_WMD,
             .clock_24h = false,
             .menu_style = getenv("PX_MENU_LIST") != NULL ? MENU_STYLE_LIST : MENU_STYLE_ICONS,

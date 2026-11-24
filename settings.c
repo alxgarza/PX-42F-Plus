@@ -52,6 +52,7 @@ static const px_settings_t defaults = {
     .screen_print = SCREEN_PRINT_UPRIGHT,
     .error_sound = true,
     .print_delay_ms = PRINT_DELAY_DEFAULT_MS,
+    .splash_clock = true, /* as it always was */
 };
 
 

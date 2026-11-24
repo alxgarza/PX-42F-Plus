@@ -40,7 +40,7 @@ static uint32_t checksum(const settings_record_t *r) {
     return checksum_bytes(r, offsetof(settings_record_t, checksum));
 }
 
-/* Versions 7 to 13: today's layout cut short before the field each one
+/* Versions 7 to 14: today's layout cut short before the field each one
  * lacked. Version 7's checksum came right after its settings; from 8 on
  * they ended in chars, so the struct's padding to 8 (it holds a uint64_t)
  * came first. */
@@ -48,6 +48,7 @@ static const struct {
     uint32_t version;
     size_t size;
 } older[] = {
+    { 14, offsetof(px_settings_t, splash_clock) },
     { 13, offsetof(px_settings_t, print_delay_ms) },
     { 12, offsetof(px_settings_t, menu_style) },
     { 11, offsetof(px_settings_t, error_sound) },
@@ -64,7 +65,7 @@ static size_t older_checksum_at(int i) {
     return offsetof(settings_record_t, settings) + size;
 }
 
-/* The current layout, or one of the eight before -- versions 6 and 7 too:
+/* The current layout, or one of the nine before -- versions 6 and 7 too:
  * settings are only written when one changes, so a calculator can still
  * hold them. Anything older gets the defaults. */
 bool settings_record_load(const settings_record_t *r, px_settings_t *out) {

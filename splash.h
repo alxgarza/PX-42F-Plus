@@ -30,7 +30,8 @@ void splash_show_static(void);
 
 /* Redraws just the date/time bar, over the splash image still in the
  * framebuffer (retained.h) -- on the once-a-minute wakes while off
- * (power.c), after display_attach(). */
+ * (power.c), after display_attach(). Nothing without Show Time
+ * (px_settings.splash_clock). */
 void splash_update_clock(void);
 
 #ifdef __cplusplus

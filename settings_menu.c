@@ -235,8 +235,10 @@ static void menu_ui_show(void) {
     display_flush();
 }
 
+/* F6 says BACK on every settings screen (the user's choice); apps' EXIT. */
 static const ui_port_t menu_ui = {screen_fill,    screen_text,     screen_text_width, menu_ui_show,
-                                  menu_ui_key,    menu_ui_shifted, menu_ui_clock,     error_beep};
+                                  menu_ui_key,    menu_ui_shifted, menu_ui_clock,     error_beep,
+                                  "BACK"};
 
 int settings_menu_dialog(int icon, const char *text, const char *const *buttons, int count) {
     release_first = true;
@@ -247,7 +249,7 @@ int settings_menu_dialog(int icon, const char *text, const char *const *buttons,
 /* The soft keys' tabs, left to right; those not named are none. */
 #define TABS(...) ((const char *const[6]){__VA_ARGS__})
 /* A question: the tab naming the answer (DEL, LOAD, FORMT...) on F1, EXIT on F6. */
-#define CONFIRM(verb) TABS(verb, "", "", "", "", "EXIT")
+#define CONFIRM(verb) TABS(verb, "", "", "", "", "BACK")
 
 /* A line of text on a screen of rows (a list's rows, ui.h). */
 static void draw_line(int line, const char *text) {
@@ -1697,8 +1699,8 @@ static edit_result_t do_usb_connect(void) {
             draw_line(2, "States: STATE/<name>.p42");
             draw_line(3, "Splash images: SPLASH/*.png");
             draw_line(4, "Programs: PROGRAMS/*.raw");
-            draw_line(5, "Eject the drive, then EXIT.");
-            ui_tabs(&menu_ui, TABS("", "", "", "", "", "EXIT"));
+            draw_line(5, "Eject the drive, then BACK.");
+            ui_tabs(&menu_ui, TABS("", "", "", "", "", "BACK"));
             display_flush();
         }
 
@@ -1995,16 +1997,21 @@ static edit_result_t do_programs(void) {
 
 /* ===================== Splash ===================== */
 
-enum { SPLASH_TIMER, SPLASH_IMAGE, SPLASH_COUNT };
+enum { SPLASH_TIMER, SPLASH_IMAGE, SPLASH_TIME, SPLASH_COUNT };
 
 static char splash_names[MAX_SPLASHES][SPLASH_NAME_MAX + 1];
 static const char *splash_rows[MAX_SPLASHES + 1];
-static int splash_pick, splash_in_use;
+static int splash_pick, splash_in_use, splash_time;
 
 /* Image picked from the pull-down: loaded and shown full screen; USE keeps
  * it, EXIT goes back to the one in use. */
 static int splash_changed(px_ui_form_t *form, int field, void *ctx) {
     (void) form, (void) ctx;
+    if (field == SPLASH_TIME) { /* the check box: at once */
+        px_settings.splash_clock = splash_time != 0;
+        settings_save();
+        return 0;
+    }
     if (field != SPLASH_IMAGE || splash_pick == splash_in_use)
         return 0;
     const char *name = splash_pick == 0 ? NULL : splash_names[splash_pick - 1];
@@ -2032,7 +2039,9 @@ static int splash_changed(px_ui_form_t *form, int field, void *ctx) {
 }
 
 /* The picture shown while off, a form: Timer opens the minutes, Image is a
- * pull-down of Built-In and the PNGs in /SPLASH. */
+ * pull-down of Built-In and the PNGs in /SPLASH, Show Time a check box: the
+ * date and time across its top, updated each minute (without it the
+ * calculator doesn't wake for that). */
 static edit_result_t do_splash(void) {
     int count = statefs_list_files(STATEFS_SPLASH_DIR, ".png", (char *) splash_names, SPLASH_NAME_MAX + 1,
                                    MAX_SPLASHES);
@@ -2044,10 +2053,12 @@ static edit_result_t do_splash(void) {
             splash_in_use = i + 1;
     }
     splash_pick = splash_in_use;
+    splash_time = px_settings.splash_clock;
     char timer[16];
     px_ui_field_t fields[SPLASH_COUNT] = {
             [SPLASH_TIMER] = {"Timer", PX_UI_BUTTON, 0, NULL, NULL, 0, NULL, 0, 0, 0, timer},
             [SPLASH_IMAGE] = {"Image", PX_UI_CHOICE, 0, &splash_pick, splash_rows, count + 1, NULL, 0, 0, 0, NULL},
+            [SPLASH_TIME] = {"Show Time", PX_UI_TOGGLE, 0, &splash_time, NULL, 0, NULL, 0, 0, 0, NULL},
     };
     static int selected = 0;
     px_ui_form_t form = {"Splash Image", fields, SPLASH_COUNT, {"ENTER"}, splash_changed, NULL, selected};

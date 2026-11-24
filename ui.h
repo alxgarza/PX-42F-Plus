@@ -28,6 +28,10 @@ typedef struct {
     int (*shifted)(void);                /* SHIFT is waiting: the sign in the title bar */
     void (*clock)(char *buf, int size);  /* the time in the title bar; NULL: none */
     void (*beep)(void);                  /* a key that does nothing here */
+    /* F6's word wherever a screen fills it in (lists, forms, numbers, the
+     * calendar, the time, long text): NULL "EXIT" (apps); the settings
+     * menu's "BACK" (the user's choice). It does what the EXIT key does. */
+    const char *leave;
 } ui_port_t;
 
 /* The pieces, for screens of their own that look the same. */
