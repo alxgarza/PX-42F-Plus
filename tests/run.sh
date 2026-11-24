@@ -35,7 +35,7 @@ cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-reco
    -I. -Ifonts tests/test_escpos.c escpos.c fonts/font_6x8_data.c -o "$TMP/test_escpos"
 "$TMP/test_escpos"
 cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
-   -I. tests/test_time.c timemodule.c alarms.c stopwatch.c rtc_format.c -o "$TMP/test_time"
+   -I. tests/test_time.c timemodule.c alarms.c stopwatch.c rtc_format.c ra8900.c -o "$TMP/test_time"
 "$TMP/test_time"
 # The shapes of the app table.
 cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \

@@ -9,6 +9,7 @@
 #include "alarms.h"
 #include "timemodule.h"
 #include "stopwatch.h"
+#include "ra8900.h"
 
 px_settings_t px_settings;
 static int failures;
@@ -453,7 +454,74 @@ static void test_stopwatch(void) {
     stopwatch_reset();
 }
 
+/* The V1.1 board's clock chip: its registers (Epson's manual, ETM44E). */
+static void test_ra8900(void) {
+    uint8_t regs[7];
+    uint64_t ms;
+    /* Friday 2026-10-09 15:43:12.750: BCD, Friday is bit 5, the year 26. */
+    uint64_t t = (uint64_t) time_days_from_civil(2026, 10, 9) * DAY + (15 * 3600 + 43 * 60 + 12) * 1000ULL + 750;
+    CHECK(ra8900_encode(t, regs), "encode 2026");
+    static const uint8_t expected[7] = {0x12, 0x43, 0x15, 0x20, 0x09, 0x10, 0x26};
+    CHECK(!memcmp(regs, expected, 7), "registers %02x %02x %02x %02x %02x %02x %02x", regs[0], regs[1], regs[2],
+          regs[3], regs[4], regs[5], regs[6]);
+    CHECK(ra8900_decode(regs, &ms) && ms == t - 750, "decode: %llu", (unsigned long long) ms);
+    /* Sunday is bit 0: 2000-01-02. Its years: 2000-2099 only. */
+    CHECK(ra8900_encode((uint64_t) time_days_from_civil(2000, 1, 2) * DAY, regs) && regs[3] == 0x01, "Sunday");
+    CHECK(!ra8900_encode((uint64_t) time_days_from_civil(1999, 12, 31) * DAY, regs), "1999 refused");
+    CHECK(!ra8900_encode((uint64_t) time_days_from_civil(2100, 1, 1) * DAY, regs), "2100 refused");
+    CHECK(ra8900_encode((uint64_t) time_days_from_civil(2099, 12, 31) * DAY + DAY - 1, regs) && regs[6] == 0x99
+              && regs[0] == 0x59,
+          "2099's last second");
+    /* Every day of 2000-2099 goes there and back. */
+    bool all = true;
+    for (int64_t d = time_days_from_civil(2000, 1, 1); d < time_days_from_civil(2100, 1, 1); d++) {
+        uint64_t m = (uint64_t) d * DAY + 86399000ULL;
+        all &= ra8900_encode(m, regs) && ra8900_decode(regs, &ms) && ms == m;
+    }
+    CHECK(all, "every day of 2000-2099");
+    /* What a chip that lost the time can hold is refused. */
+    static const uint8_t bad[][7] = {
+        {0x60, 0x00, 0x00, 0x01, 0x01, 0x01, 0x26}, /* 60 s */
+        {0x1A, 0x00, 0x00, 0x01, 0x01, 0x01, 0x26}, /* not BCD */
+        {0x00, 0x00, 0x24, 0x01, 0x01, 0x01, 0x26}, /* 24 h */
+        {0x00, 0x00, 0x00, 0x01, 0x30, 0x02, 0x26}, /* Feb 30 */
+        {0x00, 0x00, 0x00, 0x01, 0x29, 0x02, 0x26}, /* Feb 29, 2026 */
+        {0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x26}, /* day 0 */
+        {0x00, 0x00, 0x00, 0x01, 0x01, 0x13, 0x26}, /* month 13 */
+        {0x80, 0x00, 0x00, 0x01, 0x01, 0x01, 0x26}, /* an unused bit set */
+        {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+    };
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+        CHECK(!ra8900_decode(bad[i], &ms), "bad registers %zu refused", i);
+    static const uint8_t leap[7] = {0x00, 0x00, 0x00, 0x01, 0x29, 0x02, 0x28};
+    CHECK(ra8900_decode(leap, &ms), "Feb 29, 2028");
+    /* Our clock into the chip's second, by the smallest move. */
+    CHECK(ra8900_settle(T0 + 400, T0) == T0 + 400, "in its second: left alone");
+    CHECK(ra8900_settle(T0 + 999, T0) == T0 + 999, "its second's end");
+    CHECK(ra8900_settle(T0 - 300, T0) == T0, "behind: to its start");
+    CHECK(ra8900_settle(T0 + 1300, T0) == T0 + 999, "ahead: to its end");
+    CHECK(ra8900_settle(0, T0) == T0, "a power-on");
+    /* The wake countdown (T0 is on a minute). */
+    ra8900_timer_t w = ra8900_wake_timer(T0 + 300, T0 + 5000);
+    CHECK(w.tsel == RA8900_EXT_TSEL_SEC && w.count == 5, "5 s: %u", w.count);
+    w = ra8900_wake_timer(T0 + 300, T0 + 5001);
+    CHECK(w.count == 6, "due within the 6th second: its turn, %u", w.count);
+    w = ra8900_wake_timer(T0 + 300, T0 + 100);
+    CHECK(w.count == 1, "already due: the next turn, %u", w.count);
+    w = ra8900_wake_timer(T0 + 950, T0 + 1000);
+    CHECK(w.count == 2, "a turn 50 ms away is skipped: %u", w.count);
+    w = ra8900_wake_timer(T0 + 850, T0 + 1000);
+    CHECK(w.count == 1, "150 ms away is kept: %u", w.count);
+    w = ra8900_wake_timer(T0, T0 + 4095000);
+    CHECK(w.tsel == RA8900_EXT_TSEL_SEC && w.count == 4095, "68 min 15 s in seconds");
+    w = ra8900_wake_timer(T0 + 30000, T0 + 30000 + 4096000);
+    CHECK(w.tsel == RA8900_EXT_TSEL_MIN && w.count == 68, "further: minutes, to the last turn before: %u", w.count);
+    w = ra8900_wake_timer(T0, T0 + 30 * DAY);
+    CHECK(w.tsel == RA8900_EXT_TSEL_MIN && w.count == 4095, "a month: the longest, %u", w.count);
+}
+
 int main(void) {
+    test_ra8900();
     test_alarms();
     test_alarm_sounds();
     test_owned_alarms();

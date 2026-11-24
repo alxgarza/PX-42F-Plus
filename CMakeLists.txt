@@ -73,6 +73,7 @@ add_executable(PX-42F-Plus
         display_draw.c
         keyboard.c
         rtc.c
+        ra8900.c
         rtc_format.c
         battery.c
         speaker.c
@@ -234,6 +235,7 @@ target_link_libraries(PX-42F-Plus
         hardware_spi
         hardware_uart
         hardware_watchdog
+        hardware_i2c
         hardware_powman
         hardware_adc
         hardware_pwm

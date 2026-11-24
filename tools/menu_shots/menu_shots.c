@@ -164,6 +164,7 @@ bool rtc_set_measured(void) {
 }
 
 void rtc_set_trim(int tenths) { px_settings.time_trim = (int16_t) tenths; }
+bool rtc_has_chip(void) { return false; }
 void rtc_apply_trim(void) {
 }
 

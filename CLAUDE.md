@@ -277,6 +277,31 @@ can be cherry-picked between them.
   unpatched (a 64-byte first descriptor read wasn't needed). `CFG_TUH_API_EDPT_XFER 1` or `tuh_edpt_xfer()`'s
   callback never runs. Apps: `PX_PRINTER_THERMAL` (3). The standalone test that found all this: `tools/usb_printer_test/`.
   Printing worked from the test firmware (Nov 2026); the firmware's own path is unverified on the hardware.
+- Clock chip (board V1.1 only): Epson RA8900CE UB (X1B000271A00500, ±5 ppm, temperature compensated; Epson's
+  application manual ETM44E) on I2C1, GP26 SDA / GP27 SCL, address 0x32, 100 kHz (the pads' pull-ups on too); its
+  /INT (open drain) on GP17, input + pull-up (UART0 RX before: never read, dropped from `init_serial()`).
+  `rtc_clock_init()` looks for it (`rtc_has_chip()`; V1 has nothing there: the pins go back to pull-downs);
+  `ra8900.c` the registers and the wake countdown (no hardware, `tests/test_time.c`). The always-on timer stays the
+  clock everything reads, kept to the chip: at each boot and hourly on (`rtc_chip_poll()`, main loop) into the chip's
+  second at once (`ra8900_settle()`, the middle if far off), then exact at its next turn: the update interrupt (UIE)
+  pulses /INT, `edge_irq()` (core 1, a raw GPIO handler) sets the timer (`!STATUS` measures it: +0 ms on the board).
+  While off the chip wakes it instead of the timer's alarm (`rtc_chip_wake_at()` in `power_down()`, GPIO wake 1, falling
+  edge; `PWRUP_CHIP_BIT`): its countdown (`ra8900_wake_timer()`: seconds up to 4095, minutes beyond, a turn under 100 ms
+  away skipped) pulses /INT as its second turns, so the wake sets the timer to that second + `time_us_64()`
+  (`rtc_chip_wake(true)`). With the chip: no 10-minute wakes, no LPOSC measuring at OFF (`LPOSC_NOMINAL_HZ`), so it
+  wakes only for alarms, the stopwatch's zero, the splash's minute. Setting the time writes the chip (`chip_set()`,
+  at the timer's second turning, with RESET); a chip with VLF set (lost the time) gets ours. With it a RESET or a
+  power-on keeps the time. Info's RTC line says Present (V1.1) or Not Present (V1), `!STATUS` the chip's time.
+  I2C1's clock is off (`never_used`, `cpuclock.c`) except around each access (`chip_bus()`/`chip_bus_end()`):
+  with it off `i2c_init()` hung forever, a blank screen on the first V1.1 boot. Not used: FOUT, its temperature,
+  its alarm registers (minutes only; the countdown does it). Found, set, read and the exact catch shown on the
+  V1.1 board, an alarm woke it from OFF and the splash's minute wakes crossed an hour (the user, Nov 2026); RESET /
+  power-on keeping the time and the current are unverified. Two lessons from it: the power manager's GPIO wake
+  latch (PWRUP STATUS) is write-1-to-clear and the SDK's `powman_enable_gpio_wakeup()` "clears" it with a 0
+  (`clear_chip_edge()` in power.c); and the wakes while off and the power-down must run at the slow speed
+  (`cpuclock_set_fast(false)`, which the LPOSC measuring used to do): left at 150 MHz the splash redraw hung now and
+  then (watchdog, `OFF_WAKE_SPLASH`). The off path's checkpoints are `CKPT_OFF_*` (the watchdog's scratch is
+  powered down while off: a hang there used to show NONE).
 - Battery: GP28/ADC2, 1M/1M divider. Free: GP23-25, 29.
 
 ## Architecture
@@ -320,12 +345,12 @@ can be cherry-picked between them.
   off. So it's measured at 1.10 V and 1.00 V and extended to 0.90 V along 72% of the straight
   line through them (`LPOSC_CURVE_PERCENT`): the straight line itself left the clock 0.8% slow
   while off (two runs). A key-OFF used to measure at 1.10 V (clock +5% while off), a Sleep
-  Timer OFF at 1.00 V (+2%). The real fix is the RA8900CE RTC on the next board. `time_trim` (tenths s/day)
+  Timer OFF at 1.00 V (+2%). The V1.1 board has an RA8900CE clock chip (below), which corrects it. `time_trim` (tenths s/day)
   adjusts both rates. Setting the time exactly twice ≥6 h apart measures the drift
   (`cal_drift`), offered in Settings → Date & Time → Time Calibration → Measured (which
   also takes the exact time, HH:MM:SS, to measure). Date/time formats are
   Free42's (DMY/MDY/YMD, CLK12/CLK24) mirrored in px_settings; the extra DOW-MON-DAY format
-  ("FRI-OCT-9") is MDY to Free42. A full chip reset (RESET button, battery) loses the time.
+  ("FRI-OCT-9") is MDY to Free42. A full chip reset (RESET button, battery) loses the time on V1; V1.1 takes it back from the clock chip.
 - Settings written from frequent/program-driven paths (SETIME, DMY...) use
   `settings_save_later()` — flushed at OFF — so a looping program can't wear the flash.
 - Retained RAM layout: `retained.h` (framebuffer 0x20057000, RAM state 0x20060000-top, the 32 KB between free until an app runs);

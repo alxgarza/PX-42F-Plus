@@ -16,11 +16,12 @@
 #include "speaker.h"
 #include "splash.h"
 #include "rtc.h"
+#include "cpuclock.h"
+#include "debug_checkpoint.h"
 #include "settings.h"
 #include "irtx.h"
 #include "usbprint.h"
 
-#define SERIAL_RX_PIN 17 /* see main.c */
 
 /* Until the power-down request is made, a step that hangs reboots instead
  * of leaving the calculator stuck awake, draining the battery (the caller
@@ -90,7 +91,12 @@ void power_core0_poll(void) {
  * 1-4 the GPIO sources (ours, the ON key, is 1), 5 the debugger, 6 the
  * power manager's timer alarm. */
 #define PWRUP_ON_BIT    (1u << 1)
+#define PWRUP_CHIP_BIT  (1u << 2) /* GPIO wake 1: the clock chip's /INT */
 #define PWRUP_ALARM_BIT (1u << 6)
+
+/* The low-power oscillator's rate, given to the timer while off with the
+ * clock chip: not measured -- the chip has the time at every wake. */
+#define LPOSC_NOMINAL_HZ 32768
 
 /* Outputs that switch real current -- the speaker MOSFET and the IR LED's
  * transistor -- explicitly low, with pull-downs as a backstop in case the
@@ -103,11 +109,26 @@ static void quiet_pins(void) {
     gpio_set_dir(IR_LED_PIN, GPIO_OUT);
     gpio_pull_down(IR_LED_PIN);
 
-    /* UART RX (GP17): its input buffer is on (the UART enabled it) and
-     * nothing is connected -- RP2350 erratum E9 territory (an enabled
-     * input with a pull-down can leak ~100uA). Off for the power-down. */
-    gpio_disable_pulls(SERIAL_RX_PIN);
-    gpio_set_input_enabled(SERIAL_RX_PIN, false);
+    /* GP17: the V1.1 board's clock chip /INT, a wake source -- an input
+     * with its pull-up (rtc.c set it so; /INT is open drain). On V1 nothing
+     * is connected -- RP2350 erratum E9 territory (an enabled input with a
+     * pull-down can leak ~100uA): off for the power-down. */
+    if (!rtc_has_chip()) {
+        gpio_disable_pulls(RTC_CHIP_INT_PIN);
+        gpio_set_input_enabled(RTC_CHIP_INT_PIN, false);
+    }
+}
+
+/* The clock chip's wake: GPIO wake 1. An edge wake stays latched (its
+ * STATUS bit) through the boot it caused, and the power manager then
+ * refuses the next power-down: the splash's minute wakes on V1.1 ended in
+ * watchdog restarts. STATUS is write-1-to-clear, and the SDK's
+ * powman_enable_gpio_wakeup() "clears" it with powman_clear_bits() -- a 0,
+ * which leaves it. A 1 it is (the register's set alias). */
+#define CHIP_WAKE 1
+
+static void clear_chip_edge(void) {
+    powman_set_bits(&powman_hw->pwrup[CHIP_WAKE], POWMAN_PWRUP0_STATUS_BITS);
 }
 
 /* The power-down itself, from the only core running (the other parked, or
@@ -117,6 +138,12 @@ static void quiet_pins(void) {
  * one already set. Never returns; if the power manager refuses, the chip
  * reboots. */
 static void __attribute__((noreturn)) power_down(uint wake_pin, uint64_t alarm_ms, uint32_t lposc_hz) {
+    /* The V1.1 board's clock chip wakes it instead of the timer's alarm
+     * (rtc_chip_wake_at()): to the second, and the time exact at the wake. */
+    debug_checkpoint(CKPT_OFF_CHIP_ARM, (uint32_t) (alarm_ms != 0));
+    bool chip_wake = rtc_chip_wake_at(alarm_ms) && alarm_ms != 0; /* 0: its countdown stopped */
+    if (chip_wake)
+        alarm_ms = 0;
     /* The always-on timer (the RTC) must keep counting with the crystal
      * off -- the low-power oscillator does, at the rate measured for it.
      * rtc_clock_init() switches back to the crystal at the next ordinary
@@ -151,12 +178,17 @@ static void __attribute__((noreturn)) power_down(uint wake_pin, uint64_t alarm_m
 
     powman_disable_all_wakeups();
     powman_enable_gpio_wakeup(0, wake_pin, false, false); /* level, low: ON held down */
+    if (chip_wake) {
+        powman_enable_gpio_wakeup(CHIP_WAKE, RTC_CHIP_INT_PIN, true, false); /* edge, falling: /INT's 7.8 ms pulse */
+        clear_chip_edge();
+    }
     if (alarm_ms != 0)
         powman_enable_alarm_wakeup_at_ms(alarm_ms);
     bool ok = powman_configure_wakeup_state(off_state, on_state);
     for (int i = 0; i < 4; i++)
         powman_hw->boot[i] = 0; /* wake = an ordinary boot, not a resume vector */
     for (int attempt = 0; ok && attempt < 3; attempt++) {
+        debug_checkpoint(CKPT_OFF_POWER_DOWN, (uint32_t) attempt);
         int rc = powman_set_power_state(off_state);
 
         /* The SDK gives the power manager only a short spin to raise
@@ -182,7 +214,13 @@ static void __attribute__((noreturn)) power_down(uint wake_pin, uint64_t alarm_m
          * request got in (the end of the splash, a moment away): set it a
          * moment later and ask again -- rebooting would turn the
          * calculator on by itself. */
-        if (powman_hw->current_pwrup_req != PWRUP_ALARM_BIT)
+        /* The clock chip's edge still latched: cleared, and again. (Its
+         * countdown can't have ended meanwhile: RA8900_WAKE_MARGIN_MS.) */
+        if (chip_wake && powman_hw->current_pwrup_req == PWRUP_CHIP_BIT) {
+            clear_chip_edge();
+            continue;
+        }
+        if (powman_hw->current_pwrup_req != PWRUP_ALARM_BIT || chip_wake)
             break;
         powman_enable_alarm_wakeup_at_ms(powman_timer_get_ms() + 20);
     }
@@ -203,7 +241,9 @@ static void __attribute__((noreturn)) power_down(uint wake_pin, uint64_t alarm_m
 #define NEXT_ALARM (*(volatile uint64_t *) RETAINED_NEXT_ALARM)
 
 static uint64_t next_wake(uint64_t now_ms, uint64_t until_ms) {
-    uint64_t wake = now_ms + RECAL_MS;
+    /* With the clock chip there's nothing to measure: no wake but these.
+     * (0: none.) */
+    uint64_t wake = rtc_has_chip() ? UINT64_MAX : now_ms + RECAL_MS;
     if (NEXT_ALARM != 0 && NEXT_ALARM < wake)
         wake = NEXT_ALARM > now_ms + 100 ? NEXT_ALARM : now_ms + 100; /* one already due: a moment from now */
     if (until_ms != 0) {
@@ -212,7 +252,7 @@ static uint64_t next_wake(uint64_t now_ms, uint64_t until_ms) {
         if (splash < wake)
             wake = splash;
     }
-    return wake;
+    return wake == UINT64_MAX ? 0 : wake;
 }
 
 static void set_until(uint64_t until_ms) {
@@ -242,8 +282,11 @@ void power_deep_off(uint8_t on_row, uint8_t on_col, uint64_t splash_until_ms, ui
 
     /* Measured now, while the crystal still runs to measure it against --
      * for the voltage it will run at; kept for the wakes while off. */
-    uint32_t slow_hz;
-    uint32_t lposc_hz = rtc_lposc_hz_at(POWER_OFF_MV, NULL, &slow_hz);
+    uint32_t slow_hz = 0, lposc_hz = LPOSC_NOMINAL_HZ;
+    if (rtc_has_chip())
+        cpuclock_set_fast(false); /* where rtc_lposc_hz_at() leaves it: the power-down has always started slow */
+    else
+        lposc_hz = rtc_lposc_hz_at(POWER_OFF_MV, NULL, &slow_hz); /* ~0.5 s */
     powman_hw->scratch[SCRATCH_OFF_HZ] = lposc_hz;
     powman_hw->scratch[SCRATCH_SLOW_HZ] = slow_hz;
     powman_hw->scratch[SCRATCH_ON_KEY] = on_row | (uint32_t) on_col << 8;
@@ -274,7 +317,8 @@ bool power_off_wake(void) {
      * and cleared at every boot, so only a boot straight from one has it. */
     from_off = (powman_hw->chip_reset & POWMAN_CHIP_RESET_HAD_SWCORE_PD_BITS)
                && powman_hw->scratch[SCRATCH_MAGIC] == OFF_WAKE_MAGIC;
-    bool timer_wake = from_off && (powman_hw->last_swcore_pwrup & PWRUP_ALARM_BIT);
+    bool chip_wake = from_off && (powman_hw->last_swcore_pwrup & PWRUP_CHIP_BIT);
+    bool timer_wake = from_off && (powman_hw->last_swcore_pwrup & (PWRUP_ALARM_BIT | PWRUP_CHIP_BIT));
     /* Whatever this boot is, the wakes are over unless set up again below:
      * no alarm left armed while the calculator is on, and should anything
      * here crash, the next boot is an ordinary one, not this. */
@@ -282,6 +326,8 @@ bool power_off_wake(void) {
     powman_disable_alarm_wakeup();
     if (!timer_wake)
         return false;
+    debug_checkpoint(CKPT_OFF_WAKE_CHIP, chip_wake);
+    rtc_chip_wake(chip_wake); /* the V1.1 board's clock chip: the timer ran from the low-power oscillator */
 
     uint8_t on_row = (uint8_t) powman_hw->scratch[SCRATCH_ON_KEY];
     uint8_t on_col = (uint8_t) (powman_hw->scratch[SCRATCH_ON_KEY] >> 8);
@@ -297,11 +343,21 @@ bool power_off_wake(void) {
     }
 
     watchdog_enable(OFF_SAFETY_WATCHDOG_MS, true);
+    debug_checkpoint(CKPT_OFF_WAKE_SETTINGS, 0);
     settings_load(); /* the clock trim, and the date and time formats for the clock bar */
-    uint32_t lposc_hz = rtc_lposc_hz_again(powman_hw->scratch[SCRATCH_OFF_HZ], powman_hw->scratch[SCRATCH_SLOW_HZ]);
+    /* The rest of the wake runs at the slow speed, as it always had:
+     * rtc_lposc_hz_again() leaves it there. Skipping that with the clock
+     * chip left the splash's redraw at 150 MHz, and every wake hung in it
+     * (watchdog, OFF_WAKE_SPLASH, V1.1). */
+    uint32_t lposc_hz = LPOSC_NOMINAL_HZ;
+    if (rtc_has_chip())
+        cpuclock_set_fast(false);
+    else
+        lposc_hz = rtc_lposc_hz_again(powman_hw->scratch[SCRATCH_OFF_HZ], powman_hw->scratch[SCRATCH_SLOW_HZ]);
 
     uint64_t now_ms = powman_timer_get_ms();
     if (until_ms != 0) {
+        debug_checkpoint(CKPT_OFF_WAKE_SPLASH, 0);
         display_attach(); /* not reset: the panel is still showing the splash */
         if (now_ms + 50 >= until_ms) {
             display_sleep(); /* Splash Time is up: blank */

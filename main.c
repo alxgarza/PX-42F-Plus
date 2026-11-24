@@ -108,7 +108,8 @@ static void release_psram_cs(void) {
 #define SERIAL_UART     uart0
 #define SERIAL_BAUD     115200
 #define SERIAL_TX_PIN   16
-#define SERIAL_RX_PIN   17
+/* No RX: nothing reads it, and its pin (GP17) is the V1.1 board's clock
+ * chip /INT (rtc.c). */
 
 static void init_ir_pin(void) {
     gpio_init(IR_LED_PIN);
@@ -120,10 +121,6 @@ static void init_serial(void) {
     uart_init(SERIAL_UART, SERIAL_BAUD);
     gpio_set_function(SERIAL_TX_PIN, GPIO_FUNC_UART);
     gpio_disable_pulls(SERIAL_TX_PIN); /* idles high: no fight with the reset-default pull-down */
-    gpio_set_function(SERIAL_RX_PIN, GPIO_FUNC_UART);
-    /* A UART line idles high; and the pad's default pull-down on an
-     * enabled input with nothing connected is RP2350 erratum E9's leak. */
-    gpio_pull_up(SERIAL_RX_PIN);
 }
 
 /* Console commands over the USB serial link (separate from the debug
@@ -229,6 +226,12 @@ static void handle_serial_command(const char *cmd) {
                    px_settings.cal_span_h);
         else
             printf("none yet\n");
+        rtc_datetime_t chip;
+        if (rtc_chip_time(&chip))
+            printf("clock chip (board V1.1): RA8900CE, %04d-%02d-%02d %02d:%02d:%02d, our clock %+d ms at its second's turn\n",
+                   chip.year, chip.month, chip.day, chip.hour, chip.min, chip.sec, rtc_chip_phase_ms());
+        else
+            printf("clock chip: %s\n", rtc_has_chip() ? "RA8900CE, no time in it" : "none (board V1)");
         uint32_t at_fast, at_slow;
         uint32_t off_hz = rtc_lposc_hz_at(POWER_OFF_MV, &at_fast, &at_slow);
         printf("low-power oscillator (the clock while off): %lu Hz at %d mV, %lu Hz at %d mV -> %lu Hz at %d mV "
@@ -549,6 +552,7 @@ static void core1_main(void)
     while (true) {
         watchdog_update();
         debug_checkpoint(CKPT_MAIN_LOOP_TOP, 0);
+        rtc_chip_poll();
 
         /* SHIFT+EXIT was pressed: the settings menu takes over the screen
          * and keyboard until it's left -- by EXIT, back to the calculator,

@@ -411,12 +411,12 @@
   </div>
 
   <div class="section" style="--bar:#2f7d5b">
-    <div class="section-head"><span class="dot"></span><h2>I&sup2;C1 &mdash; reserved for future use</h2><span class="count">GP26&ndash;27 &middot; 2 pins</span></div>
+    <div class="section-head"><span class="dot"></span><h2>I&sup2;C1 &mdash; clock chip (board V1.1)</h2><span class="count">GP26&ndash;27 &middot; 2 pins</span></div>
     <table>
       <colgroup><col class="c-pin"><col class="c-chippin"><col><col class="c-status"><col></colgroup>
       <tbody>
-        <tr><td class="pin">GP26</td><td class="chippin">40</td><td class="signal">I2C1 SDA</td><td><span class="badge planned">planned</span></td><td class="desc">Also ADC0-capable. <code>not yet wired in firmware</code></td></tr>
-        <tr><td class="pin">GP27</td><td class="chippin">41</td><td class="signal">I2C1 SCL</td><td><span class="badge planned">planned</span></td><td class="desc">Also ADC1-capable. <code>not yet wired in firmware</code></td></tr>
+        <tr><td class="pin">GP26</td><td class="chippin">40</td><td class="signal">I2C1 SDA</td><td><span class="badge assigned">in use</span></td><td class="desc">V1.1: Epson RA8900CE RTC (address 0x32), <code>rtc.c</code>. V1: not connected; the firmware looks and leaves it</td></tr>
+        <tr><td class="pin">GP27</td><td class="chippin">41</td><td class="signal">I2C1 SCL</td><td><span class="badge assigned">in use</span></td><td class="desc">V1.1: the RTC's clock line, 100 kHz</td></tr>
       </tbody>
     </table>
   </div>
@@ -438,8 +438,8 @@
   </div>
 
   <div class="foot">
-    <p data-n="1.">GP26 and GP27 are electrically free today but earmarked by plan, not yet touched in firmware &mdash; nothing claims them until code is written.</p>
-    <p data-n="2.">The PX-42F is a custom RP2350A board (boards/px42f.h), not a Pico 2&nbsp;W: there is no CYW43 radio, so GP23&ndash;25 and GP29 are free. I&sup2;C1 on GP26/27 remains the planned I&sup2;C bus.</p>
+    <p data-n="1.">GP26 and GP27 carry the V1.1 board's RA8900CE clock chip. At boot the firmware asks for it; on a V1 board nothing answers and the pins go back to their reset state.</p>
+    <p data-n="2.">The PX-42F is a custom RP2350A board (boards/px42f.h), not a Pico 2&nbsp;W: there is no CYW43 radio, so GP23&ndash;25 and GP29 are free. I&sup2;C1 on GP26/27 is the clock chip's bus (V1.1).</p>
     <p data-n="3.">The external reset button lands on <code>RUN</code>, not a GPIO &mdash; a dedicated hardware reset input firmware can't observe or block.</p>
   </div>
 

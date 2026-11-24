@@ -959,22 +959,27 @@ static edit_result_t do_minutes(const char *title, const char *what, uint16_t *v
 }
 
 static edit_result_t do_info(void) {
-    char lines[7][40];
-    snprintf(lines[0], sizeof(lines[0]), "Plus42    %s, Thomas Okken", PLUS42_VERSION);
-    snprintf(lines[1], sizeof(lines[1]), "Port      Alex Garza");
-    snprintf(lines[2], sizeof(lines[2]), "Decimal   Intel %s", INTEL_LIB_VERSION);
-    snprintf(lines[3], sizeof(lines[3]), "Firmware  %s, %s", PICO_PROGRAM_VERSION_STRING, __DATE__);
+    /* Two columns, both left aligned: every label padded to INFO_LABEL. */
+#define INFO_LABEL "%-10s"
+    char lines[8][40];
+    snprintf(lines[0], sizeof(lines[0]), INFO_LABEL "%s, Thomas Okken", "Plus42", PLUS42_VERSION);
+    snprintf(lines[1], sizeof(lines[1]), INFO_LABEL "Alex Garza", "Port");
+    snprintf(lines[2], sizeof(lines[2]), INFO_LABEL "Intel %s", "Decimal", INTEL_LIB_VERSION);
+    snprintf(lines[3], sizeof(lines[3]), INFO_LABEL "%s, %s", "Firmware", PICO_PROGRAM_VERSION_STRING, __DATE__);
     int mv = battery_read_mv();
-    snprintf(lines[4], sizeof(lines[4]), "Battery   %d.%02d V", mv / 1000, mv % 1000 / 10);
-    snprintf(lines[5], sizeof(lines[5]), "Stack     %lu of %u bytes", (unsigned long) crash_core1_stack_peak(),
+    snprintf(lines[4], sizeof(lines[4]), INFO_LABEL "%d.%02d V", "Battery", mv / 1000, mv % 1000 / 10);
+    snprintf(lines[5], sizeof(lines[5]), INFO_LABEL "%s", "RTC", rtc_has_chip() ? "Present" : "Not Present");
+    snprintf(lines[6], sizeof(lines[6]), INFO_LABEL "%lu of %u bytes", "Stack", (unsigned long) crash_core1_stack_peak(),
              32u * 1024u);
     /* TEMPORARY: largest block now, of the heap's size; at the last app's start. */
-    snprintf(lines[6], sizeof(lines[6]), "Heap  %luK of %luK, app %luK", (unsigned long) (app_heap_largest() / 1024),
-             (unsigned long) (app_heap_total() / 1024), (unsigned long) (app_heap_at_launch() / 1024));
+    snprintf(lines[7], sizeof(lines[7]), INFO_LABEL "%luK/%luK, app %luK", "Heap",
+             (unsigned long) (app_heap_largest() / 1024), (unsigned long) (app_heap_total() / 1024),
+             (unsigned long) (app_heap_at_launch() / 1024));
+#undef INFO_LABEL
     /* The viewer: room for more lines than a screen holds. */
-    char text[7 * 41];
+    char text[8 * 41];
     text[0] = 0;
-    for (int i = 0; i < 7; i++)
+    for (int i = 0; i < 8; i++)
         snprintf(text + strlen(text), sizeof(text) - strlen(text), "%s\n", lines[i]);
     return ui_view_leave(&menu_ui, "Info", text, "BACK") == PX_UI_QUIT ? EDIT_POWER_OFF : EDIT_OK;
 }

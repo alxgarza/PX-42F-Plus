@@ -13,10 +13,40 @@ extern "C" {
  * hardware_rtc peripheral on RP2350 -- that's an RP2040-only block).
  * Powman counts milliseconds; this module treats the count as time since
  * 1970-01-01 00:00:00 and converts to/from the Gregorian calendar,
- * leap years included. No battery backup: after a power-on the clock
- * starts at 2021-03-05 00:59:00 (RTC_DEFAULT_* in rtc.c). Call once at
- * startup, before any other rtc_* function. */
+ * leap years included. The V1.1 board adds a clock chip (RA8900CE, I2C1),
+ * looked for here: with it the time survives a power-on and the timer is
+ * kept to it; without it (V1) the clock starts at 2021-03-05 00:59:00
+ * after a power-on (RTC_DEFAULT_* in rtc.c). Call once at startup, before
+ * any other rtc_* function. */
 void rtc_clock_init(void);
+
+/* Whether this board has the clock chip (V1.1): found by rtc_clock_init()
+ * or rtc_chip_wake(). */
+bool rtc_has_chip(void);
+
+/* At a wake while off (power_off_wake(), which skips rtc_clock_init()):
+ * looks for the chip and takes its time -- exactly, when the chip's
+ * countdown was the wake (woke_by_chip). */
+void rtc_chip_wake(bool woke_by_chip);
+
+/* Before powering down: the chip's countdown set to wake the calculator at
+ * wake_ms (always-on timer time; at or before it, to the second -- see
+ * ra8900_wake_timer()), its /INT pulsing GP17; 0: no wake, the countdown
+ * stopped. False without the chip, or if it didn't take it. */
+bool rtc_chip_wake_at(uint64_t wake_ms);
+
+/* For !STATUS: how far our clock is from the chip's at the turn of its
+ * second, in ms (- behind, + ahead; -500..499), watching for the turn
+ * (up to a second). -1000 without the chip or a turn seen; -1 also when
+ * there's no chip. */
+int rtc_chip_phase_ms(void);
+
+/* GP17: the chip's /INT (V1.1). */
+#define RTC_CHIP_INT_PIN 17
+
+/* From the main loop: takes the chip's time again once an hour (the
+ * crystal's own drift while on). Nothing without the chip. */
+void rtc_chip_poll(void);
 
 typedef struct {
     int year;    /* e.g. 2026 */
@@ -30,6 +60,10 @@ typedef struct {
 } rtc_datetime_t;
 
 void rtc_get_datetime(rtc_datetime_t *dt);
+
+/* The chip's own time (whole seconds), for !STATUS. False without it, or
+ * if it doesn't hold a time. */
+bool rtc_chip_time(rtc_datetime_t *dt);
 
 /* The clock as it counts: ms since 1970. */
 uint64_t rtc_now_ms(void);

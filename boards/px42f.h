@@ -17,7 +17,7 @@
  *   GP0-7    keyboard rows        GP9-13   keyboard columns
  *   GP14     IR LED (via Q3)      GP15     speaker (via Q2)
  *   GP16/17  debug UART0          GP18/19  display SPI0 SCK / TX
- *   GP20-22  display RS/RST/CS    GP26/27  I2C1 (planned)
+ *   GP20-22  display RS/RST/CS    GP26/27  I2C1: RTC (V1.1)
  *   GP28     battery sense
  */
 
@@ -49,7 +49,7 @@ pico_board_cmake_set(PICO_PLATFORM, rp2350)
 // no PICO_DEFAULT_WS2812_PIN
 
 // --- I2C ---
-// I2C1 on GP26/GP27, reserved for future use
+// I2C1 on GP26/GP27: the V1.1 board's RA8900CE clock chip (rtc.c finds it; V1: nothing there)
 #ifndef PICO_DEFAULT_I2C
 #define PICO_DEFAULT_I2C 1
 #endif

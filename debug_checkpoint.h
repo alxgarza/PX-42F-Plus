@@ -51,6 +51,13 @@ enum {
     CKPT_ON_SOUND,     /* playing ON.wav */
     CKPT_SOUND,        /* inside speaker_play(); the one before it comes back after */
     CKPT_APP,          /* an app's own code (app.c): it stopped calling key() or show() */
+    /* A wake while off (power_off_wake(), core 0), in order. The watchdog's
+     * scratch is powered down while off: a hang there showed NONE. */
+    CKPT_OFF_WAKE_CHIP,     /* taking the clock chip's time */
+    CKPT_OFF_WAKE_SETTINGS,
+    CKPT_OFF_WAKE_SPLASH,   /* redrawing the splash's clock */
+    CKPT_OFF_CHIP_ARM,      /* power_down(): setting the chip's countdown */
+    CKPT_OFF_POWER_DOWN,    /* power_down(): asking the power manager; detail = attempt */
 };
 
 static inline void debug_checkpoint(uint32_t code, uint32_t detail) {
@@ -106,6 +113,11 @@ static inline const char *debug_checkpoint_name(uint32_t code) {
         case CKPT_ON_SOUND: return "ON_SOUND";
         case CKPT_SOUND: return "SOUND";
         case CKPT_APP: return "APP";
+        case CKPT_OFF_WAKE_CHIP: return "OFF_WAKE_CHIP";
+        case CKPT_OFF_WAKE_SETTINGS: return "OFF_WAKE_SETTINGS";
+        case CKPT_OFF_WAKE_SPLASH: return "OFF_WAKE_SPLASH";
+        case CKPT_OFF_CHIP_ARM: return "OFF_CHIP_ARM";
+        case CKPT_OFF_POWER_DOWN: return "OFF_POWER_DOWN";
         default: return "?";
     }
 }

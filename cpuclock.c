@@ -21,7 +21,8 @@ static bool is_fast = true; /* the SDK's startup code leaves it at 150MHz */
 /* Blocks this firmware never uses: their clocks stay off. */
 static const clock_dest_num_t never_used[] = {
     CLK_DEST_HSTX, CLK_DEST_SYS_HSTX,
-    CLK_DEST_SYS_I2C0, CLK_DEST_SYS_I2C1,
+    CLK_DEST_SYS_I2C0,
+    CLK_DEST_SYS_I2C1, /* on only while the V1.1 board's clock chip is read or set (rtc.c) */
     CLK_DEST_SYS_PIO0, /* on only while the IR LED sends (irtx.c) */
     CLK_DEST_SYS_PIO1, CLK_DEST_SYS_PIO2,
     CLK_DEST_PERI_SPI1, CLK_DEST_SYS_SPI1,
