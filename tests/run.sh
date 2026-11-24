@@ -37,6 +37,10 @@ cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-reco
 cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
    -I. tests/test_time.c timemodule.c alarms.c stopwatch.c rtc_format.c ra8900.c -o "$TMP/test_time"
 "$TMP/test_time"
+# The settings record: today's and every older layout an update must read.
+cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
+   -I. tests/test_settings.c settings_record.c -o "$TMP/test_settings"
+"$TMP/test_settings"
 # The shapes of the app table.
 cc -std=c11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined \
    -I. tests/test_draw.c px_draw.c px_layer.c -o "$TMP/test_draw"

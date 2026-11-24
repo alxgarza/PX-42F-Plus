@@ -1,4 +1,3 @@
-#include <malloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,7 +36,6 @@
 #include "screenshot.h"
 #include "keyhold.h"
 #include "app.h"
-#include "appdec.h"
 #include "bootlog.h"
 #include "ramstate.h"
 #include "irtx.h"
@@ -154,44 +152,6 @@ static void handle_serial_command(const char *cmd) {
         print_help();
         return;
     }
-    if (strcmp(cmd, "HEAP") == 0) { /* TEMPORARY: measuring RAM for apps (app.h) */
-        struct mallinfo mi = mallinfo();
-        printf("heap: total %lu, in use %lu, largest block now %lu, at the last app's start %lu\n",
-               (unsigned long) app_heap_total(), (unsigned long) mi.uordblks, (unsigned long) app_heap_largest(),
-               (unsigned long) app_heap_at_launch());
-        return;
-    }
-    if (strcmp(cmd, "BENCH") == 0) { /* TEMPORARY: decimal speed, tables in RAM vs flash */
-        static const struct {
-            const char *name;
-            int op;
-        } ops[] = {{"add", PX_DEC_ADD}, {"mul", PX_DEC_MUL},   {"div", PX_DEC_DIV}, {"sqrt", PX_DEC_SQRT},
-                   {"exp", PX_DEC_EXP}, {"ln", PX_DEC_LN},     {"sin", PX_DEC_SIN}, {"pow", PX_DEC_POW},
-                   {"atan", PX_DEC_ATAN}};
-        enum { RUNS = 300 };
-        printf("bench: clock %lu MHz, %d runs each, us per op:", (unsigned long) (clock_get_hz(clk_sys) / 1000000),
-               RUNS);
-        uint64_t all = 0;
-        uint32_t sum = 2166136261u; /* FNV-1a over every result: the same in both builds or a table was written */
-        for (size_t k = 0; k < sizeof(ops) / sizeof(ops[0]); k++) {
-            px_dec_t a, b, r;
-            appdec_from_string(&b, "1.234567890123456789012345678901234");
-            uint64_t t0 = time_us_64();
-            for (int i = 1; i <= RUNS; i++) {
-                appdec_from_int(&a, i);
-                appdec_op(PX_DEC_DIV, &a, &a, &b); /* a different, full-length argument each run */
-                appdec_op(ops[k].op, &r, &a, &b);
-                for (int w = 0; w < 4; w++)
-                    sum = (sum ^ r.w[w]) * 16777619u;
-                watchdog_update();
-            }
-            uint64_t us = time_us_64() - t0;
-            all += us;
-            printf(" %s %lu", ops[k].name, (unsigned long) (us / RUNS));
-        }
-        printf(", total %lu ms, results %08lx\n", (unsigned long) (all / 1000), (unsigned long) sum);
-        return;
-    }
     if (strcmp(cmd, "SCREENSHOT") == 0) {
         screenshot_to_console();
         return;
@@ -260,7 +220,8 @@ static void handle_serial_command(const char *cmd) {
         if (rtc_set_date(y, mo, d))
             printf("RTC date set to %04d-%02d-%02d\n", y, mo, d);
         else
-            printf("SETDATE: not a valid date (expected YYYY-MM-DD, 1970 or later)\n");
+            printf("SETDATE: not a valid date (expected YYYY-MM-DD, %s)\n",
+                   rtc_has_chip() ? "2000-2099, the clock chip's years" : "1970 or later");
         return;
     }
     if (sscanf(cmd, "SETTIME %d:%d:%d", &h, &m, &s) == 3) {

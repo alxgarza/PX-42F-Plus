@@ -42,6 +42,9 @@ can be cherry-picked between them.
   rules (`alphakeys.c`) key by key in [ ] / [a] / [A] -- run it after touching them. And
   `tests/test_hp82240.c`: the HP 82240B printer's bytes and IR frames (`hp82240.c`). And `tests/test_time.c`:
   the Time Module's numbers (`timemodule.c`), the accuracy factor's above all, and the clock's display.
+  And `tests/test_settings.c`: the settings record (`settings_record.c`, no hardware; `settings.c` keeps the flash
+  sectors) -- today's layout and every older one an update must read. A new settings version: add the old one to
+  `older[]` there and to the test's `history[]` (the test stops until you do).
 - Graphics demo: `demos/PXGRAPH.raw`, written by `tools/make_graph_demo.py` from Plus42's command table; `--preview DIR` decodes the bytes and draws each page to a PNG with the real `px_draw.c`, `px_layer.c`.
 - User manual: `manual.html` (the screen, fonts, settings, the added commands: a new command gets a row in section 11; not a Plus42/HP-42S manual), built by
   `python3 tools/manual/make_manual.py` from `tools/manual/manual.template.html`. Rebuild it after
@@ -291,7 +294,9 @@ can be cherry-picked between them.
   (`rtc_chip_wake(true)`). With the chip: no 10-minute wakes, no LPOSC measuring at OFF (`LPOSC_NOMINAL_HZ`), so it
   wakes only for alarms, the stopwatch's zero, the splash's minute. Setting the time writes the chip (`chip_set()`,
   at the timer's second turning, with RESET); a chip with VLF set (lost the time) gets ours. With it a RESET or a
-  power-on keeps the time. Info's RTC line says Present (V1.1) or Not Present (V1), `!STATUS` the chip's time.
+  power-on keeps the time. With it the date is held to 2000-2099, the years it counts (`chip_can_hold()`: `rtc_set_date()`,
+  `rtc_add_ms()` refuse others), and Settings → Date & Time leaves out Time Calibration (the timer it trims is reset to
+  the chip hourly). Info's RTC line says Present (V1.1) or Not Present (V1), `!STATUS` the chip's time.
   I2C1's clock is off (`never_used`, `cpuclock.c`) except around each access (`chip_bus()`/`chip_bus_end()`):
   with it off `i2c_init()` hung forever, a blank screen on the first V1.1 boot. Not used: FOUT, its temperature,
   its alarm registers (minutes only; the countdown does it). Found, set, read and the exact catch shown on the
@@ -320,7 +325,7 @@ can be cherry-picked between them.
   `!SETDATE`, `!SETTIME`; other characters are keypresses), MSC drive "PX-42F", picotool reset,
   CDC1 printer.
 - Flash: program 0-4 MB-8 KB; settings in two sectors written in turn, 0x3FF000 and 0x3FE000
-  (`settings.c`: a count at the page's end picks the newer; a power cut mid-save keeps the other); FAT16 disk 4-16 MB
+  (`settings.c`, the record's layouts in `settings_record.c`: a count at the page's end picks the newer; a power cut mid-save keeps the other); FAT16 disk 4-16 MB
   (`flashdisk.c` write-back cache, `statefs.c` FatFs; Plus42's file I/O routes through
   `statefs_fopen`).
 - Clocks (`cpuclock.c`): 150 MHz @1.10 V while working, 48 MHz from PLL_USB @1.00 V when

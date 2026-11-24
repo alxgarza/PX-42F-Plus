@@ -482,18 +482,6 @@ const char *app_run(const char *dir, const char *name, bool *power_off) {
     return NULL;
 }
 
-uint32_t app_heap_largest(void) {
-    return 0;
-}
-
-uint32_t app_heap_total(void) {
-    return 0;
-}
-
-uint32_t app_heap_at_launch(void) {
-    return 0;
-}
-
 int main(int argc, char **argv) {
     /* Something to show in Settings -> Alarms. */
     alarms_add(1893456000000ULL + 8 * 3600000, 0, "Call the vet", 12, 0);

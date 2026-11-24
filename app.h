@@ -29,14 +29,6 @@ const char *app_run(const char *dir, const char *name, bool *power_off);
  * bytes, 1 = black. false if it has none, or the file can't be read. */
 bool app_icon(const char *dir, const char *name, uint8_t bits[128]);
 
-/* TEMPORARY, measuring how much RAM an app could be given: the largest
- * block malloc() can give now; the heap's whole size (end of bss to
- * HEAP_LIMIT); and the largest block when the last app started (0: none
- * has yet). Shown on Settings -> Info. */
-uint32_t app_heap_largest(void);
-uint32_t app_heap_total(void);
-uint32_t app_heap_at_launch(void);
-
 #ifdef __cplusplus
 }
 #endif

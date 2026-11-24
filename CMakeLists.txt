@@ -83,6 +83,7 @@ add_executable(PX-42F-Plus
         wav.c
         sounds_data.c
         settings.c
+        settings_record.c
         settings_menu.c
         menu_places.c
         splash.c

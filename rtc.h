@@ -37,8 +37,8 @@ bool rtc_chip_wake_at(uint64_t wake_ms);
 
 /* For !STATUS: how far our clock is from the chip's at the turn of its
  * second, in ms (- behind, + ahead; -500..499), watching for the turn
- * (up to a second). -1000 without the chip or a turn seen; -1 also when
- * there's no chip. */
+ * (up to a second). RTC_CHIP_NO_PHASE without the chip, or no turn seen. */
+#define RTC_CHIP_NO_PHASE (-1000)
 int rtc_chip_phase_ms(void);
 
 /* GP17: the chip's /INT (V1.1). */
@@ -79,12 +79,13 @@ void rtc_set_ms_of_day(uint32_t ms);
 
 /* Moves the clock forward or back (T+X), into another day if it comes to that;
  * not drift, so the calibration's reference moves with it. False (and changes
- * nothing) if that's before 1970. */
+ * nothing) if that's before 1970, or with the clock chip outside 2000-2099. */
 bool rtc_add_ms(int64_t ms);
 
 /* Sets the date, keeping the time of day. Returns false (and changes
  * nothing) if it isn't a real calendar date, e.g. Feb 29 in a non-leap
- * year, or is before 1970. */
+ * year, or is before 1970 -- with the clock chip, outside 2000-2099, the
+ * years it counts. */
 bool rtc_set_date(int year, int month, int day);
 
 /* ===================== formats ===================== */

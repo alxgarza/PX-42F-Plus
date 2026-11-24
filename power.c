@@ -144,6 +144,12 @@ static void __attribute__((noreturn)) power_down(uint wake_pin, uint64_t alarm_m
     bool chip_wake = rtc_chip_wake_at(alarm_ms) && alarm_ms != 0; /* 0: its countdown stopped */
     if (chip_wake)
         alarm_ms = 0;
+    else if (alarm_ms != 0 && rtc_has_chip())
+        /* The chip didn't take it (an I2C error): the timer's alarm after
+         * all, and with the chip the timer's rate wasn't measured --
+         * LPOSC_NOMINAL_HZ is ~15% off on this board, an hour's alarm ~9
+         * minutes late. Measured now, as without the chip (~0.5 s). */
+        lposc_hz = rtc_lposc_hz_at(POWER_OFF_MV, NULL, NULL);
     /* The always-on timer (the RTC) must keep counting with the crystal
      * off -- the low-power oscillator does, at the rate measured for it.
      * rtc_clock_init() switches back to the crystal at the next ordinary

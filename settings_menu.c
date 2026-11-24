@@ -916,8 +916,14 @@ static void dt_value(int item, char *buf, size_t size) {
 
 static edit_result_t do_date_time(void) {
     static int selected = 0;
+    /* Time Calibration is last, and left off with the V1.1 board's clock
+     * chip: the timer it corrects is put back to the chip's time at every
+     * boot and every hour, so a correction would do nothing. */
+    int count = rtc_has_chip() ? DT_CALIBRATION : DT_COUNT;
+    if (selected >= count)
+        selected = count - 1;
     while (true) {
-        int pick = run_list("Date & Time", dt_items, DT_COUNT, dt_value, &selected, "ENTER");
+        int pick = run_list("Date & Time", dt_items, count, dt_value, &selected, "ENTER");
         if (pick == LIST_POWER_OFF)
             return EDIT_POWER_OFF;
         if (pick == LIST_BACK)
@@ -961,7 +967,7 @@ static edit_result_t do_minutes(const char *title, const char *what, uint16_t *v
 static edit_result_t do_info(void) {
     /* Two columns, both left aligned: every label padded to INFO_LABEL. */
 #define INFO_LABEL "%-10s"
-    char lines[8][40];
+    char lines[7][40];
     snprintf(lines[0], sizeof(lines[0]), INFO_LABEL "%s, Thomas Okken", "Plus42", PLUS42_VERSION);
     snprintf(lines[1], sizeof(lines[1]), INFO_LABEL "Alex Garza", "Port");
     snprintf(lines[2], sizeof(lines[2]), INFO_LABEL "Intel %s", "Decimal", INTEL_LIB_VERSION);
@@ -971,15 +977,11 @@ static edit_result_t do_info(void) {
     snprintf(lines[5], sizeof(lines[5]), INFO_LABEL "%s", "RTC", rtc_has_chip() ? "Present" : "Not Present");
     snprintf(lines[6], sizeof(lines[6]), INFO_LABEL "%lu of %u bytes", "Stack", (unsigned long) crash_core1_stack_peak(),
              32u * 1024u);
-    /* TEMPORARY: largest block now, of the heap's size; at the last app's start. */
-    snprintf(lines[7], sizeof(lines[7]), INFO_LABEL "%luK/%luK, app %luK", "Heap",
-             (unsigned long) (app_heap_largest() / 1024), (unsigned long) (app_heap_total() / 1024),
-             (unsigned long) (app_heap_at_launch() / 1024));
 #undef INFO_LABEL
     /* The viewer: room for more lines than a screen holds. */
-    char text[8 * 41];
+    char text[7 * 41];
     text[0] = 0;
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < 7; i++)
         snprintf(text + strlen(text), sizeof(text) - strlen(text), "%s\n", lines[i]);
     return ui_view_leave(&menu_ui, "Info", text, "BACK") == PX_UI_QUIT ? EDIT_POWER_OFF : EDIT_OK;
 }

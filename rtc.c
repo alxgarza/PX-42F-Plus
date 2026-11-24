@@ -303,10 +303,10 @@ void rtc_chip_poll(void) {
 
 int rtc_chip_phase_ms(void) {
     if (!chip_found)
-        return -1;
+        return RTC_CHIP_NO_PHASE;
     chip_bus();
     uint8_t first, sec;
-    int phase = -1;
+    int phase = RTC_CHIP_NO_PHASE;
     if (chip_read(RA8900_SEC, &first, 1)) {
         uint64_t give_up = time_us_64() + 1100000;
         while (time_us_64() < give_up && chip_read(RA8900_SEC, &sec, 1)) {
@@ -319,7 +319,7 @@ int rtc_chip_phase_ms(void) {
         }
     }
     chip_bus_end();
-    return phase == -1 ? -1000 : phase;
+    return phase;
 }
 
 bool rtc_chip_time(rtc_datetime_t *dt) {
@@ -411,9 +411,19 @@ void rtc_set_hms(int hour, int min, int sec) {
     rtc_set_ms_of_day((uint32_t) (hour * 3600 + min * 60 + sec) * 1000);
 }
 
+/* With the clock chip, only the years it counts (2000-2099): another would
+ * be left out of it (chip_set_on_bus()), and the next sync would put the
+ * clock back to the chip's date within the hour. */
+static bool chip_can_hold(uint64_t ms) {
+    uint8_t regs[7];
+    return !chip_found || ra8900_encode(ms, regs);
+}
+
 bool rtc_add_ms(int64_t ms) {
     uint64_t old_ms = powman_timer_get_ms();
     if (ms < 0 && (uint64_t) -ms > old_ms)
+        return false;
+    if (!chip_can_hold(old_ms + (uint64_t) ms))
         return false;
     powman_timer_set_ms(old_ms + (uint64_t) ms);
     stopwatch_clock_moved(ms);
@@ -442,6 +452,8 @@ bool rtc_set_date(int year, int month, int day) {
         return false;
     uint64_t old_ms = powman_timer_get_ms();
     uint64_t new_ms = (uint64_t) time_days_from_civil(year, month, day) * MS_PER_DAY + old_ms % MS_PER_DAY;
+    if (!chip_can_hold(new_ms))
+        return false;
     powman_timer_set_ms(new_ms);
     stopwatch_clock_moved((int64_t) (new_ms - old_ms));
     /* Whole days moved: the calibration reference moves with them. */

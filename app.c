@@ -823,34 +823,6 @@ static const char *check_file(const char *path, px_app_header_t *h) {
     return error;
 }
 
-/* TEMPORARY heap measurement (app.h). malloc() returns NULL when it can't
- * (PICO_MALLOC_PANIC=0), so halving between what fits and what doesn't
- * finds the largest block to within 64 bytes. */
-extern char __end__[], __HeapLimit[];
-static uint32_t heap_at_launch;
-
-uint32_t app_heap_total(void) {
-    return (uint32_t) (__HeapLimit - __end__);
-}
-
-uint32_t app_heap_largest(void) {
-    uint32_t fits = 0, fails = app_heap_total() + 1;
-    while (fails - fits > 64) {
-        uint32_t try = fits + (fails - fits) / 2;
-        void *p = malloc(try);
-        if (p != NULL) {
-            free(p);
-            fits = try;
-        } else
-            fails = try;
-    }
-    return fits;
-}
-
-uint32_t app_heap_at_launch(void) {
-    return heap_at_launch;
-}
-
 const char *app_run(const char *dir, const char *name, bool *power_off) {
     *power_off = false;
     char path[100];
@@ -892,7 +864,6 @@ const char *app_run(const char *dir, const char *name, bool *power_off) {
         run.random = 1;
 
     back_to_app();
-    heap_at_launch = app_heap_largest();
     int result = ((int (*)(const px_api_t *)) h.entry)(&api);
     debug_checkpoint(CKPT_MENU, 0);
 
