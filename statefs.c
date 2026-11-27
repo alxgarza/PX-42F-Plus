@@ -26,6 +26,13 @@
 
 static FATFS fs;
 static bool mounted = false;
+static bool reformatted = false;
+
+/* A volume reaching past the end of the drive: its last data sector. */
+static bool volume_too_big(void) {
+    uint64_t end = (uint64_t) fs.database + (uint64_t) (fs.n_fatent - 2) * fs.csize;
+    return end > flashdisk_block_count();
+}
 
 /* FatFs, and the flash cache under it, serve one caller at a time: core 1,
  * and core 0 reading a sound as it plays (speaker.c, through a FILE from
@@ -111,10 +118,24 @@ bool statefs_init(void) {
             return false;
     } else if (r != FR_OK) {
         return false;
+    } else if (volume_too_big()) {
+        /* Formatted when the drive was bigger (12 MB, before the CAS took
+         * the top 5 MB: flash_layout.h): its files there are gone already,
+         * under the CAS's area, and its FAT points at them. Formatted for
+         * the drive it is now. */
+        printf("The drive was formatted bigger than it is now -- formatted again.\n");
+        reformatted = true;
+        f_mount(NULL, "", 0);
+        if (!format())
+            return false;
     }
     mounted = true;
     after_mount();
     return true;
+}
+
+bool statefs_reformatted(void) {
+    return reformatted;
 }
 
 bool statefs_format(void) {

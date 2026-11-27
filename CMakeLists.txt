@@ -73,6 +73,7 @@ add_executable(PX-42F-Plus
         display_draw.c
         keyboard.c
         rtc.c
+        cas.c
         ra8900.c
         rtc_format.c
         battery.c
@@ -249,4 +250,3 @@ target_link_libraries(PX-42F-Plus
         )
 
 pico_add_extra_outputs(PX-42F-Plus)
-

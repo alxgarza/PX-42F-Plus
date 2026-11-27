@@ -22,6 +22,7 @@ enum {
     HOME_INFO,
     HOME_ALARMS,
     HOME_HELP,
+    HOME_CAS, /* Giac (cas.h) */
     HOME_FIXED
 };
 

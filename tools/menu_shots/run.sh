@@ -67,15 +67,15 @@ PX_DRIVE="$TMP/drive" "$TMP/menu_shots" "$OUT" \
     6 ENTER shot:menu_style EXIT \
     6 ENTER shot:reset EXIT \
   EXIT \
-  6 6 6 6 ENTER shot:help EXIT \
+  6 6 6 6 6 ENTER shot:help EXIT \
   6 ENTER shot:info EXIT \
   6 2 shot:home_favs SHIFT F1 6 6 6 shot:moving F1 shot:moved \
-  6 SHIFT F1 2 shot:moving_blank F1 shot:moved_blank \
-  UP UP UP UP SHIFT shot:home_unfav F2 shot:unfavved
+  6 6 SHIFT F1 2 shot:moving_blank F1 shot:moved_blank \
+  UP UP UP UP 4 SHIFT shot:home_unfav F2 shot:unfavved
 # The places those keys leave (menu_places.c), checked, not only drawn:
 # BASIC and IR made favourites, their folder places left blank; GRAPH moved
 # a row down, its place left blank, and a second move cancelled; BASIC
-# carried past IR and GOLDRUN on the home screen, Help down a row, IR sent
+# carried past IR and GOLDRUN on the home screen, Help (past the CAS) down a row, IR sent
 # back. A blank line is an empty place.
 places() {
     if ! diff -u <(printf '%s\n' "${@:2}") "$TMP/drive$1"; then
@@ -85,7 +85,7 @@ places() {
 }
 places /BIN/APPS/ORDER.TXT "" CONTACTS "" "" MIDI NOTES SHEET SUNMAP TIMER UNITS "" GRAPH
 places /HOME.TXT "USB Drive" Plus42 Alarms Apps Games Settings "" "" GAMES/GOLDRUN APPS/BASIC \
-    "" "" "" "" "" "" "" "" "" Info "" "" "" "" "" Help
+    "" "" "" CAS "" "" "" "" "" Info "" "" "" "" "" Help
 # The list style (Settings -> Menu Style -> List): one list of everything.
 PX_MENU_LIST=1 "$TMP/menu_shots" "$OUT" \
   shot:list_menu \

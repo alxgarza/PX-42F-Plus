@@ -1192,6 +1192,16 @@ void free42_memory_to_ram(void) {
         safefile_remove(OFF_STATE_FILE);
 }
 
+bool free42_save_for_restart(void) {
+    sounds_stop(); /* its file, if it's one */
+    if (!free42_save_to_drive())
+        return false;
+    settings_save_pending();
+    alarms_save();
+    stopwatch_save();
+    return true;
+}
+
 void free42_memory_clear_restart(void) {
     sounds_stop(); /* its file, if it's one */
     /* Neither copy of Plus42's memory left: the boot finds none and starts

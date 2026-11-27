@@ -165,8 +165,16 @@ void display_attach(void) {
 /* In RAM that survives a deep power-off (retained.h): a wake just to
  * update the splash's clock redraws only that, over the image still here.
  * The drawing into it is display_draw.c's. */
+#ifdef PX_CAS_PROGRAM
+/* The CAS program (PX-42F-CAS, built from this file too) keeps its screen in its own RAM: it never powers
+ * off with a splash showing, and the retained RAM is its heap. */
+static uint8_t cas_fb[DISPLAY_HEIGHT][DISPLAY_STRIDE];
+uint8_t (*const display_fb)[DISPLAY_STRIDE] = cas_fb;
+#else
 uint8_t (*const display_fb)[DISPLAY_STRIDE] = (uint8_t (*)[DISPLAY_STRIDE]) RETAINED_DISPLAY_FB;
-_Static_assert(RETAINED_DISPLAY_FB + FB_SIZE <= RETAINED_NEXT_ALARM, "framebuffer overlaps the next alarm");
+#endif
+_Static_assert(RETAINED_DISPLAY_FB + FB_SIZE <= RETAINED_CAS_HANDOFF, "framebuffer overlaps the CAS handoff word");
+_Static_assert(RETAINED_CAS_HANDOFF + 4 <= RETAINED_NEXT_ALARM, "the CAS handoff word overlaps the next alarm");
 
 /* The ST7305's "3 writes / 24 bit" GRAM format (see the Data Format Select
  * command in the init sequence) packs pixels into 2-column x 12-row tiles,

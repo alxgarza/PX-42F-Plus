@@ -13,6 +13,9 @@
  * it after a wake to update the splash clock (power.c). */
 #define RETAINED_DISPLAY_FB 0x20057000u
 
+/* Which program the last restart was for, the PX or the CAS (cas.h): in
+ * the 184 bytes between the framebuffer's 3904 and the next alarm. */
+#define RETAINED_CAS_HANDOFF 0x20057FF0u
 /* When the next alarm comes due, for the wakes while off (power.c): after the
  * framebuffer's 3904 bytes. */
 #define RETAINED_NEXT_ALARM 0x20057FF8u

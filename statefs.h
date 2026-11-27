@@ -20,6 +20,10 @@ extern "C" {
 /* Mounts the volume, formatting it on first use. Returns false if the
  * disk is unusable (see flashdisk_init()); every other call then fails. */
 bool statefs_init(void);
+
+/* Whether statefs_init() formatted the drive again: it had been formatted
+ * bigger than it is now (flash_layout.h), so its files were lost. */
+bool statefs_reformatted(void);
 bool statefs_ready(void);
 /* Settings -> USB Drive -> Format Drive: every file gone, an empty FAT
  * drive mounted -- also when the drive wasn't FAT (statefs_init() leaves

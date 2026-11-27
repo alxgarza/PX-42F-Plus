@@ -10,15 +10,11 @@
 #include "watchdog_cfg.h"
 #include "crash_report.h"
 #include "debug_checkpoint.h"
+#include "flash_layout.h"
 
-/* Flash layout (16MB W25Q128, boards/px42f.h):
- *
- *   0 .. 4MB-8KB      program image (2.7MB as of this writing)
- *   4MB-8KB .. 4MB    settings, two sectors (settings.c)
- *   4MB .. 16MB       this disk, 12MB
- */
-#define DISK_OFFSET (4u * 1024u * 1024u)
-#define DISK_SIZE   (12u * 1024u * 1024u)
+/* The flash layout: flash_layout.h. */
+#define DISK_OFFSET FLASH_DISK_OFFSET
+#define DISK_SIZE   FLASH_DISK_SIZE
 #define IMAGE_LIMIT (DISK_OFFSET - 2 * FLASH_SECTOR_SIZE) /* code must end below the settings sectors */
 
 #define CACHE_SLOTS 4

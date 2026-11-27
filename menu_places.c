@@ -31,14 +31,15 @@ const home_item_t home_fixed[HOME_FIXED] = {
         {"Off", MENU_ICON_OFF},       {"Settings", MENU_ICON_SETTINGS}, {"Plus42", MENU_ICON_PLUS42},
         {"Apps", MENU_ICON_APPS},     {"Games", MENU_ICON_GAMES},       {"USB Drive", MENU_ICON_USB},
         {"Info", MENU_ICON_INFO},     {"Alarms", MENU_ICON_ALARMS},     {"Help", MENU_ICON_HELP},
+        {"CAS", MENU_ICON_CAS},
 };
 
 /* Where each is at first: the top row Off, USB Drive, Plus42, Alarms,
  * Apps, Games, Settings; the second row empty (the favourites go there);
- * Help and Info at the right of the third. */
+ * the CAS first on the third, Help and Info at its right. */
 static const unsigned char home_default[HOME_FIXED] = {
         [HOME_OFF] = 0,  [HOME_USB] = 1,  [HOME_PLUS42] = 2, [HOME_ALARMS] = 3, [HOME_APPS] = 4,
-        [HOME_GAMES] = 5, [HOME_SETTINGS] = 6, [HOME_HELP] = 19, [HOME_INFO] = 20,
+        [HOME_GAMES] = 5, [HOME_SETTINGS] = 6, [HOME_CAS] = 14, [HOME_HELP] = 19, [HOME_INFO] = 20,
 };
 
 char app_names[2 * MAX_APPS][APP_NAME_MAX + 1];

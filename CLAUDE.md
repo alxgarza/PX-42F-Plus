@@ -307,6 +307,18 @@ can be cherry-picked between them.
   (`cpuclock_set_fast(false)`, which the LPOSC measuring used to do): left at 150 MHz the splash redraw hung now and
   then (watchdog, `OFF_WAKE_SPLASH`). The off path's checkpoints are `CKPT_OFF_*` (the watchdog's scratch is
   powered down while off: a hang there used to show NONE).
+- CAS (Giac 2.1.0, Bernard Parisse, GPL3): a program of its own in its own repo, `../PX-42F-CAS` (local git), never
+  linked with this firmware (Plus42 is GPL2 only; a licence to link was asked of both authors, Nov 2026). It builds
+  from this repo's board code by path (`PX_DIR`: display.c, display_draw.c, keyboard.c, cpuclock.c, a font,
+  `cas.h`; `display.c`'s `PX_CAS_PROGRAM` keeps its screen in its own RAM) -- a change to those must still build
+  there. Flash (`flash_layout.h`): firmware 0-4 MB, drive 4-11 MB (was 12 MB to the end: a volume formatted bigger
+  is formatted again, `statefs_reformatted()`, bootlog), CAS 11-16 MB. Handoff (`cas.h`, `cas.c`) by restart, a word
+  in retained RAM (`RETAINED_CAS_HANDOFF`): the CAS icon (home, third row; List style last) or `!CAS` saves what OFF
+  saves (`free42_save_for_restart()`: the memory to the drive, the RAM copy dropped), leaves `CAS_HANDOFF_TO_CAS`,
+  `watchdog_reboot()`; `main()` first thing (`cas_boot_check()`) jumps to the CAS's vector table at 11 MB; EXIT on
+  its empty line leaves `CAS_HANDOFF_FROM_CAS` and restarts: `cas_returned()` makes the boot look like ON from OFF.
+  `tools/flash.sh` loads `../PX-42F-CAS/build/PX-42F-CAS.uf2` too when it's built. The rest (Giac's build, its
+  patches, the screen, measurements) is in that repo's README.
 - Battery: GP28/ADC2, 1M/1M divider. Free: GP23-25, 29.
 
 ## Architecture
@@ -324,8 +336,8 @@ can be cherry-picked between them.
   whenever a terminal opens the port), `!STATUS`, `!BOOTLOG`, `!PRINTER`, `!PRINTTEST`, `!SCREENSHOT`,
   `!SETDATE`, `!SETTIME`; other characters are keypresses), MSC drive "PX-42F", picotool reset,
   CDC1 printer.
-- Flash: program 0-4 MB-8 KB; settings in two sectors written in turn, 0x3FF000 and 0x3FE000
-  (`settings.c`, the record's layouts in `settings_record.c`: a count at the page's end picks the newer; a power cut mid-save keeps the other); FAT16 disk 4-16 MB
+- Flash (`flash_layout.h`): program 0-4 MB-8 KB; settings in two sectors written in turn, 0x3FF000 and 0x3FE000
+  (`settings.c`, the record's layouts in `settings_record.c`: a count at the page's end picks the newer; a power cut mid-save keeps the other); FAT16 disk 4-11 MB, the CAS 11-16 MB
   (`flashdisk.c` write-back cache, `statefs.c` FatFs; Plus42's file I/O routes through
   `statefs_fopen`).
 - Clocks (`cpuclock.c`): 150 MHz @1.10 V while working, 48 MHz from PLL_USB @1.00 V when

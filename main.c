@@ -17,6 +17,7 @@
 #include "font_10x16.h"
 #include "font_8x12.h"
 #include "rtc.h"
+#include "cas.h"
 #include "battery.h"
 #include "speaker.h"
 #include "settings.h"
@@ -134,6 +135,7 @@ static void print_help(void) {
            "Commands (upper case, then Enter):\n"
            "  !HELP                  this list (also !?)\n"
            "  !STATUS                clock, core voltage, USB, battery, time, idle counts\n"
+           "  !CAS                   start the CAS (Giac); a line typed there is evaluated\n"
            "  !BOOTLOG               the last unusual starts (/BOOTLOG.TXT)\n"
            "  !PRINTER               printer state and byte counters\n"
            "  !PRINTTEST             send a test line to the printer port\n"
@@ -163,6 +165,10 @@ static void handle_serial_command(const char *cmd) {
     }
     if (strcmp(cmd, "BOOTLOG") == 0) {
         bootlog_print();
+        return;
+    }
+    if (strcmp(cmd, "CAS") == 0) { /* as the CAS icon: Giac (cas.h), its console then on this port (PX-42F-CAS's tools/cas_run.py) */
+        printf("%s\n", cas_start()); /* only on failure: it restarts into the CAS */
         return;
     }
     if (strcmp(cmd, "STATUS") == 0) {
@@ -320,7 +326,10 @@ static void core1_main(void)
     /* ON after OFF is a reboot too (power.c), but to the user it's just
      * turning the calculator on: straight back to the stack, no boot screen
      * -- unless there's a crash to report. */
-    bool woke_from_off = power_woke_from_off();
+    /* Back from the CAS (cas.h) is the same to the user: no boot screen.
+     * The memory comes from the drive, where starting the CAS put it. */
+    bool from_cas = cas_returned();
+    bool woke_from_off = power_woke_from_off() || from_cas;
 
     /* If the last reset was a crash (or a watchdog timeout), say where --
      * on the screen, since the serial console usually isn't attached yet.
@@ -487,7 +496,9 @@ static void core1_main(void)
     /* Only a start worth a look: a routine ON with the memory from RAM is
      * nearly every start, and logging it rewrote the drive's FAT and root
      * folder each time (no wear levelling: ~100k erases a sector). */
-    bool routine = woke_from_off && !hung && !crashed && strcmp(free42_state_source(), "RAM") == 0;
+    bool routine = woke_from_off && !hung && !crashed && (from_cas || strcmp(free42_state_source(), "RAM") == 0);
+    if (statefs_reformatted())
+        bootlog_add("drive: formatted bigger than it is now (the CAS's area): formatted again, its files gone");
     if (!routine)
             bootlog_add("boot: %s%s%s | RAM copy: %s, drive copy: %s | memory from: %s",
                     reset_button ? "RESET or power-up" : woke_from_off ? "ON after OFF" : watchdog_caused_reboot() ? "watchdog restart" : "other restart",
@@ -495,7 +506,7 @@ static void core1_main(void)
     if (hello_off)
         free42_request_powerdown(); /* the main loop's first pass turns it off */
     debug_checkpoint(CKPT_ON_SOUND, 0);
-    if (woke_from_off && !crashed && px_settings.on_sound && !power_woke_for_alarm())
+    if (woke_from_off && !from_cas && !crashed && px_settings.on_sound && !power_woke_for_alarm())
         sounds_play_on(); /* turned on with ON: the stack is already back on screen */
     free42_set_printer(px_settings.printer != PRINTER_OFF);
     printf("Ready. Type !HELP for commands.\n");
@@ -744,6 +755,8 @@ void __wrap_rom_reset_usb_boot_extra(int pin, uint32_t disable_mask, bool active
 
 int main()
 {
+    /* Before anything else: a restart for the CAS starts it instead (cas.h). */
+    cas_boot_check();
     cpuclock_init(); /* first: the peripheral clock the UART and SPI are set up with */
     /* One of the once-a-minute wakes while off with the splash showing:
      * update its clock and power down again, nothing else (power.h). */

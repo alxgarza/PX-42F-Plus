@@ -1,5 +1,7 @@
 #!/bin/bash
-# Flashes build/PX-42F-Plus.uf2 into the PX-42F over USB and starts it.
+# Flashes build/PX-42F-Plus.uf2 into the PX-42F over USB and starts it --
+# and the CAS program at 11 MB (cas.h), when the PX-42F-CAS repo next to
+# this one has built it.
 # The calculator must be on and connected (it reboots itself into its
 # bootloader on request), or already in BOOTSEL mode.
 cd "$(dirname "$0")/.."
@@ -7,6 +9,8 @@ PT=~/.pico-sdk/picotool/2.3.0/picotool/picotool
 UF2=build/PX-42F-Plus.uf2
 [ -f "$UF2" ] || { echo "no $UF2 -- build first"; exit 1; }
 echo "Flashing $UF2 ($(stat -f '%Sm' "$UF2"))"
+CAS_UF2=../PX-42F-CAS/build/PX-42F-CAS.uf2
+[ -f "$CAS_UF2" ] && echo "and the CAS, $CAS_UF2 ($(stat -f '%Sm' "$CAS_UF2"))"
 
 # In USB Drive mode the Mac has the calculator's drive: eject it first, so
 # nothing is lost and the calculator writes it back to flash.
@@ -31,6 +35,11 @@ for attempt in 1 2 3 4 5 6; do
             sleep 1
         done
     } 2>/dev/null
+    # The CAS first: the firmware's load (-x) restarts the calculator.
+    if [ -f "$CAS_UF2" ] && ! "$PT" load "$CAS_UF2" >/dev/null 2>&1; then
+        echo "Attempt $attempt didn't load the CAS -- retrying"
+        continue
+    fi
     out=$("$PT" load -x "$UF2" 2>&1)
     if echo "$out" | grep -q "rebooted to start the application"; then
         loaded=yes

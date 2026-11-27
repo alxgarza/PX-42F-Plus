@@ -35,6 +35,7 @@ typedef enum {
     MENU_ICON_USB_FORMAT,  /* an eraser rubbing the drive */
     MENU_ICON_USB_UPDATE,  /* a chip with a lightning bolt */
     MENU_ICON_RESET,       /* Settings → Reset: a restart arrow */
+    MENU_ICON_CAS,   /* the CAS (Giac): an integral, dx */
     MENU_ICON_FRAME, /* an app without its own icon: its first letter goes inside */
     MENU_ICON_COUNT
 } menu_icon_t;

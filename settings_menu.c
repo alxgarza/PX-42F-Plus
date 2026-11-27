@@ -15,6 +15,7 @@
 #include "free42_app.h"
 #include "keyboard.h"
 #include "rtc.h"
+#include "cas.h"
 #include "settings.h"
 #include "alarms.h"
 #include "timemodule.h"
@@ -2315,6 +2316,16 @@ static edit_result_t do_help(void) {
 }
 
 /* Runs one; EDIT_POWER_OFF if it was ended to turn off. */
+/* The CAS: a program of its own (cas.h), started by a restart. It comes
+ * back only on failure: not installed, or the memory can't be saved. */
+static edit_result_t do_cas(void) {
+    const char *error = cas_start();
+    error_beep();
+    const char *const lines[] = {"Can't start the CAS:", error, "",
+                                 cas_installed() ? "" : "Install it over USB: PX-42F-CAS."};
+    return show_message("CAS", lines, 4, TABS("ENTER")) == EDIT_POWER_OFF ? EDIT_POWER_OFF : EDIT_CANCEL;
+}
+
 static edit_result_t run_app(int app) {
     bool power_off;
     const char *error = app_run(app_dirs[app], app_names[app], &power_off);
@@ -2413,12 +2424,14 @@ enum {
     TEXT_STYLE,
     TEXT_INFO,
     TEXT_RESET,
+    TEXT_CAS,
     TEXT_COUNT
 };
 
 static const char *const text_names[TEXT_COUNT] = {
         "Off",         "Apps",    "Games",  "Date & Time", "Alarms",    "Sounds",     "Fonts", "Sleep Timer",
         "Splash Image", "Printer", "States", "Programs",    "USB Drive", "Menu Style", "Info", "Reset",
+        "CAS",
 };
 
 static void text_value(int item, char *buf, size_t size) {
@@ -2472,6 +2485,7 @@ static settings_menu_result_t run_text_menu(void) {
                 break;
             case TEXT_PROGRAMS: r = do_programs(); break;
             case TEXT_USB: r = do_usb_drive(); break;
+            case TEXT_CAS: r = do_cas(); break;
             case TEXT_STYLE: r = do_menu_style(); break;
             case TEXT_INFO: r = do_info(); break;
             case TEXT_RESET: r = do_reset(); break;
@@ -2527,6 +2541,7 @@ static settings_menu_result_t run_icon_menu(void) {
             case HOME_INFO: r = do_info(); break;
             case HOME_ALARMS: r = do_alarms(); break;
             case HOME_HELP: r = do_help(); break;
+            case HOME_CAS: r = do_cas(); break;
             default: r = run_app(id - HOME_FIXED); break;
         }
         if (r == EDIT_POWER_OFF)

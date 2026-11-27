@@ -225,6 +225,11 @@ void free42_memory_to_ram(void);
  * calculator restarted. Alarms, the stopwatch, the settings and the drive's
  * files stay -- unlike the RESET button. Doesn't return. */
 __attribute__((noreturn)) void free42_memory_clear_restart(void);
+
+/* Before a restart that must bring everything back (starting the CAS):
+ * the memory to the drive (as for an app, the RAM copy dropped) and what
+ * only OFF writes. False, nothing restarted, if the memory can't be saved. */
+bool free42_save_for_restart(void);
 /* The core's complaint about a file (shell_message()): noted for the two above. */
 void free42_core_message(const char *message);
 
