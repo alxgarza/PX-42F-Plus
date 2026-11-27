@@ -309,8 +309,8 @@ can be cherry-picked between them.
   powered down while off: a hang there used to show NONE).
 - CAS (Giac 2.1.0, Bernard Parisse, GPL3): a program of its own in its own repo, `../PX-42F-CAS` (local git), never
   linked with this firmware (Plus42 is GPL2 only; a licence to link was asked of both authors, Nov 2026). It builds
-  from this repo's board code by path (`PX_DIR`: display.c, display_draw.c, keyboard.c, cpuclock.c, a font,
-  `cas.h`; `display.c`'s `PX_CAS_PROGRAM` keeps its screen in its own RAM) -- a change to those must still build
+  from this repo's board code by path (`PX_DIR`: display.c, display_draw.c, keyboard.c, cpuclock.c, two fonts,
+  `cas.h`; its Mac test also pngwrite.c and `tools/menu_shots/stub/`; `display.c`'s `PX_CAS_PROGRAM` keeps its screen in its own RAM) -- a change to those must still build
   there. Flash (`flash_layout.h`): firmware 0-4 MB, drive 4-11 MB (was 12 MB to the end: a volume formatted bigger
   is formatted again, `statefs_reformatted()`, bootlog), CAS 11-16 MB. Handoff (`cas.h`, `cas.c`) by restart, a word
   in retained RAM (`RETAINED_CAS_HANDOFF`): the CAS icon (home, third row; List style last) or `!CAS` saves what OFF
