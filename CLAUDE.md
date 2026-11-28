@@ -317,8 +317,12 @@ can be cherry-picked between them.
   `FLASH_CAS_SESSION_OFFSET`: never touched by this firmware). Handoff (`cas.h`, `cas.c`) by restart, a word
   in retained RAM (`RETAINED_CAS_HANDOFF`): the CAS icon (home, third row; List style last) or `!CAS` saves what OFF
   saves (`free42_save_for_restart()`: the memory to the drive, the RAM copy dropped), leaves `CAS_HANDOFF_TO_CAS`,
-  `watchdog_reboot()`; `main()` first thing (`cas_boot_check()`) jumps to the CAS's vector table at 11 MB; EXIT on
-  its empty line leaves `CAS_HANDOFF_FROM_CAS` and restarts: `cas_returned()` makes the boot look like ON from OFF.
+  `watchdog_reboot()`; `main()` first thing (`cas_boot_check()`) jumps to the CAS's vector table at 11 MB; SHIFT EXIT
+  in it leaves `CAS_HANDOFF_FROM_CAS` and restarts: `cas_returned()` makes the boot look like ON from OFF. `cas_start()`
+  also passes the Sleep Timer (`CAS_SLEEP_MINUTES`, retained); when it runs out in the CAS (or its battery is empty) the
+  CAS leaves `CAS_HANDOFF_OFF`: this firmware powers down at the main loop's first pass (`free42_request_powerdown()`)
+  and sets `CAS_RESUME`, and ON from that OFF (not an alarm's wake, a RESET, a flash) calls `cas_start()` once the memory
+  is back. The CAS can't power down itself: the splash, alarms, clock chip are this firmware's.
   `tools/flash.sh` loads `../PX-42F-CAS/build/PX-42F-CAS.uf2` too when it's built. The rest (Giac's build, its
   patches, the screen, measurements) is in that repo's README.
 - Battery: GP28/ADC2, 1M/1M divider. Free: GP23-25, 29.

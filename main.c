@@ -328,7 +328,8 @@ static void core1_main(void)
      * -- unless there's a crash to report. */
     /* Back from the CAS (cas.h) is the same to the user: no boot screen.
      * The memory comes from the drive, where starting the CAS put it. */
-    bool from_cas = cas_returned();
+    bool cas_off;
+    bool from_cas = cas_returned(&cas_off);
     bool woke_from_off = power_woke_from_off() || from_cas;
 
     /* If the last reset was a crash (or a watchdog timeout), say where --
@@ -505,6 +506,20 @@ static void core1_main(void)
                     hung ? ", HUNG" : "", crashed ? ", CRASHED" : "", ram_state, drive_state ? "yes" : "no", free42_state_source());
     if (hello_off)
         free42_request_powerdown(); /* the main loop's first pass turns it off */
+    /* The CAS's Sleep Timer ran out: off now, as this one's own would, and
+     * ON back into the CAS (cas.h). ON from that OFF: the memory is back,
+     * so the CAS can be started (it saves it first) -- not after an
+     * alarm's wake, nor a RESET or a flash. */
+    if (cas_off) {
+        CAS_RESUME = CAS_RESUME_ON;
+        free42_request_powerdown();
+    } else if (CAS_RESUME == CAS_RESUME_ON) {
+        if (woke_from_off && !from_cas && !crashed && !power_woke_for_alarm()) {
+            CAS_RESUME = 0;
+            printf("%s\n", cas_start()); /* only on failure: it restarts into the CAS */
+        } else if (!woke_from_off)
+            CAS_RESUME = 0;
+    }
     debug_checkpoint(CKPT_ON_SOUND, 0);
     if (woke_from_off && !from_cas && !crashed && px_settings.on_sound && !power_woke_for_alarm())
         sounds_play_on(); /* turned on with ON: the stack is already back on screen */

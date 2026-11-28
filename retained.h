@@ -16,6 +16,10 @@
 /* Which program the last restart was for, the PX or the CAS (cas.h): in
  * the 184 bytes between the framebuffer's 3904 and the next alarm. */
 #define RETAINED_CAS_HANDOFF 0x20057FF0u
+/* The Sleep Timer's minutes, for the CAS (cas.h), written as it's started. */
+#define RETAINED_CAS_SLEEP   0x20057FF4u
+/* Turned off from the CAS: ON goes back into it (cas.h). */
+#define RETAINED_CAS_RESUME  0x20057FECu
 /* When the next alarm comes due, for the wakes while off (power.c): after the
  * framebuffer's 3904 bytes. */
 #define RETAINED_NEXT_ALARM 0x20057FF8u

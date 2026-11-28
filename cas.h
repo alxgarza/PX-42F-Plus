@@ -25,6 +25,15 @@ extern "C" {
 #define CAS_HANDOFF          (*(volatile uint32_t *) RETAINED_CAS_HANDOFF)
 #define CAS_HANDOFF_TO_CAS   0x31534143u /* "CAS1" */
 #define CAS_HANDOFF_FROM_CAS 0x32345850u /* "PX42" */
+/* The CAS left because its Sleep Timer ran out (or the battery is empty):
+ * turn off, and ON goes back into the CAS (CAS_RESUME). The CAS can't power
+ * down itself: the splash, the alarms, the clock chip are all this one's. */
+#define CAS_HANDOFF_OFF      0x46464F43u /* "COFF" */
+/* The Sleep Timer's minutes (px_settings.sleep_minutes), for the CAS. */
+#define CAS_SLEEP_MINUTES    (*(volatile uint32_t *) RETAINED_CAS_SLEEP)
+/* Set at the OFF the CAS asked for; ON then starts the CAS again. */
+#define CAS_RESUME           (*(volatile uint32_t *) RETAINED_CAS_RESUME)
+#define CAS_RESUME_ON        0x4D555352u /* "RSUM" */
 
 /* Whether the CAS is in its place: its vector table's stack and entry
  * point where a program built for it has them (erased flash hasn't). */
@@ -37,8 +46,9 @@ const char *cas_start(void);
 /* First thing in main(): starts the CAS if that's what the restart was for. */
 void cas_boot_check(void);
 
-/* Whether this start is the CAS leaving (once: the word is cleared). */
-bool cas_returned(void);
+/* Whether this start is the CAS leaving (once: the word is cleared), and
+ * whether it asked to be turned off (CAS_HANDOFF_OFF). */
+bool cas_returned(bool *turn_off);
 
 #ifdef __cplusplus
 }

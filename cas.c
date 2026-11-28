@@ -8,6 +8,7 @@
 #include "hardware/watchdog.h"
 
 #include "free42_app.h"
+#include "settings.h"
 
 /* The CAS image's vector table: first in it, as in any program built for
  * the RP2350 (the SDK's linker script puts .vectors at the start). */
@@ -25,6 +26,7 @@ const char *cas_start(void) {
     if (!free42_save_for_restart())
         return "Can't save the memory";
     CAS_HANDOFF = CAS_HANDOFF_TO_CAS;
+    CAS_SLEEP_MINUTES = px_settings.sleep_minutes;
     watchdog_reboot(0, 0, 0);
     while (true)
         tight_loop_contents();
@@ -49,8 +51,9 @@ void cas_boot_check(void) {
     __builtin_unreachable();
 }
 
-bool cas_returned(void) {
-    if (CAS_HANDOFF != CAS_HANDOFF_FROM_CAS)
+bool cas_returned(bool *turn_off) {
+    *turn_off = CAS_HANDOFF == CAS_HANDOFF_OFF;
+    if (CAS_HANDOFF != CAS_HANDOFF_FROM_CAS && !*turn_off)
         return false;
     CAS_HANDOFF = 0;
     return true;
