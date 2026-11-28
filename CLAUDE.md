@@ -307,12 +307,14 @@ can be cherry-picked between them.
   (`cpuclock_set_fast(false)`, which the LPOSC measuring used to do): left at 150 MHz the splash redraw hung now and
   then (watchdog, `OFF_WAKE_SPLASH`). The off path's checkpoints are `CKPT_OFF_*` (the watchdog's scratch is
   powered down while off: a hang there used to show NONE).
-- CAS (Giac 2.1.0, Bernard Parisse, GPL3): a program of its own in its own repo, `../PX-42F-CAS` (local git), never
-  linked with this firmware (Plus42 is GPL2 only; a licence to link was asked of both authors, Nov 2026). It builds
+- CAS (Giac 2.1.0, Bernard Parisse, GPL3): a program of its own in its own repo, `../PX-42F-CAS` (local git), not
+  linked with this firmware (Plus42 was GPL2 only; Thomas made Free42 and Plus42 "GPL version 2 or 3" on Nov 28 2026,
+  upstream e86dd59, so linking Giac is allowed once `src/core/` has those headers -- not done or decided yet). It builds
   from this repo's board code by path (`PX_DIR`: display.c, display_draw.c, keyboard.c, cpuclock.c, two fonts,
   `cas.h`; its Mac test also pngwrite.c and `tools/menu_shots/stub/`; `display.c`'s `PX_CAS_PROGRAM` keeps its screen in its own RAM) -- a change to those must still build
   there. Flash (`flash_layout.h`): firmware 0-4 MB, drive 4-11 MB (was 12 MB to the end: a volume formatted bigger
-  is formatted again, `statefs_reformatted()`, bootlog), CAS 11-16 MB. Handoff (`cas.h`, `cas.c`) by restart, a word
+  is formatted again, `statefs_reformatted()`, bootlog), CAS 11-16 MB (its last 128 KB the CAS's session,
+  `FLASH_CAS_SESSION_OFFSET`: never touched by this firmware). Handoff (`cas.h`, `cas.c`) by restart, a word
   in retained RAM (`RETAINED_CAS_HANDOFF`): the CAS icon (home, third row; List style last) or `!CAS` saves what OFF
   saves (`free42_save_for_restart()`: the memory to the drive, the RAM copy dropped), leaves `CAS_HANDOFF_TO_CAS`,
   `watchdog_reboot()`; `main()` first thing (`cas_boot_check()`) jumps to the CAS's vector table at 11 MB; EXIT on

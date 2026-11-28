@@ -129,7 +129,7 @@ static void check_tab(int i, const char *t) {
     static const char *const words[] = {
         "SAVE",  "LOAD",  "USE",   "NEW",   "EDIT", "DEL",
         "RENAM", "IMPRT", "EXPRT", "FORMT", "START", "MOVE",  "FAV",   "UNFAV", "DONE",
-        "ENTER", "REPLC", "APPLY", "BACK",  "CANCL", "\x10",  "\x0f",  "\x10MON", "MON\x0f", "\x10YR", "YR\x0f"};
+        "ENTER", "REPLC", "APPLY", "BACK",  "CANCL", "PAGE1", "PAGE2", "INFO", "\x10",  "\x0f",  "\x10MON", "MON\x0f", "\x10YR", "YR\x0f"};
     bool ok = false;
     for (size_t w = 0; w < sizeof(words) / sizeof(words[0]); w++)
         ok = ok || strcmp(t, words[w]) == 0;
